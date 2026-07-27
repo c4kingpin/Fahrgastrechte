@@ -87,6 +87,12 @@ mix precommit         # vollständige Prüfung vor einem Commit
 GitHub Actions prüft bei Pull Requests und Änderungen an `main` Formatierung,
 Kompilierung ohne Warnungen und Tests gegen PostgreSQL.
 
+## Umsetzungsplan
+
+Das abgestimmte Produktkonzept und die in getrennte Agenten-Aufträge zerlegte
+Umsetzungsplanung stehen unter
+[`docs/implementation-plan/`](docs/implementation-plan/README.md).
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)
