@@ -24,6 +24,8 @@ defmodule Fahrgastrechte.Rail.Provider do
           optional(:scheduled_at) => DateTime.t(),
           optional(:estimated_at) => DateTime.t(),
           optional(:actual_at) => DateTime.t(),
+          optional(:source_updated_at) => DateTime.t(),
+          optional(:final) => boolean(),
           optional(:cancelled) => boolean(),
           optional(:platform) => String.t(),
           optional(:source_id) => external_id()
