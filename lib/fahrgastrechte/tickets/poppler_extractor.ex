@@ -52,18 +52,19 @@ defmodule Fahrgastrechte.Tickets.PopplerExtractor do
     []
     |> maybe_add(order_number(line, page))
     |> maybe_add(validity(line, page))
-    |> maybe_add(origin(line, page))
-    |> maybe_add(destination(line, page))
+    |> maybe_add(route(line, page))
+    |> maybe_add(labeled_origin(line, page))
+    |> maybe_add(labeled_destination(line, page))
     |> maybe_add(product(line, page))
     |> maybe_add(fare(line, page, kind))
-    |> maybe_add(scheduled_train(line, page))
+    |> maybe_add(scheduled_train(line, page, kind))
     |> maybe_add(scheduled_time(line, page, :scheduled_departure, "ab"))
     |> maybe_add(scheduled_time(line, page, :scheduled_arrival, "an"))
     |> List.flatten()
   end
 
   defp order_number(line, page) do
-    case Regex.run(~r/^Auftragsnummer:\s*(\d{12})$/u, line, capture: :all_but_first) do
+    case Regex.run(~r/\bAuftragsnummer:\s*(\d{12})\b/u, line, capture: :all_but_first) do
       [number] -> suggestion(:order_number, %{"text" => number}, 0.98, page, line)
       _other -> nil
     end
@@ -96,19 +97,47 @@ defmodule Fahrgastrechte.Tickets.PopplerExtractor do
             nil
         end
 
+      captures =
+          Regex.run(
+            ~r/\b(?:Hin|Rück)fahrt(?:\s+am)?\s+(\d{2}\.\d{2}\.\d{4})\b/u,
+            line,
+            capture: :all_but_first
+          ) ->
+        case captures do
+          [date] -> date_suggestion(:travel_date, date, 0.95, page, line)
+          _other -> nil
+        end
+
       true ->
         nil
     end
   end
 
-  defp origin(line, page) do
+  defp route(line, page) do
+    case Regex.run(
+           ~r/^(?:Hin|Rück)fahrt\s{2,}(.+?)\s{2,}(.+?)[.]?$/u,
+           line,
+           capture: :all_but_first
+         ) do
+      [origin, destination] ->
+        [
+          suggestion(:origin, %{"text" => String.trim(origin)}, 0.95, page, line),
+          suggestion(:destination, %{"text" => String.trim(destination)}, 0.95, page, line)
+        ]
+
+      _other ->
+        nil
+    end
+  end
+
+  defp labeled_origin(line, page) do
     case Regex.run(~r/^Von:\s*(.+)$/u, line, capture: :all_but_first) do
       [value] -> suggestion(:origin, %{"text" => String.trim(value)}, 0.90, page, line)
       _other -> nil
     end
   end
 
-  defp destination(line, page) do
+  defp labeled_destination(line, page) do
     case Regex.run(~r/^Nach:\s*(.+)$/u, line, capture: :all_but_first) do
       [value] -> suggestion(:destination, %{"text" => String.trim(value)}, 0.90, page, line)
       _other -> nil
@@ -116,40 +145,74 @@ defmodule Fahrgastrechte.Tickets.PopplerExtractor do
   end
 
   defp product(line, page) do
-    case Regex.run(~r/^Produkt:\s*(Flexpreis(?: Business)?)$/u, line, capture: :all_but_first) do
+    case Regex.run(
+           ~r/^(?:Produkt:\s*)?(Flexpreis(?: Business)?)(?:\s+.+)?$/u,
+           line,
+           capture: :all_but_first
+         ) do
       [value] -> suggestion(:product, %{"text" => value}, 0.95, page, line)
       _other -> nil
     end
   end
 
   defp fare(line, page, kind) do
-    label = if kind == :invoice, do: "Gesamtbetrag", else: "Fahrpreis"
-    pattern = Regex.compile!("^#{label}:\\s*([0-9]+(?:[.,][0-9]{2}))\\s+(EUR)$", "u")
+    patterns =
+      case kind do
+        :invoice ->
+          [
+            ~r/^Gesamtbetrag:\s*([0-9]+(?:[.,][0-9]{2}))\s+(EUR)$/u,
+            ~r/^Summe\s+\(brutto\)\s+([0-9]+(?:[.,][0-9]{2}))\s*€$/u
+          ]
 
-    case Regex.run(pattern, line, capture: :all_but_first) do
-      [amount, currency] ->
-        value = %{"amount" => String.replace(amount, ",", "."), "currency" => currency}
-        suggestion(:fare, value, 0.90, page, line)
+        :ticket ->
+          [
+            ~r/^Fahrpreis:\s*([0-9]+(?:[.,][0-9]{2}))\s+(EUR)$/u,
+            ~r/^Gesamtpreis\s+([0-9]+(?:[.,][0-9]{2}))\s*€/u
+          ]
+      end
 
-      _other ->
-        nil
-    end
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, line, capture: :all_but_first) do
+        [amount, currency] -> fare_suggestion(amount, currency, page, line)
+        [amount] -> fare_suggestion(amount, "EUR", page, line)
+        _other -> nil
+      end
+    end)
   end
 
-  defp scheduled_train(line, page) do
-    case Regex.run(~r/^Reiseplan.*:\s*([A-Z]{2,5})\s+(\d+)$/u, line, capture: :all_but_first) do
-      [category, number] ->
-        suggestion(
-          :scheduled_train,
-          %{"category" => category, "number" => number},
-          0.80,
-          page,
-          line
-        )
+  defp fare_suggestion(amount, currency, page, line) do
+    suggestion(
+      :fare,
+      %{"amount" => String.replace(amount, ",", "."), "currency" => currency},
+      0.90,
+      page,
+      line
+    )
+  end
 
-      _other ->
-        nil
-    end
+  defp scheduled_train(_line, _page, :invoice), do: nil
+
+  defp scheduled_train(line, page, :ticket) do
+    patterns = [
+      ~r/^Reiseplan.*:\s*([A-Z]{2,5})\s+(\d+)$/u,
+      ~r/\s([A-Z]{2,5})\s+(\d+)(?:\s|$)/u
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, line, capture: :all_but_first) do
+        [category, number] ->
+          suggestion(
+            :scheduled_train,
+            %{"category" => category, "number" => number},
+            0.80,
+            page,
+            line
+          )
+
+        _other ->
+          nil
+      end
+    end)
   end
 
   defp scheduled_time(line, page, field, marker) do
