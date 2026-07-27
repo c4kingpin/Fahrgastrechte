@@ -98,6 +98,10 @@ Die Ergebnisse der technischen Voruntersuchung C00 stehen unter
 Entscheidungen werden als
 [`Architecture Decision Records`](docs/decisions/README.md) geführt.
 
+Der vorbereitete C01-Integrationsstand beschreibt die noch bewusst deaktivierte
+Authentik-Anbindung, den lokalen Entwicklungs-Scope und die Runtime-Secrets unter
+[`docs/integrations/authentik.md`](docs/integrations/authentik.md).
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)

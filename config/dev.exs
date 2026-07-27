@@ -1,5 +1,14 @@
 import Config
 
+config :fahrgastrechte,
+  secure_session_cookie: false,
+  development_identity: %{
+    issuer: "https://development.invalid/application/fahrgastrechte",
+    subject: "local-developer",
+    email: "entwicklung@example.invalid",
+    display_name: "Lokale Entwicklung"
+  }
+
 # Configure your database
 config :fahrgastrechte, Fahrgastrechte.Repo,
   username: System.get_env("DATABASE_USER", "postgres"),
