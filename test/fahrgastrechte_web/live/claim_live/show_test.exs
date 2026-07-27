@@ -48,7 +48,10 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert has_element?(view, "#claim-save-state")
   end
 
-  test "uploads and analyzes a ticket, then applies a traceable route suggestion", %{conn: conn} do
+  test "automatically uploads and analyzes a ticket, then applies a traceable route suggestion",
+       %{
+         conn: conn
+       } do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope, %{"origin" => nil, "destination" => nil})
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
@@ -67,10 +70,6 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
       ])
 
     render_upload(upload, "mein-ticket.pdf")
-
-    view
-    |> form("#ticket-upload-form", document: %{"kind" => "ticket"})
-    |> render_submit()
 
     assert has_element?(view, "#ticket-document-card #download-ticket")
     assert has_element?(view, "#ticket-document-card #reanalyze-ticket")
@@ -113,11 +112,14 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     render_upload(upload, "rechnung.pdf")
 
-    view
-    |> form("#invoice-upload-form", document: %{"kind" => "invoice"})
-    |> render_submit()
-
     assert has_element?(view, "#delete-document-invoice")
+    assert {:ok, [document]} = Documents.list_documents(scope, claim.id)
+    assert document.kind == :invoice
+    assert document.analysis_status == :completed
+    assert {:ok, suggestions} = Tickets.list_suggestions(scope, document.id)
+    assert Enum.any?(suggestions, &(&1.field == :order_number))
+    assert Enum.any?(suggestions, &(&1.field == :fare))
+
     view |> element("#delete-document-invoice") |> render_click()
 
     assert {:ok, []} = Documents.list_documents(scope, claim.id)

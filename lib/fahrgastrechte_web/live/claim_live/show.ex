@@ -23,12 +23,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> allow_upload(:ticket,
             accept: ~w(.pdf),
             max_entries: 1,
-            max_file_size: max_file_size
+            max_file_size: max_file_size,
+            auto_upload: true,
+            progress: &handle_progress/3
           )
           |> allow_upload(:invoice,
             accept: ~w(.pdf),
             max_entries: 1,
-            max_file_size: max_file_size
+            max_file_size: max_file_size,
+            auto_upload: true,
+            progress: &handle_progress/3
           )
           |> load_workspace(claim)
 
@@ -52,33 +56,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
-
-  def handle_event("upload_document", %{"document" => %{"kind" => kind}}, socket) do
-    with {:ok, upload_name} <- upload_name(kind) do
-      results =
-        consume_uploaded_entries(socket, upload_name, fn %{path: path}, entry ->
-          result =
-            Documents.put_document(
-              socket.assigns.current_scope,
-              socket.assigns.claim.id,
-              upload_name,
-              %{
-                path: path,
-                original_filename: entry.client_name,
-                content_type: entry.client_type
-              },
-              socket.assigns.claim.lock_version
-            )
-
-          {:ok, result}
-        end)
-
-      {:noreply, handle_upload_result(socket, results)}
-    else
-      {:error, :invalid_kind} ->
-        {:noreply, put_flash(socket, :error, "Diese Dokumentart ist nicht zulässig.")}
-    end
-  end
 
   def handle_event("reanalyze_document", %{"id" => document_id}, socket) do
     case Tickets.analyze_document(socket.assigns.current_scope, document_id) do
@@ -418,7 +395,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                         for={upload_form}
                         id={"#{kind}-upload-form"}
                         phx-change="validate_upload"
-                        phx-submit="upload_document"
                         class={["mt-5"]}
                       >
                         <.input
@@ -436,7 +412,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                             <.icon name="hero-arrow-up-tray" class="size-5" />
                           </span>
                           <span class={["mt-3 text-sm font-semibold text-slate-800"]}>PDF auswählen</span>
-                          <span class={["mt-1 text-xs text-slate-500"]}>oder hier ablegen</span>
+                          <span class={["mt-1 text-xs text-slate-500"]}>
+                            Upload und Auswertung starten automatisch
+                          </span>
                         </label>
 
                         <div
@@ -445,6 +423,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                           class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
                         >
                           <p class={["truncate font-semibold text-slate-700"]}>{entry.client_name}</p>
+                          <div
+                            class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
+                            role="progressbar"
+                            aria-label={"Upload-Fortschritt für #{entry.client_name}"}
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-valuenow={entry.progress}
+                          >
+                            <div
+                              class={["h-full rounded-full bg-rose-600 transition-all"]}
+                              style={"width: #{entry.progress}%"}
+                            >
+                            </div>
+                          </div>
+                          <p class={["mt-1 text-slate-500"]}>
+                            {entry.progress}% · wird sicher gespeichert und ausgewertet
+                          </p>
                           <p
                             :for={error <- upload_errors(upload, entry)}
                             class={["mt-1 text-rose-700"]}
@@ -458,18 +453,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                         >
                           {upload_error_message(error)}
                         </p>
-
-                        <button
-                          id={"#{kind}-upload-button"}
-                          type="submit"
-                          disabled={upload.entries == []}
-                          phx-disable-with="Wird sicher gespeichert …"
-                          class={[
-                            "mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-rose-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                          ]}
-                        >
-                          <.icon name="hero-lock-closed" class="size-4" /> Sicher speichern
-                        </button>
                       </.form>
                     <% end %>
                   </article>
@@ -494,7 +477,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                     Erkannte Angaben prüfen
                   </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
-                    Vorschläge werden nie automatisch bestätigt. Start, Ziel und Reisedatum kannst du bewusst in die Falldaten übernehmen.
+                    Ticket und Rechnung werden direkt nach der Auswahl ausgewertet. Die erkannten Werte bleiben nachvollziehbar und werden erst nach deiner Prüfung übernommen.
                   </p>
                 </div>
               </div>
@@ -746,13 +729,37 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  defp handle_progress(upload_name, entry, socket)
+       when upload_name in @upload_kinds and entry.done? do
+    result =
+      consume_uploaded_entry(socket, entry, fn %{path: path} ->
+        {:ok,
+         Documents.put_document(
+           socket.assigns.current_scope,
+           socket.assigns.claim.id,
+           upload_name,
+           %{
+             path: path,
+             original_filename: entry.client_name,
+             content_type: entry.client_type
+           },
+           socket.assigns.claim.lock_version
+         )}
+      end)
+
+    {:noreply, handle_upload_result(socket, [result])}
+  end
+
+  defp handle_progress(upload_name, _entry, socket) when upload_name in @upload_kinds,
+    do: {:noreply, socket}
+
   defp handle_upload_result(socket, [{:ok, %{document: document, claim: claim}}]) do
     analysis = Tickets.analyze_document(socket.assigns.current_scope, document.id)
 
     socket =
       socket
       |> load_workspace(claim)
-      |> put_flash(:info, "Das Dokument wurde sicher gespeichert.")
+      |> put_flash(:info, "Das Dokument wurde sicher gespeichert und automatisch ausgewertet.")
 
     case analysis do
       {:ok, _result} ->
@@ -902,10 +909,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {kind, to_form(%{"kind" => Atom.to_string(kind)}, as: :document)}
     end)
   end
-
-  defp upload_name("ticket"), do: {:ok, :ticket}
-  defp upload_name("invoice"), do: {:ok, :invoice}
-  defp upload_name(_kind), do: {:error, :invalid_kind}
 
   defp transition_status("draft"), do: {:ok, :draft}
   defp transition_status("sent"), do: {:ok, :sent}
