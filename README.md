@@ -29,6 +29,30 @@ mix phx.server
 
 Danach ist die Anwendung unter <http://localhost:4000> erreichbar.
 
+### Zugriff aus dem lokalen Netz
+
+Der Entwicklungsserver lauscht auf allen IPv4-Interfaces (`0.0.0.0`). Geräte im
+Subnetz `192.168.1.0/24` erreichen ihn über die LAN-Adresse des Entwicklungsrechners:
+
+```text
+http://192.168.1.X:4000
+```
+
+`192.168.1.X` muss dabei durch die tatsächliche Host-Adresse ersetzt werden. Unter
+Linux zeigt beispielsweise `ip -4 address` die verfügbaren IPv4-Adressen an.
+
+Die Bindung an `0.0.0.0` allein beschränkt den Zugriff nicht auf ein bestimmtes
+Subnetz. Auf einem Ubuntu-System kann Port 4000 mit UFW gezielt für das lokale Netz
+freigegeben werden:
+
+```bash
+sudo ufw allow from 192.168.1.0/24 to any port 4000 proto tcp
+sudo ufw status numbered
+```
+
+Es sollte keine allgemeinere Firewall-Regel existieren, die Port 4000 auch für
+andere Netze freigibt. Diese Konfiguration ist nur für die Entwicklung vorgesehen.
+
 ### Datenbankkonfiguration
 
 Die lokalen Standardwerte können über Umgebungsvariablen überschrieben werden:

@@ -19,9 +19,8 @@ config :fahrgastrechte, Fahrgastrechte.Repo,
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
-  # Binding to loopback ipv4 address prevents access from other machines.
-  # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}],
+  # Listen on every IPv4 interface so the development server is reachable from the LAN.
+  http: [ip: {0, 0, 0, 0}],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
