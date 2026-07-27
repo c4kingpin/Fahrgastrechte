@@ -32,6 +32,14 @@ config :fahrgastrechte, Fahrgastrechte.Accounts.BankDataCipher,
   active_key_version: field_encryption_key_version,
   keys: %{field_encryption_key_version => field_encryption_key}
 
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.Timetables,
+  client_id: System.get_env("DB_CLIENT_ID"),
+  api_key: System.get_env("DB_API_KEY")
+
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
+  data_path: System.get_env("BAHNVORHERSAGE_DATA_PATH"),
+  dataset_version: System.get_env("BAHNVORHERSAGE_DATASET_VERSION")
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
