@@ -34,22 +34,18 @@ defmodule FahrgastrechteWeb.Layouts do
           </.link>
 
           <nav aria-label="Hauptnavigation" class="flex items-center gap-1 sm:gap-2">
-            <.link
-              href={~p"/"}
-              class="hidden rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 sm:inline-flex"
-            >
-              Übersicht
-            </.link>
-            <a
-              href="/#ablauf"
-              class="hidden rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 md:inline-flex"
-            >
-              Ablauf
-            </a>
             <%= if @current_scope do %>
               <.link
+                id="claims-nav-link"
+                navigate={~p"/antraege"}
+                class="inline-flex min-h-10 items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 sm:px-3"
+              >
+                <.icon name="hero-document-text" class="size-4" />
+                <span class="hidden sm:inline">Anträge</span>
+              </.link>
+              <.link
                 id="profile-nav-link"
-                href={~p"/profil"}
+                navigate={~p"/profil"}
                 class="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:-translate-y-px hover:border-slate-300 hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 sm:px-4"
               >
                 <span class="flex size-6 items-center justify-center rounded-full bg-rose-100 text-[0.65rem] font-bold uppercase text-rose-800">
@@ -58,6 +54,18 @@ defmodule FahrgastrechteWeb.Layouts do
                 <span class="hidden sm:inline">Profil</span>
               </.link>
             <% else %>
+              <.link
+                href={~p"/"}
+                class="hidden rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 sm:inline-flex"
+              >
+                Übersicht
+              </.link>
+              <a
+                href="/#ablauf"
+                class="hidden rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 md:inline-flex"
+              >
+                Ablauf
+              </a>
               <span
                 id="auth-status"
                 class="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 shadow-sm sm:px-4"

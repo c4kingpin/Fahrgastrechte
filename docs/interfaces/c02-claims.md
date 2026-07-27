@@ -22,6 +22,7 @@ blind wiederholt werden.
 ```elixir
 Claims.create_claim(current_scope, attrs \\ %{})
 Claims.get_claim(current_scope, claim_id)
+Claims.change_claim(current_scope, claim_id, attrs \\ %{})
 Claims.list_claims(current_scope, filters \\ %{})
 Claims.update_claim(current_scope, claim_id, attrs, expected_lock_version)
 Claims.delete_claim(current_scope, claim_id, expected_lock_version)
@@ -36,6 +37,10 @@ Claims.list_status_history(current_scope, claim_id)
 `route` und `claim_number` als Atom- oder String-Schlüssel. Datumswerte sind
 `Date`-Werte oder ISO-8601-Strings. Strecke und Antragsnummer werden ohne
 Beachtung der Groß-/Kleinschreibung als Teiltext gesucht.
+
+`change_claim/3` liefert für gescopte LiveView-Formulare ein Changeset, ohne
+Änderungen zu speichern. Auch diese Funktion gibt für fremde oder unbekannte
+Anträge ausschließlich `{:error, :not_found}` zurück.
 
 Nur `travel_date`, `origin`, `destination` und `disruption_type` sind über
 `create_claim/2` und `update_claim/4` änderbar. Benutzerzuordnung,
