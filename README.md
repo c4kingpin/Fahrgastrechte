@@ -21,7 +21,7 @@ PostgreSQL. Die Standardkonfiguration erwartet den Benutzer `postgres` mit dem
 Passwort `postgres` auf `localhost:5432`.
 
 ```bash
-git clone https://github.com/c4kingpin/fahrgastrechte.git
+git clone https://github.com/c4kingpin/Fahrgastrechte.git
 cd fahrgastrechte
 mix setup
 mix phx.server
