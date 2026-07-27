@@ -9,7 +9,8 @@ import Config
 
 config :fahrgastrechte,
   ecto_repos: [Fahrgastrechte.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  secure_session_cookie: true
 
 # Configure the endpoint
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
