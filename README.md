@@ -109,6 +109,13 @@ Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
 Betriebshinweise stehen unter
 [`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md).
 
+Eine bestehende Instanz lässt sich mit Container-ID und optionalem Git-Ref
+aktualisieren:
+
+```bash
+scripts/deploy/update-proxmox-lxc.sh 240 v0.2.0
+```
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)

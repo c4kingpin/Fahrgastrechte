@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
 readonly PROVISION_SCRIPT="${SCRIPT_DIR}/provision-lxc.sh"
 
-APP_REPOSITORY="${APP_REPOSITORY:-https://github.com/c4kingpin/Fahrgastrechte.git}"
+APP_REPOSITORY="${APP_REPOSITORY:-}"
 APP_REF="${APP_REF:-main}"
 BRIDGE="${BRIDGE:-vmbr0}"
 CORES="${CORES:-4}"
@@ -14,7 +14,7 @@ DISK_GB="${DISK_GB:-16}"
 IP_CONFIG="${IP_CONFIG:-ip=dhcp}"
 MEMORY_MB="${MEMORY_MB:-4096}"
 ONBOOT="${ONBOOT:-1}"
-PHX_HOST="${PHX_HOST:-fahrgastrechte.local}"
+PHX_HOST="${PHX_HOST:-}"
 REUSE_EXISTING="${REUSE_EXISTING:-0}"
 ROOTFS_STORAGE="${ROOTFS_STORAGE:-local-lvm}"
 SWAP_MB="${SWAP_MB:-1024}"
@@ -35,8 +35,8 @@ Konfiguration über Umgebungsvariablen:
 
   VMID                Container-ID; Standard: nächste freie Cluster-ID
   CT_HOSTNAME         LXC-Hostname                 (fahrgastrechte)
-  PHX_HOST            Externer Phoenix-Hostname   (fahrgastrechte.local)
-  APP_REPOSITORY      Git-Repository der App
+  PHX_HOST            Externer Host (neu: fahrgastrechte.local)
+  APP_REPOSITORY      Git-Repository (neu: Fahrgastrechte auf GitHub)
   APP_REF             Git-Branch, -Tag oder Ref    (main)
   TEMPLATE            Explizites Debian-Template; sonst automatische Auswahl
   TEMPLATE_STORAGE    Storage für Templates        (local)
@@ -57,6 +57,10 @@ Beispiele:
 
   VMID=240 REUSE_EXISTING=1 APP_REF=v0.2.0 \
     PHX_HOST=rechte.example.org scripts/deploy/proxmox-lxc.sh
+
+Einfaches Update einer vorhandenen Instanz:
+
+  scripts/deploy/update-proxmox-lxc.sh 240 v0.2.0
 USAGE
 }
 
@@ -144,7 +148,8 @@ fi
 [[ $# -eq 0 ]] || die "Unbekannte Argumente. Mit --help wird die Hilfe angezeigt."
 [[ $EUID -eq 0 ]] || die "Das Script muss als root auf dem Proxmox-Knoten laufen"
 [[ -x "$PROVISION_SCRIPT" ]] || die "Provisionierungsscript fehlt oder ist nicht ausführbar: ${PROVISION_SCRIPT}"
-[[ "$PHX_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "PHX_HOST enthält ungültige Zeichen"
+[[ -z "$PHX_HOST" || "$PHX_HOST" =~ ^[A-Za-z0-9.-]+$ ]] ||
+  die "PHX_HOST enthält ungültige Zeichen"
 
 for command_name in awk getent pct pveam pvesh; do
   require_command "$command_name"
@@ -209,11 +214,15 @@ container_ip="$(
   pct exec "$VMID" -- hostname -I |
     awk '{print $1}'
 )"
+effective_phx_host="$(
+  pct exec "$VMID" -- sed -n 's/^PHX_HOST=//p' /etc/fahrgastrechte/fahrgastrechte.env |
+    tail -n 1
+)"
 
 log "Bereitstellung abgeschlossen"
 printf 'Container: %s\n' "$VMID"
 printf 'IP-Adresse: %s\n' "${container_ip:-unbekannt}"
 printf 'App-Port: 4000/tcp\n'
-printf 'Externer Hostname: %s\n' "$PHX_HOST"
+printf 'Externer Hostname: %s\n' "$effective_phx_host"
 printf '\nEin TLS-Reverse-Proxy muss %s an %s:4000 weiterleiten.\n' \
-  "$PHX_HOST" "${container_ip:-CONTAINER-IP}"
+  "$effective_phx_host" "${container_ip:-CONTAINER-IP}"

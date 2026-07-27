@@ -82,21 +82,25 @@ Betrieb eingerichtet werden.
 
 ## Update
 
-Ein bestehender Container wird nur mit ausdrücklicher Freigabe aktualisiert:
+Die aktuelle Instanz kann mit Container-ID und gewünschtem Git-Ref aktualisiert
+werden:
 
 ```bash
-VMID=240 \
-REUSE_EXISTING=1 \
-APP_REF=v0.2.0 \
-PHX_HOST=fahrgastrechte.example.org \
-scripts/deploy/proxmox-lxc.sh
+scripts/deploy/update-proxmox-lxc.sh 240 v0.2.0
 ```
 
-`APP_REF` kann ein Branch, Tag oder anderer von Git abrufbarer Ref sein. Das Script
-baut eine neue Release unter
-`/opt/fahrgastrechte/releases/<commit>-<zeitstempel>`, migriert die Datenbank
-und schaltet anschließend den `current`-Symlink um. Ältere Releases
-bleiben zunächst für eine manuelle Rückkehr erhalten.
+Ohne zweiten Parameter wird der aktuelle Stand von `main` installiert:
+
+```bash
+scripts/deploy/update-proxmox-lxc.sh 240
+```
+
+Der optionale `APP_REF` kann ein Branch, Tag oder anderer von Git abrufbarer Ref
+sein. Repository, externer Hostname, Datenbankzugang und Verschlüsselungs-Secrets
+werden aus der bestehenden Installation übernommen. Das Script baut eine neue
+Release unter `/opt/fahrgastrechte/releases/<commit>-<zeitstempel>`, migriert
+die Datenbank und schaltet anschließend den `current`-Symlink um. Ältere
+Releases bleiben zunächst für eine manuelle Rückkehr erhalten.
 
 Vor einem Produktionsupdate sollte ein Proxmox-Snapshot oder ein geprüftes
 PostgreSQL-Backup erstellt werden. Datenbankmigrationen werden nicht automatisch

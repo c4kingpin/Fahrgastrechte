@@ -7,9 +7,9 @@ readonly ENV_FILE="/etc/fahrgastrechte/fahrgastrechte.env"
 readonly SERVICE_FILE="/etc/systemd/system/fahrgastrechte.service"
 readonly SOURCE_DIR="${APP_ROOT}/source"
 
-APP_REPOSITORY="${APP_REPOSITORY:-https://github.com/c4kingpin/Fahrgastrechte.git}"
+APP_REPOSITORY="${APP_REPOSITORY:-}"
 APP_REF="${APP_REF:-main}"
-PHX_HOST="${PHX_HOST:-fahrgastrechte.local}"
+PHX_HOST="${PHX_HOST:-}"
 
 log() {
   printf '[provision-lxc] %s\n' "$*"
@@ -45,6 +45,12 @@ wait_for_http() {
 }
 
 [[ $EUID -eq 0 ]] || die "Das Script muss im LXC als root laufen"
+
+if [[ -z "$PHX_HOST" ]]; then
+  PHX_HOST="$(existing_env_value PHX_HOST)"
+fi
+
+PHX_HOST="${PHX_HOST:-fahrgastrechte.local}"
 [[ "$PHX_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "PHX_HOST enthält ungültige Zeichen"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -160,6 +166,12 @@ mv --force "$temporary_env" "$ENV_FILE"
 trap - EXIT
 
 log "Hole App-Quellcode (${APP_REF})"
+if [[ -z "$APP_REPOSITORY" && -d "${SOURCE_DIR}/.git" ]]; then
+  APP_REPOSITORY="$(git -C "$SOURCE_DIR" remote get-url origin)"
+fi
+
+APP_REPOSITORY="${APP_REPOSITORY:-https://github.com/c4kingpin/Fahrgastrechte.git}"
+
 if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
   git clone --no-checkout "$APP_REPOSITORY" "$SOURCE_DIR"
 else
