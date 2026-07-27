@@ -7,6 +7,10 @@ readonly DEFAULT_APP_REPOSITORY="https://github.com/c4kingpin/Fahrgastrechte.git
 readonly DEFAULT_INSTALLER_BASE_URL="https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte"
 readonly DEPLOYMENT_FILE="/etc/fahrgastrechte/deployment.env"
 readonly ENV_FILE="/etc/fahrgastrechte/fahrgastrechte.env"
+readonly FORM_TEMPLATE_DIR="/var/lib/fahrgastrechte/form-templates"
+readonly FORM_TEMPLATE_PATH="${FORM_TEMPLATE_DIR}/fahrgastrechte-2025-me-08-25.pdf"
+readonly FORM_TEMPLATE_SHA256="4a30f9c7f00593bf5bda1b6eaa2d1b6e293357faa48631a1d7e2ade3b77a39a9"
+readonly FORM_TEMPLATE_URL="https://cms.static-bahn.de/wmedia/redaktion/aushaenge/fahrgastrechte/Fahrgastrechte-Formular_deutsch-feb25-2.pdf"
 readonly SERVICE_FILE="/etc/systemd/system/fahrgastrechte.service"
 readonly SOURCE_DIR="${APP_ROOT}/source"
 readonly UPDATE_COMMAND="/usr/local/bin/fahrgastrechte-update"
@@ -63,6 +67,7 @@ DATABASE_PASSWORD=${database_password}
 DATABASE_URL=ecto://${APP_NAME}:${database_password}@127.0.0.1/${APP_NAME}_prod
 FIELD_ENCRYPTION_KEY=${field_encryption_key}
 FIELD_ENCRYPTION_KEY_VERSION=1
+FORM_TEMPLATE_PATH=${FORM_TEMPLATE_PATH}
 LANG=C.UTF-8
 PHX_HOST=${PHX_HOST}
 PHX_SERVER=true
@@ -74,6 +79,27 @@ EOF
   chown root:"$APP_NAME" "$temporary_env"
   chmod 0640 "$temporary_env"
   mv --force "$temporary_env" "$ENV_FILE"
+  trap - RETURN
+}
+
+install_form_template() {
+  local temporary_template
+
+  install --directory --mode 0750 --owner root --group "$APP_NAME" "$FORM_TEMPLATE_DIR"
+  temporary_template="$(mktemp "${FORM_TEMPLATE_DIR}/form-template.XXXXXX")"
+  trap 'rm -f "$temporary_template"' RETURN
+
+  curl --fail --location --silent --show-error \
+    "$FORM_TEMPLATE_URL" \
+    --output "$temporary_template"
+
+  printf '%s  %s\n' "$FORM_TEMPLATE_SHA256" "$temporary_template" |
+    sha256sum --check --status ||
+    die "Die Prüfsumme des Fahrgastrechteformulars hat sich geändert"
+
+  chown root:"$APP_NAME" "$temporary_template"
+  chmod 0640 "$temporary_template"
+  mv --force "$temporary_template" "$FORM_TEMPLATE_PATH"
   trap - RETURN
 }
 
@@ -206,7 +232,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 log "Installiere bzw. aktualisiere Systempakete"
 apt-get update
-apt-get install --yes --no-install-recommends autoconf build-essential ca-certificates curl extrepo git libncurses-dev libssl-dev libstdc++6 locales m4 openssl pkg-config postgresql postgresql-contrib sed zlib1g-dev
+apt-get install --yes --no-install-recommends autoconf build-essential ca-certificates curl extrepo fonts-dejavu-core git libncurses-dev libssl-dev libstdc++6 locales m4 openssl pdftk-java pkg-config poppler-utils postgresql postgresql-contrib qpdf sed zlib1g-dev
 
 if ! command -v mise >/dev/null 2>&1; then
   log "Aktiviere das mise-APT-Repository"
@@ -223,6 +249,7 @@ fi
 
 install --directory --mode 0750 --owner root --group "$APP_NAME" "$APP_ROOT" "${APP_ROOT}/releases" "/etc/${APP_NAME}"
 install --directory --mode 0750 --owner "$APP_NAME" --group "$APP_NAME" "/var/lib/${APP_NAME}"
+install_form_template
 
 database_password="$(existing_value "$ENV_FILE" DATABASE_PASSWORD)"
 secret_key_base="$(existing_value "$ENV_FILE" SECRET_KEY_BASE)"

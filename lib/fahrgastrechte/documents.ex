@@ -19,6 +19,8 @@ defmodule Fahrgastrechte.Documents do
   alias Fahrgastrechte.Documents.PDFInspector
   alias Fahrgastrechte.Repo
 
+  @generated_kinds [:generated_cover, :generated_form, :generated_bundle]
+
   @type upload :: %{
           required(:path) => Path.t(),
           required(:original_filename) => String.t(),
@@ -72,6 +74,48 @@ defmodule Fahrgastrechte.Documents do
   end
 
   def put_document(_scope, _claim_id, _kind, _upload, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
+  @doc """
+  Atomically publishes one complete generated export set.
+
+  Files are validated and durably staged before the database transaction. The
+  callback runs inside that transaction and can persist the owning C05 export
+  version and transition the claim. A rollback removes every newly staged file;
+  previous generated versions remain available as immutable history.
+  """
+  def commit_generated_set(
+        %Scope{} = scope,
+        claim_id,
+        uploads,
+        expected_claim_lock_version,
+        callback
+      )
+      when is_map(uploads) and is_function(callback, 1) do
+    with :ok <- validate_generated_kinds(uploads),
+         {:ok, prepared} <- prepare_generated_uploads(uploads) do
+      case Repo.transaction(fn ->
+             with {:ok, claim} <- Claims.get_claim(scope, claim_id),
+                  :ok <- verify_claim_lock(claim, expected_claim_lock_version),
+                  {:ok, documents} <- persist_generated_set(scope, claim_id, prepared),
+                  {:ok, callback_result} <- callback.(documents) do
+               %{documents: documents, result: callback_result}
+             else
+               {:error, reason} -> Repo.rollback(reason)
+               other -> Repo.rollback({:invalid_callback_result, other})
+             end
+           end) do
+        {:ok, committed} ->
+          {:ok, committed}
+
+        {:error, reason} ->
+          cleanup_prepared(prepared)
+          normalize_transaction_error(reason)
+      end
+    end
+  end
+
+  def commit_generated_set(_scope, _claim_id, _uploads, _expected_lock_version, _callback),
     do: {:error, :not_authenticated}
 
   @doc "Returns one non-deleting document only when it belongs to the current user."
@@ -276,6 +320,72 @@ defmodule Fahrgastrechte.Documents do
     %Document{claim_id: claim_id, user_id: user_id}
     |> Document.create_changeset(attrs)
     |> Repo.insert()
+  end
+
+  defp validate_generated_kinds(uploads) do
+    if uploads |> Map.keys() |> MapSet.new() == MapSet.new(@generated_kinds),
+      do: :ok,
+      else: {:error, :invalid_kind}
+  end
+
+  defp prepare_generated_uploads(uploads) do
+    Enum.reduce_while(@generated_kinds, {:ok, %{}}, fn kind, {:ok, prepared} ->
+      upload = Map.fetch!(uploads, kind)
+
+      result =
+        with {:ok, normalized_upload} <- normalize_upload(upload),
+             :ok <- validate_content_type(normalized_upload.content_type),
+             :ok <- validate_pdf_signature(normalized_upload.path),
+             :ok <- validate_source_size(normalized_upload.path),
+             {:ok, inspection} <- PDFInspector.inspect(normalized_upload.path),
+             {:ok, stored_file} <-
+               LocalStorage.put(normalized_upload.path, documents_config(:max_file_size_bytes)) do
+          {:ok,
+           %{
+             upload: normalized_upload,
+             inspection: inspection,
+             stored_file: stored_file
+           }}
+        end
+
+      case result do
+        {:ok, item} ->
+          {:cont, {:ok, Map.put(prepared, kind, item)}}
+
+        {:error, reason} ->
+          cleanup_prepared(prepared)
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp persist_generated_set(scope, claim_id, prepared) do
+    Enum.reduce_while(@generated_kinds, {:ok, %{}}, fn kind, {:ok, documents} ->
+      item = Map.fetch!(prepared, kind)
+
+      with {:ok, _previous} <- retire_current_document(scope, claim_id, kind),
+           {:ok, document} <-
+             insert_document(
+               scope,
+               claim_id,
+               kind,
+               item.upload,
+               item.inspection,
+               item.stored_file
+             ) do
+        {:cont, {:ok, Map.put(documents, kind, document)}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp cleanup_prepared(prepared) do
+    Enum.each(prepared, fn {_kind, item} ->
+      _ = LocalStorage.delete(item.stored_file.storage_key)
+    end)
+
+    :ok
   end
 
   defp cleanup_replaced_original(nil), do: :ok
