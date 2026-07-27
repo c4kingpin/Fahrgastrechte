@@ -266,7 +266,7 @@ release_dir="$(mktemp -d "${APP_ROOT}/releases/${source_revision}-$(date --utc +
 export KERL_CONFIGURE_OPTIONS="--without-javac --without-odbc --without-wx"
 export MISE_CACHE_DIR="/var/cache/fahrgastrechte-mise"
 export MISE_DATA_DIR="${APP_ROOT}/toolchains"
-export MISE_JOBS="${MISE_JOBS:-4}"
+export MISE_JOBS="${MISE_JOBS:-2}"
 export MISE_YES=1
 
 install --directory --mode 0755 "$MISE_CACHE_DIR" "$MISE_DATA_DIR"
