@@ -30,6 +30,8 @@ defmodule FahrgastrechteWeb.Router do
   scope "/", FahrgastrechteWeb do
     pipe_through [:browser, :authenticated]
 
+    get "/dokumente/:id/download", DocumentController, :download
+
     live_session :require_authenticated_user,
       on_mount: [{FahrgastrechteWeb.UserAuth, :require_authenticated}] do
       live "/profil", ProfileLive, :edit
