@@ -68,6 +68,19 @@ defmodule Fahrgastrechte.Claims do
   def get_claim(%Scope{}, _claim_id), do: {:error, :not_found}
   def get_claim(_scope, _claim_id), do: {:error, :not_authenticated}
 
+  @doc "Returns a scoped changeset for claim forms without persisting changes."
+  @spec change_claim(Scope.t(), Ecto.UUID.t(), map()) ::
+          {:ok, Changeset.t()} | {:error, domain_error()}
+  def change_claim(scope, claim_id, attrs \\ %{})
+
+  def change_claim(%Scope{} = scope, claim_id, attrs) when is_map(attrs) do
+    with {:ok, claim} <- get_claim(scope, claim_id) do
+      {:ok, Claim.update_changeset(claim, attrs)}
+    end
+  end
+
+  def change_claim(_scope, _claim_id, _attrs), do: {:error, :not_authenticated}
+
   @doc """
   Lists the current user's claims with optional status, date, route and claim
   number filters.
