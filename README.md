@@ -109,11 +109,18 @@ Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
 Betriebshinweise stehen unter
 [`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md).
 
-Eine bestehende Instanz lässt sich mit Container-ID und optionalem Git-Ref
+Die Community-Scripts-artige Installation wird direkt als `root` auf dem
+Proxmox-Host gestartet:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)"
+```
+
+Danach lässt sich die Instanz innerhalb des Containers mit optionalem Git-Ref
 aktualisieren:
 
 ```bash
-scripts/deploy/update-proxmox-lxc.sh 240 v0.2.0
+update v0.2.0
 ```
 
 ## Nützliche Dokumentation
