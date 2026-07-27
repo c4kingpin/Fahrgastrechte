@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fahrgastrechte_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MIX_ENV: test
+      DATABASE_HOST: localhost
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: postgres
+      DATABASE_NAME: fahrgastrechte_test
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Erlang und Elixir einrichten
+        uses: erlef/setup-beam@v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Abhängigkeiten zwischenspeichern
+        uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Abhängigkeiten installieren
+        run: mix deps.get --only test
+
+      - name: Formatierung prüfen
+        run: mix format --check-formatted
+
+      - name: Ohne Warnungen kompilieren
+        run: mix compile --warnings-as-errors
+
+      - name: Tests ausführen
+        run: mix test
