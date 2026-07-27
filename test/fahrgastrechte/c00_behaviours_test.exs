@@ -27,6 +27,15 @@ defmodule Fahrgastrechte.C00BehavioursTest do
              ])
   end
 
+  test "historical fixture distinguishes forecasts from final observations" do
+    fixture =
+      File.read!(Path.join(__DIR__, "../fixtures/c00/bahnvorhersage-parsed-delays.csv"))
+
+    assert fixture =~ "time_real,update_timestamp,delay,is_final"
+    assert fixture =~ ",false,false,false,ICE,100,"
+    assert fixture =~ ",true,false,false,ICE,100,"
+  end
+
   defp callbacks(module) do
     module
     |> apply(:behaviour_info, [:callbacks])
