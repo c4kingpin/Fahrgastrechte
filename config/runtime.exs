@@ -73,6 +73,16 @@ if config_env() == :dev do
 end
 
 if config_env() == :prod do
+  document_storage_path =
+    System.get_env("DOCUMENT_STORAGE_PATH") ||
+      raise "DOCUMENT_STORAGE_PATH is missing"
+
+  if not Path.type(document_storage_path) == :absolute do
+    raise "DOCUMENT_STORAGE_PATH must be an absolute path"
+  end
+
+  config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage, path: document_storage_path
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """

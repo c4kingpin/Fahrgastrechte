@@ -12,6 +12,21 @@ config :fahrgastrechte,
   generators: [timestamp_type: :utc_datetime],
   secure_session_cookie: true
 
+config :fahrgastrechte, Fahrgastrechte.Documents,
+  max_file_size_bytes: 10 * 1024 * 1024,
+  max_page_count: 20,
+  command_timeout_ms: 10_000,
+  pdfinfo_executable: "pdfinfo"
+
+config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
+  path: Path.expand("../tmp/documents", __DIR__)
+
+config :fahrgastrechte, Fahrgastrechte.Tickets,
+  extractor: Fahrgastrechte.Tickets.PopplerExtractor,
+  pdftotext_executable: "pdftotext",
+  command_timeout_ms: 10_000,
+  max_text_bytes: 1024 * 1024
+
 # Configure the endpoint
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
   url: [host: "localhost"],
