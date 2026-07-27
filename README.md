@@ -93,6 +93,11 @@ Das abgestimmte Produktkonzept und die in getrennte Agenten-Aufträge zerlegte
 Umsetzungsplanung stehen unter
 [`docs/implementation-plan/`](docs/implementation-plan/README.md).
 
+Die Ergebnisse der technischen Voruntersuchung C00 stehen unter
+[`docs/spikes/c00/`](docs/spikes/c00/README.md); verbindliche technische
+Entscheidungen werden als
+[`Architecture Decision Records`](docs/decisions/README.md) geführt.
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)

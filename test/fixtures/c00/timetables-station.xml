@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<stations>
+  <station
+    name="Teststadt Hbf"
+    eva="9999999"
+    ds100="TEST"
+    p="1|2"
+  />
+</stations>
