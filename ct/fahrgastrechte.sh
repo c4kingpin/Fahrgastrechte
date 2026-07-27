@@ -8,15 +8,16 @@ readonly DEFAULT_INSTALLER_BASE_URL="https://raw.githubusercontent.com/c4kingpin
 APP_REF="${APP_REF:-main}"
 APP_REPOSITORY="${APP_REPOSITORY:-$DEFAULT_APP_REPOSITORY}"
 BRIDGE="${BRIDGE:-vmbr0}"
-CORES="${CORES:-4}"
+CORES="${CORES:-2}"
 CT_HOSTNAME="${CT_HOSTNAME:-fahrgastrechte}"
-DISK_GB="${DISK_GB:-16}"
+DISK_GB="${DISK_GB:-8}"
 INSTALLER_BASE_URL="${INSTALLER_BASE_URL:-$DEFAULT_INSTALLER_BASE_URL}"
 INSTALLER_REF="${INSTALLER_REF:-main}"
 IP_CONFIG="${IP_CONFIG:-ip=dhcp}"
-MEMORY_MB="${MEMORY_MB:-4096}"
+MEMORY_MB="${MEMORY_MB:-2048}"
 ONBOOT="${ONBOOT:-1}"
 PHX_HOST="${PHX_HOST:-fahrgastrechte.local}"
+REUSE_EXISTING="${REUSE_EXISTING:-0}"
 ROOTFS_STORAGE="${ROOTFS_STORAGE:-local-lvm}"
 SWAP_MB="${SWAP_MB:-1024}"
 TEMPLATE="${TEMPLATE:-}"
@@ -45,11 +46,13 @@ Direkt auf einem Proxmox-VE-Host als root:
 Optionen:
   --defaults    Ohne Rückfragen mit den Standardwerten installieren
   --advanced    Erweiterte Konfiguration interaktiv abfragen
+  --reuse       Vorhandenen Container aus einer Teilinstallation weiterverwenden
   --dry-run     Konfiguration anzeigen, aber nichts verändern
   -h, --help    Hilfe anzeigen
 
 Alle Werte können auch per Umgebungsvariable gesetzt werden:
   VMID, CT_HOSTNAME, PHX_HOST, APP_REPOSITORY, APP_REF, INSTALLER_REF,
+  REUSE_EXISTING,
   TEMPLATE, TEMPLATE_STORAGE, ROOTFS_STORAGE, BRIDGE, IP_CONFIG,
   CORES, MEMORY_MB, SWAP_MB, DISK_GB und ONBOOT.
 
@@ -118,6 +121,9 @@ validate_settings() {
     validate_integer "$setting" "${!setting}"
   done
 
+  [[ "$REUSE_EXISTING" =~ ^[01]$ ]] ||
+    die "REUSE_EXISTING muss 0 oder 1 sein"
+
   [[ -z "$VMID" || "$VMID" =~ ^[1-9][0-9]{2,8}$ ]] ||
     die "VMID muss eine gültige numerische Container-ID sein"
   [[ "$CT_HOSTNAME" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] ||
@@ -182,6 +188,7 @@ advanced_settings() {
 print_summary() {
   printf "\n%bKonfiguration%b\n" "$BOLD" "$RESET"
   printf "  VMID:             %s\n" "${VMID:-automatisch}"
+  printf "  Aktion:           %s\n" "$([[ "$REUSE_EXISTING" == "1" ]] && printf 'Teilinstallation fortsetzen' || printf 'Container neu erstellen')"
   printf "  Hostname:         %s\n" "$CT_HOSTNAME"
   printf "  Phoenix-Host:     %s\n" "$PHX_HOST"
   printf "  App-Ref:          %s\n" "$APP_REF"
@@ -275,7 +282,7 @@ obtain_install_script() {
 run_install() {
   local installer_path="$1"
 
-  pct push "$VMID" "$installer_path" /root/fahrgastrechte-install.sh --group 0 --mode 0700 --user 0
+  pct push "$VMID" "$installer_path" /root/fahrgastrechte-install.sh --group 0 --perms 0700 --user 0
   pct exec "$VMID" -- env "APP_REF=${APP_REF}" "APP_REPOSITORY=${APP_REPOSITORY}" "INSTALLER_BASE_URL=${INSTALLER_BASE_URL}" "INSTALLER_REF=${INSTALLER_REF}" "PHX_HOST=${PHX_HOST}" /usr/bin/bash /root/fahrgastrechte-install.sh
 }
 
@@ -283,6 +290,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
   --defaults) MODE="defaults" ;;
   --advanced) MODE="advanced" ;;
+  --reuse) REUSE_EXISTING=1 ;;
   --dry-run) DRY_RUN=1 ;;
   -h | --help)
     usage
@@ -313,23 +321,36 @@ for command_name in awk curl getent pct pveam pvesh; do
 done
 confirm_install
 
+if [[ "$REUSE_EXISTING" == "1" && -z "$VMID" ]]; then
+  die "Für --reuse muss VMID explizit gesetzt werden"
+fi
+
 if [[ -z "$VMID" ]]; then
   VMID="$(pvesh get /cluster/nextid)"
 fi
 validate_integer VMID "$VMID"
-pct config "$VMID" >/dev/null 2>&1 &&
-  die "Container ${VMID} existiert bereits; Updates erfolgen im Container mit 'update'."
 
-msg_info "Aktualisiere den Proxmox-Template-Katalog"
-pveam update
-selected_template="$(select_template)"
-ensure_template "$selected_template"
+if pct config "$VMID" >/dev/null 2>&1; then
+  [[ "$REUSE_EXISTING" == "1" ]] ||
+    die "Container ${VMID} existiert bereits. Teilinstallation mit VMID=${VMID} und --reuse fortsetzen; reguläre Updates erfolgen im Container mit 'update'."
+  msg_info "Setze die Installation im vorhandenen Container ${VMID} fort"
+else
+  [[ "$REUSE_EXISTING" == "0" ]] ||
+    die "Container ${VMID} existiert nicht und kann nicht fortgesetzt werden"
 
-msg_info "Erstelle unprivilegierten Container ${VMID}"
-pct create "$VMID" "${TEMPLATE_STORAGE}:vztmpl/${selected_template}" --cores "$CORES" --hostname "$CT_HOSTNAME" --memory "$MEMORY_MB" --net0 "name=eth0,bridge=${BRIDGE},${IP_CONFIG},firewall=1,type=veth" --onboot "$ONBOOT" --ostype debian --rootfs "${ROOTFS_STORAGE}:${DISK_GB}" --swap "$SWAP_MB" --unprivileged 1
+  msg_info "Aktualisiere den Proxmox-Template-Katalog"
+  pveam update
+  selected_template="$(select_template)"
+  ensure_template "$selected_template"
 
-msg_info "Starte Container ${VMID}"
-pct start "$VMID"
+  msg_info "Erstelle unprivilegierten Container ${VMID}"
+  pct create "$VMID" "${TEMPLATE_STORAGE}:vztmpl/${selected_template}" --cores "$CORES" --features nesting=1 --hostname "$CT_HOSTNAME" --memory "$MEMORY_MB" --net0 "name=eth0,bridge=${BRIDGE},${IP_CONFIG},firewall=1,type=veth" --onboot "$ONBOOT" --ostype debian --rootfs "${ROOTFS_STORAGE}:${DISK_GB}" --swap "$SWAP_MB" --unprivileged 1
+fi
+
+if [[ "$(pct status "$VMID")" != "status: running" ]]; then
+  msg_info "Starte Container ${VMID}"
+  pct start "$VMID"
+fi
 msg_info "Warte auf das Netzwerk im Container"
 wait_for_network
 
