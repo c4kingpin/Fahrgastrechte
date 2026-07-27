@@ -50,14 +50,16 @@ defmodule Fahrgastrechte.TestRailProvider do
             id: %{provider: __MODULE__, value: "9999999"},
             name: "Teststadt Hbf"
           },
-          scheduled_at: ~U[2026-04-15 06:04:00Z]
+          scheduled_at: ~U[2026-04-15 06:04:00Z],
+          estimated_at: ~U[2026-04-15 06:19:00Z]
         },
         %{
           station: %{
             id: %{provider: __MODULE__, value: "9999998"},
             name: "Beispielstadt Hbf"
           },
-          scheduled_at: ~U[2026-04-15 10:10:00Z]
+          scheduled_at: ~U[2026-04-15 10:10:00Z],
+          estimated_at: ~U[2026-04-15 10:42:00Z]
         }
       ]
     }
