@@ -109,6 +109,20 @@ Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
 Betriebshinweise stehen unter
 [`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md).
 
+Die Community-Scripts-artige Installation wird direkt als `root` auf dem
+Proxmox-Host gestartet:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)"
+```
+
+Danach lässt sich die Instanz innerhalb des Containers mit optionalem Git-Ref
+aktualisieren:
+
+```bash
+update v0.2.0
+```
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)

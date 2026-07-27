@@ -57,6 +57,12 @@ jobs:
       - name: Abhängigkeiten installieren
         run: mix deps.get --only test
 
+      - name: Deployment-Scripte prüfen
+        run: |
+          bash -n ct/fahrgastrechte.sh install/fahrgastrechte-install.sh scripts/deploy/*.sh
+          shellcheck ct/fahrgastrechte.sh install/fahrgastrechte-install.sh scripts/deploy/*.sh
+          ct/fahrgastrechte.sh --defaults --dry-run
+
       - name: Formatierung prüfen
         run: mix format --check-formatted
 
