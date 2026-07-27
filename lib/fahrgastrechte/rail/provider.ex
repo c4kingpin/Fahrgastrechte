@@ -53,9 +53,22 @@ defmodule Fahrgastrechte.Rail.Provider do
           | :unsupported
           | {:upstream, term()}
 
+  @type snapshot :: %{
+          required(:payload) => binary(),
+          required(:content_type) => String.t(),
+          required(:fetched_at) => DateTime.t(),
+          optional(:metadata) => map()
+        }
+
+  @type result(value) ::
+          {:ok, value}
+          | {:ok, value, snapshot()}
+          | {:ok, value, [snapshot()]}
+          | {:error, provider_error()}
+
   @doc "Finds stations and returns provider-neutral station records."
   @callback search_stations(query :: String.t(), options :: keyword()) ::
-              {:ok, [station()]} | {:error, provider_error()}
+              result([station()])
 
   @doc """
   Finds complete start-to-destination connections when the upstream supports it.
@@ -63,7 +76,7 @@ defmodule Fahrgastrechte.Rail.Provider do
   Providers that only expose station boards return `{:error, :unsupported}`.
   """
   @callback search_connections(query :: connection_query(), options :: keyword()) ::
-              {:ok, [journey()]} | {:error, provider_error()}
+              result([journey()])
 
   @doc "Loads departures for the half-open time window `from <= event < until`."
   @callback departures(
@@ -72,9 +85,9 @@ defmodule Fahrgastrechte.Rail.Provider do
               until :: DateTime.t(),
               options :: keyword()
             ) ::
-              {:ok, [journey()]} | {:error, provider_error()}
+              result([journey()])
 
   @doc "Loads one journey using the provider-specific, namespaced identifier."
   @callback journey(journey_id :: external_id(), options :: keyword()) ::
-              {:ok, journey()} | {:error, provider_error()}
+              result(journey())
 end

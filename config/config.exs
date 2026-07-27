@@ -27,6 +27,21 @@ config :fahrgastrechte, Fahrgastrechte.Tickets,
   command_timeout_ms: 10_000,
   max_text_bytes: 1024 * 1024
 
+config :fahrgastrechte, Fahrgastrechte.Rail,
+  provider: Fahrgastrechte.Rail.Providers.Timetables,
+  max_snapshot_bytes: 5 * 1024 * 1024
+
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.Timetables,
+  base_url: "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1",
+  client_id: nil,
+  api_key: nil,
+  max_response_bytes: 5 * 1024 * 1024
+
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
+  data_path: nil,
+  dataset_version: nil,
+  station_names: %{}
+
 # Configure the endpoint
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
   url: [host: "localhost"],
