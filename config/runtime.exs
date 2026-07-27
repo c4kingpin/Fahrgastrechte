@@ -40,6 +40,10 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
   data_path: System.get_env("BAHNVORHERSAGE_DATA_PATH"),
   dataset_version: System.get_env("BAHNVORHERSAGE_DATASET_VERSION")
 
+if form_template_path = System.get_env("FORM_TEMPLATE_PATH") do
+  config :fahrgastrechte, Fahrgastrechte.Exports, template_path: form_template_path
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
