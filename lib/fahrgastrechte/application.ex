@@ -13,6 +13,7 @@ defmodule Fahrgastrechte.Application do
       {DNSCluster, query: Application.get_env(:fahrgastrechte, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Fahrgastrechte.PubSub},
       {Task.Supervisor, name: Fahrgastrechte.ExternalCommandSupervisor},
+      {Fahrgastrechte.Rail.RateLimiter, rate: 45, window_ms: 60_000, max_concurrency: 2},
       # Start a worker by calling: Fahrgastrechte.Worker.start_link(arg)
       # {Fahrgastrechte.Worker, arg},
       # Start to serve requests, typically the last entry
