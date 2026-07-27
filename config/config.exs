@@ -42,6 +42,24 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
   dataset_version: nil,
   station_names: %{}
 
+config :fahrgastrechte, Fahrgastrechte.Exports,
+  backend: Fahrgastrechte.Exports.SystemPDFBackend,
+  template_path: Path.expand("../priv/form_templates/fahrgastrechte-2025-me-08-25.pdf", __DIR__),
+  template_version: "Formular 2025 (ME/08/25)",
+  template_source:
+    "https://cms.static-bahn.de/wmedia/redaktion/aushaenge/fahrgastrechte/Fahrgastrechte-Formular_deutsch-feb25-2.pdf",
+  template_sha256:
+    Base.decode16!("4A30F9C7F00593BF5BDA1B6EAA2D1B6E293357FAA48631A1D7E2ADE3B77A39A9"),
+  max_file_size_bytes: 15 * 1024 * 1024,
+  max_page_count: 20,
+  command_timeout_ms: 30_000,
+  qpdf_executable: "qpdf",
+  pdfinfo_executable: "pdfinfo",
+  pdftk_executable: "pdftk",
+  pdftocairo_executable: "pdftocairo",
+  pdftotext_executable: "pdftotext",
+  font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
 # Configure the endpoint
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
   url: [host: "localhost"],

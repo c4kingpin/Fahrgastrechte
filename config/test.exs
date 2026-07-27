@@ -8,6 +8,14 @@ config :fahrgastrechte, Fahrgastrechte.Documents, max_file_size_bytes: 1024 * 10
 config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
   path: Path.join(System.tmp_dir!(), "fahrgastrechte-test-documents")
 
+config :fahrgastrechte, Fahrgastrechte.Exports,
+  backend: Fahrgastrechte.TestPDFBackend,
+  template_path: Path.expand("../test/fixtures/c00/synthetic-ticket-flexpreis.pdf", __DIR__),
+  template_version: "synthetic-test-template-v1",
+  template_source: "fixture://synthetic-ticket-flexpreis.pdf",
+  template_sha256:
+    Base.decode16!("9F4AB733E67F4790B307C930EB655352782C07AC0357336E34A19DD571AE4473")
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
