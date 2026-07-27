@@ -3,6 +3,11 @@ import Config
 config :fahrgastrechte, secure_session_cookie: false
 config :fahrgastrechte, development_identity: nil
 
+config :fahrgastrechte, Fahrgastrechte.Documents, max_file_size_bytes: 1024 * 1024
+
+config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
+  path: Path.join(System.tmp_dir!(), "fahrgastrechte-test-documents")
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
