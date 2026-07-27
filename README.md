@@ -102,6 +102,13 @@ Der vorbereitete C01-Integrationsstand beschreibt die noch bewusst deaktivierte
 Authentik-Anbindung, den lokalen Entwicklungs-Scope und die Runtime-Secrets unter
 [`docs/integrations/authentik.md`](docs/integrations/authentik.md).
 
+## Bereitstellung
+
+Für Proxmox VE steht eine automatisierte Bereitstellung in einem unprivilegierten
+Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
+Betriebshinweise stehen unter
+[`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md).
+
 ## Nützliche Dokumentation
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)
