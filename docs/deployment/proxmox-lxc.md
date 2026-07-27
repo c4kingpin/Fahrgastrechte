@@ -17,7 +17,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte
 Im Dialog stehen zwei Modi zur Auswahl:
 
 - **Standard** verwendet die nächste freie VMID, Debian 13, DHCP, `vmbr0`,
-  `local`/`local-lvm`, 4 vCPU, 4 GiB RAM und 16 GiB Disk.
+  `local`/`local-lvm`, 2 vCPU, 2 GiB RAM und 8 GiB Disk.
 - **Erweitert** fragt VMID, Hostnamen, Git-Ref, Storages, Bridge,
   IP-Konfiguration und Ressourcen ab.
 
@@ -88,11 +88,13 @@ Checkouts und bestehende Automatisierung erhalten.
 - Storage für das Root-Dateisystem (Standard: `local-lvm`)
 - Netzwerk-Bridge (Standard: `vmbr0`) mit DHCP oder statischer Konfiguration
 - Internetzugriff aus dem LXC auf Debian-, GitHub-, Hex- und Toolchain-Quellen
-- mindestens 4 GiB RAM, 4 vCPU und 16 GiB Speicherplatz
+- mindestens 2 GiB RAM, 2 vCPU und 8 GiB Speicherplatz
 
 Die erste Installation kompiliert die in `.tool-versions` festgelegte
-Erlang-/Elixir-Version und kann deshalb einige Zeit dauern. Auf dem
-Proxmox-Host selbst werden Elixir und PostgreSQL nicht installiert.
+Erlang-/Elixir-Version und kann deshalb einige Zeit dauern. Die Mindestwerte
+berücksichtigen diesen Build; für den reinen App-Betrieb wäre weniger möglich,
+würde aber spätere Updates unnötig störanfällig machen. Auf dem Proxmox-Host
+selbst werden Elixir und PostgreSQL nicht installiert.
 
 ## Was im Container eingerichtet wird
 
