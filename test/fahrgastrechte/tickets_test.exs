@@ -9,6 +9,7 @@ defmodule Fahrgastrechte.TicketsTest do
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
   alias Fahrgastrechte.Tickets
+  alias Fahrgastrechte.Tickets.PopplerExtractor
 
   setup do
     previous_config = Application.fetch_env!(:fahrgastrechte, Tickets)
@@ -99,6 +100,60 @@ defmodule Fahrgastrechte.TicketsTest do
       assert by_field.fare.value == %{"amount" => "129.90", "currency" => "EUR"}
       refute Map.has_key?(by_field, :origin)
       refute Map.has_key?(by_field, :destination)
+      refute Map.has_key?(by_field, :travel_date)
+    end
+
+    test "recognizes current DB ticket labels and layout" do
+      extraction = %{
+        text: """
+        ICE Fahrkarte
+        Flexpreis Aktion (Hinfahrt)
+        Hinfahrt      Musterstadt+City     Beispielhausen(Sieg).
+        Gesamtpreis 84,70 €. Gebucht am 27.07.2026 um 08:15 Uhr.
+        DB Vertrieb ONLINE TICKET Auftragsnummer: 000000000001
+        Ihre Reiseverbindung und Reservierung - Hinfahrt am 27.07.2026
+        Musterstadt Hbf  Mo, 27.07. 08:04  7  ICE 100
+        """,
+        pages: 1,
+        metadata: %{}
+      }
+
+      assert {:ok, suggestions} =
+               PopplerExtractor.propose(extraction, document_kind: :ticket)
+
+      by_field = Map.new(suggestions, &{&1.field, &1})
+      assert by_field.order_number.value == %{"text" => "000000000001"}
+      assert by_field.travel_date.value == %{"date" => "2026-07-27"}
+      assert by_field.origin.value == %{"text" => "Musterstadt+City"}
+      assert by_field.destination.value == %{"text" => "Beispielhausen(Sieg)"}
+      assert by_field.product.value == %{"text" => "Flexpreis"}
+      assert by_field.fare.value == %{"amount" => "84.70", "currency" => "EUR"}
+      assert by_field.scheduled_train.value == %{"category" => "ICE", "number" => "100"}
+    end
+
+    test "recognizes current DB invoice header and gross total" do
+      extraction = %{
+        text: """
+        12345 Berlin                                      Auftragsnummer: 000000000001
+                                                          Rechnungsnummer: 2026-000000000001
+                                                          Rechnungsdatum: 27.07.2026
+        Rechnung
+        zur Auftragsnummer 000000000001, Version 1
+        Summe (netto)                                                   71,18 €
+        zzgl. 19 % MwSt                                                 13,52 €
+        Summe (brutto)                                                  84,70 €
+        """,
+        pages: 1,
+        metadata: %{}
+      }
+
+      assert {:ok, suggestions} =
+               PopplerExtractor.propose(extraction, document_kind: :invoice)
+
+      by_field = Map.new(suggestions, &{&1.field, &1})
+      assert by_field.order_number.value == %{"text" => "000000000001"}
+      assert by_field.fare.value == %{"amount" => "84.70", "currency" => "EUR"}
+      refute Map.has_key?(by_field, :scheduled_train)
       refute Map.has_key?(by_field, :travel_date)
     end
 
