@@ -41,6 +41,18 @@ IP_CONFIG='ip=192.168.1.40/24,gw=192.168.1.1' \
 Mit `--advanced` wird direkt der erweiterte Dialog geöffnet. `--dry-run`
 zeigt nur die resultierende Konfiguration an.
 
+Wurde eine Erstinstallation nach der Container-Erstellung unterbrochen, kann
+derselbe Container gezielt weiterverwendet werden:
+
+```bash
+VMID=104 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)" -- --defaults --reuse
+```
+
+`--reuse` verlangt immer eine explizite VMID und erstellt keinen neuen
+Container. Für eine bereits vollständig installierte Instanz ist stattdessen
+das unten beschriebene `update`-Kommando vorgesehen.
+
 > Ein `curl | bash`-Einzeiler führt den aktuellen Stand des angegebenen
 > Branches als `root` aus. Für reproduzierbare Produktionsinstallationen
 > sollte ein geprüfter Release-Tag oder Commit-SHA für Einstieg, Installer und
