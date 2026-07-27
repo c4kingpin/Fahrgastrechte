@@ -4,12 +4,13 @@ defmodule FahrgastrechteWeb.ProfileLive do
   alias Fahrgastrechte.Accounts
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     changeset = Accounts.change_profile(socket.assigns.current_scope)
 
     {:ok,
      socket
      |> assign(:page_title, "Reisendenprofil")
+     |> assign(:return_claim_id, valid_claim_id(params["antrag"]))
      |> assign(:profile_complete?, Accounts.profile_complete?(socket.assigns.current_scope))
      |> assign_form(changeset)}
   end
@@ -29,11 +30,16 @@ defmodule FahrgastrechteWeb.ProfileLive do
       {:ok, _profile} ->
         changeset = Accounts.change_profile(socket.assigns.current_scope)
 
-        {:noreply,
-         socket
-         |> put_flash(:info, "Dein Reisendenprofil wurde sicher gespeichert.")
-         |> assign(:profile_complete?, Accounts.profile_complete?(socket.assigns.current_scope))
-         |> assign_form(changeset)}
+        socket =
+          socket
+          |> put_flash(:info, "Dein Reisendenprofil wurde sicher gespeichert.")
+          |> assign(:profile_complete?, Accounts.profile_complete?(socket.assigns.current_scope))
+          |> assign_form(changeset)
+
+        case socket.assigns.return_claim_id do
+          nil -> {:noreply, socket}
+          claim_id -> {:noreply, push_navigate(socket, to: ~p"/antraege/#{claim_id}")}
+        end
 
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_form(socket, changeset)}
@@ -79,6 +85,17 @@ defmodule FahrgastrechteWeb.ProfileLive do
             </div>
           </div>
         </section>
+
+        <.link
+          :if={@return_claim_id}
+          id="profile-back-to-claim"
+          navigate={~p"/antraege/#{@return_claim_id}"}
+          class={[
+            "inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-slate-950"
+          ]}
+        >
+          <.icon name="hero-arrow-left" class="size-4" /> Zurück zum Antrag
+        </.link>
 
         <.form
           for={@form}
@@ -198,7 +215,10 @@ defmodule FahrgastrechteWeb.ProfileLive do
                 "inline-flex items-center gap-2 rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 disabled:cursor-wait disabled:opacity-70"
               ]}
             >
-              <.icon name="hero-check" class="size-5" /> Profil speichern
+              <.icon name="hero-check" class="size-5" /> {if(@return_claim_id,
+                do: "Speichern und zum Antrag",
+                else: "Profil speichern"
+              )}
             </button>
           </div>
         </.form>
@@ -209,5 +229,14 @@ defmodule FahrgastrechteWeb.ProfileLive do
 
   defp assign_form(socket, changeset) do
     assign(socket, :form, to_form(changeset))
+  end
+
+  defp valid_claim_id(nil), do: nil
+
+  defp valid_claim_id(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> id
+      :error -> nil
+    end
   end
 end
