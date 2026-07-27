@@ -4,6 +4,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Exports
+  alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Tickets
 
   @upload_kinds [:ticket, :invoice]
@@ -18,8 +20,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           socket
           |> assign(:page_title, "Antrag #{claim.claim_number}")
           |> assign(:save_state, :saved)
+          |> assign(:connection_search_state, :idle)
+          |> assign(:candidate_lookup, %{})
+          |> assign(:export_state, :idle)
           |> assign(:upload_forms, upload_forms())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
+          |> stream(:connection_candidates, [])
           |> allow_upload(:ticket,
             accept: ~w(.pdf),
             max_entries: 1,
@@ -56,6 +62,156 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
+
+  def handle_event("search_connections", %{"connection_search" => params}, socket) do
+    socket = assign(socket, :connection_search_form, to_form(params, as: :connection_search))
+
+    case find_connections(socket, params) do
+      {:ok, candidates} ->
+        indexed = Enum.with_index(candidates, 1)
+
+        lookup =
+          Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
+
+        items = Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
+
+        {:noreply,
+         socket
+         |> assign(:candidate_lookup, lookup)
+         |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
+         |> stream(:connection_candidates, items, reset: true)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:candidate_lookup, %{})
+         |> assign(:connection_search_state, {:error, reason})
+         |> stream(:connection_candidates, [], reset: true)}
+    end
+  end
+
+  def handle_event("choose_connection", %{"index" => index}, socket) do
+    with candidate when not is_nil(candidate) <- Map.get(socket.assigns.candidate_lookup, index),
+         segments when segments != [] <- candidate_segments(candidate, socket.assigns.claim),
+         {:ok, %{claim: claim}} <-
+           Rail.confirm_journey(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             :planned,
+             planned_segments(segments),
+             socket.assigns.claim.lock_version
+           ),
+         {:ok, %{claim: claim}} <-
+           Rail.confirm_journey(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             :actual,
+             segments,
+             claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> load_workspace(claim)
+       |> put_flash(
+         :info,
+         "Die Verbindung und ihre aktuelle Verspätung wurden als Vorschlag übernommen."
+       )}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      _reason ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Die Verbindung konnte nicht übernommen werden. Bitte nutze die manuelle Eingabe."
+         )}
+    end
+  end
+
+  def handle_event("save_planned_journey", %{"planned" => params}, socket) do
+    with {:ok, segment} <- build_planned_segment(params),
+         {:ok, %{claim: claim}} <-
+           Rail.confirm_journey(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             :planned,
+             [segment],
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> load_workspace(claim)
+       |> put_flash(:info, "Die geplante Verbindung wurde bestätigt.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:planned_form, to_form(params, as: :planned))
+         |> put_flash(:error, journey_error_message(reason))}
+    end
+  end
+
+  def handle_event("set_disruption", %{"type" => type}, socket)
+      when type in ["delay", "cancellation"] do
+    {:noreply, persist_claim(socket, %{"disruption_type" => type}, false)}
+  end
+
+  def handle_event("save_actual_journey", %{"actual" => params}, socket) do
+    with {:ok, segments} <- build_actual_segments(params, socket.assigns),
+         {:ok, %{claim: claim}} <-
+           Rail.confirm_journey(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             :actual,
+             segments,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> load_workspace(claim)
+       |> put_flash(:info, "Der tatsächliche Reiseverlauf wurde bestätigt.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:actual_form, to_form(params, as: :actual))
+         |> put_flash(:error, journey_error_message(reason))}
+    end
+  end
+
+  def handle_event("generate_export", _params, socket) do
+    socket = assign(socket, :export_state, :generating)
+
+    case Exports.generate_export(
+           socket.assigns.current_scope,
+           socket.assigns.claim.id,
+           socket.assigns.claim.lock_version
+         ) do
+      {:ok, %{claim: claim}} ->
+        {:noreply,
+         socket
+         |> assign(:export_state, :idle)
+         |> load_workspace(claim)
+         |> put_flash(:info, "Das druckfertige Gesamt-PDF wurde erstellt.")}
+
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:export_state, :idle)
+         |> put_flash(:error, export_error_message(reason))}
+    end
+  end
 
   def handle_event("reanalyze_document", %{"id" => document_id}, socket) do
     case Tickets.analyze_document(socket.assigns.current_scope, document_id) do
@@ -182,20 +338,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
             >
               <div class={["flex items-center justify-between text-xs font-semibold"]}>
                 <span class={["text-slate-300"]}>Verfügbare MVP-Bausteine</span>
-                <span>{@completed_steps} von 3 erledigt</span>
+                <span>{@completed_steps} von 6 bestätigt</span>
               </div>
               <div
                 class={["mt-3 h-2 overflow-hidden rounded-full bg-white/10"]}
                 role="progressbar"
                 aria-label="Fortschritt der verfügbaren Schritte"
                 aria-valuemin="0"
-                aria-valuemax="3"
+                aria-valuemax="6"
                 aria-valuenow={@completed_steps}
               >
-                <div class={[
-                  "h-full rounded-full bg-rose-500 transition-all",
-                  progress_width(@completed_steps)
-                ]}>
+                <div
+                  class={["h-full rounded-full bg-rose-500 transition-all"]}
+                  style={"width: #{round(@completed_steps / 6 * 100)}%"}
+                >
                 </div>
               </div>
             </div>
@@ -568,6 +724,416 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 </article>
               </div>
             </section>
+
+            <section
+              id="planned-journey-section"
+              data-state={@planned_state}
+              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
+            >
+              <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
+                <div>
+                  <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
+                    Schritt 4
+                  </p>
+                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                    Verbindung und Verspätung auswählen
+                  </h2>
+                  <p class={["mt-1 max-w-2xl text-sm leading-6 text-slate-500"]}>
+                    Die DB-Abfrage zeigt planmäßige Zeit, aktuelle Prognose, Verspätungsminuten und Ausfälle direkt am Treffer. Die Auswahl bleibt bis zu deiner Bestätigung ein Vorschlag.
+                  </p>
+                </div>
+                <.step_badge state={@planned_state} />
+              </div>
+
+              <.form
+                for={@connection_search_form}
+                id="connection-search-form"
+                phx-submit="search_connections"
+                class={["mt-6 rounded-2xl bg-slate-50 p-4 sm:p-5"]}
+              >
+                <div class={["grid gap-4 sm:grid-cols-2"]}>
+                  <.input
+                    field={@connection_search_form[:origin]}
+                    id="connection-origin"
+                    label="Startbahnhof"
+                  />
+                  <.input
+                    field={@connection_search_form[:destination]}
+                    id="connection-destination"
+                    label="Zielbahnhof"
+                  />
+                  <.input
+                    field={@connection_search_form[:departure_at]}
+                    id="connection-departure-at"
+                    type="datetime-local"
+                    label="Geplante Abfahrt"
+                  />
+                  <.input
+                    field={@connection_search_form[:train_number]}
+                    id="connection-train-number"
+                    label="Zugnummer (optional)"
+                    placeholder="z. B. 100"
+                  />
+                </div>
+                <button
+                  id="search-connections-button"
+                  type="submit"
+                  phx-disable-with="Verbindungen werden geladen …"
+                  class={[
+                    "mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
+                  ]}
+                >
+                  <.icon name="hero-magnifying-glass" class="size-5" />
+                  Verbindungen und Verspätungen abrufen
+                </button>
+              </.form>
+
+              <div
+                :if={@connection_search_state == :empty}
+                id="connection-search-empty"
+                class={["mt-5 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900"]}
+              >
+                Keine eindeutige Verbindung gefunden. Nutze direkt die manuelle Eingabe darunter.
+              </div>
+              <div
+                :if={match?({:error, _reason}, @connection_search_state)}
+                id="connection-search-error"
+                class={["mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900"]}
+              >
+                Die Bahndaten sind gerade nicht verfügbar. Deine Angaben bleiben erhalten; bestätige die Verbindung manuell.
+              </div>
+
+              <div id="connection-results" phx-update="stream" class={["mt-5 grid gap-3"]}>
+                <article
+                  :for={{dom_id, item} <- @streams.connection_candidates}
+                  id={dom_id}
+                  class={[
+                    "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                  ]}
+                >
+                  <% segment = candidate_primary_segment(item.candidate) %>
+                  <div class={["flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"]}>
+                    <div class={["min-w-0"]}>
+                      <div class={["flex flex-wrap items-center gap-2"]}>
+                        <strong class={["text-base text-slate-950"]}>{train_label(segment)}</strong>
+                        <span
+                          class={[
+                            "rounded-full px-2.5 py-1 text-xs font-bold",
+                            candidate_status_style(segment)
+                          ]}
+                          id={"connection-delay-#{item.id}"}
+                          data-delay-minutes={delay_minutes(segment)}
+                          data-cancelled={to_string(Map.get(segment, :cancelled, false))}
+                        >
+                          {candidate_status_label(segment)}
+                        </span>
+                      </div>
+                      <p class={["mt-2 text-sm font-semibold text-slate-700"]}>
+                        {format_time(segment.scheduled_departure)} Uhr · {@claim.origin} → {@claim.destination}
+                      </p>
+                      <p class={["mt-1 text-xs text-slate-500"]}>
+                        Aktueller Stand: {candidate_current_time(segment)} · abgerufen {format_datetime(
+                          item.candidate.fetched_at
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      id={"choose-connection-#{item.id}"}
+                      type="button"
+                      phx-click="choose_connection"
+                      phx-value-index={item.id}
+                      disabled={!editable?(@claim.status)}
+                      class={[
+                        "inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      ]}
+                    >
+                      Verbindung übernehmen
+                    </button>
+                  </div>
+                </article>
+              </div>
+
+              <details
+                class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
+                open={!@planned_complete?}
+              >
+                <summary class={[
+                  "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
+                ]}>
+                  Verbindung manuell eingeben oder korrigieren
+                </summary>
+                <.form
+                  for={@planned_form}
+                  id="planned-journey-form"
+                  phx-submit="save_planned_journey"
+                  class={["border-t border-slate-200 p-4 sm:p-5"]}
+                >
+                  <div class={["grid gap-5 sm:grid-cols-2"]}>
+                    <.input field={@planned_form[:origin_name]} label="Startbahnhof" />
+                    <.input field={@planned_form[:destination_name]} label="Zielbahnhof" />
+                    <.input field={@planned_form[:train_category]} label="Zuggattung" />
+                    <.input field={@planned_form[:train_number]} label="Zugnummer" />
+                    <.input
+                      field={@planned_form[:scheduled_departure]}
+                      type="datetime-local"
+                      label="Planmäßige Abfahrt"
+                    />
+                    <.input
+                      field={@planned_form[:scheduled_arrival]}
+                      type="datetime-local"
+                      label="Planmäßige Ankunft"
+                    />
+                  </div>
+                  <button
+                    id="save-planned-journey"
+                    type="submit"
+                    disabled={!editable?(@claim.status)}
+                    class={[
+                      "mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    ]}
+                  >
+                    <.icon name="hero-check" class="size-5" /> Geplante Verbindung bestätigen
+                  </button>
+                </.form>
+              </details>
+            </section>
+
+            <section
+              id="actual-journey-section"
+              data-state={@actual_state}
+              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
+            >
+              <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
+                <div>
+                  <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
+                    Schritt 5
+                  </p>
+                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                    Tatsächliche Reise bestätigen
+                  </h2>
+                  <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
+                    Wähle die Störung ausdrücklich und prüfe besonders die tatsächliche Ankunft am Ziel.
+                  </p>
+                </div>
+                <.step_badge state={@actual_state} />
+              </div>
+
+              <div id="disruption-choice" class={["mt-6 grid grid-cols-2 gap-3"]}>
+                <button
+                  id="choose-delay"
+                  type="button"
+                  phx-click="set_disruption"
+                  phx-value-type="delay"
+                  disabled={!editable?(@claim.status)}
+                  class={[
+                    "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+                    disruption_choice_style(@claim.disruption_type == :delay)
+                  ]}
+                >
+                  <.icon name="hero-clock" class="size-6" />
+                  <strong class={["mt-3 block text-sm"]}>Verspätung</strong>
+                  <span class={["mt-1 block text-xs opacity-75"]}>Zug fuhr, kam aber später an</span>
+                </button>
+                <button
+                  id="choose-cancellation"
+                  type="button"
+                  phx-click="set_disruption"
+                  phx-value-type="cancellation"
+                  disabled={!editable?(@claim.status)}
+                  class={[
+                    "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+                    disruption_choice_style(@claim.disruption_type == :cancellation)
+                  ]}
+                >
+                  <.icon name="hero-no-symbol" class="size-6" />
+                  <strong class={["mt-3 block text-sm"]}>Zugausfall</strong>
+                  <span class={["mt-1 block text-xs opacity-75"]}>Mit Ersatzverbindung erfassen</span>
+                </button>
+              </div>
+
+              <div
+                :if={@actual_journey}
+                id="api-delay-summary"
+                class={["mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4"]}
+              >
+                <p class={["text-xs font-bold uppercase tracking-wide text-sky-800"]}>
+                  Übernommener Datenstand
+                </p>
+                <p class={["mt-2 text-sm font-semibold text-slate-950"]}>
+                  {journey_delay_summary(@actual_journey)}
+                </p>
+                <p class={["mt-1 text-xs text-slate-600"]}>
+                  API-Werte sind Vorschläge und können unten korrigiert werden.
+                </p>
+              </div>
+
+              <.form
+                for={@actual_form}
+                id="actual-journey-form"
+                phx-submit="save_actual_journey"
+                class={["mt-6 space-y-5"]}
+              >
+                <div class={["grid gap-5 sm:grid-cols-2"]}>
+                  <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
+                  <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+                  <.input field={@actual_form[:train_category]} label="Zuggattung" />
+                  <.input field={@actual_form[:train_number]} label="Zugnummer" />
+                  <.input
+                    field={@actual_form[:scheduled_departure]}
+                    type="datetime-local"
+                    label="Planmäßige Abfahrt"
+                  />
+                  <.input
+                    field={@actual_form[:scheduled_arrival]}
+                    type="datetime-local"
+                    label="Planmäßige Ankunft"
+                  />
+                  <.input
+                    field={@actual_form[:actual_departure]}
+                    type="datetime-local"
+                    label="Tatsächliche/Prognose-Abfahrt"
+                  />
+                  <.input
+                    field={@actual_form[:actual_arrival]}
+                    type="datetime-local"
+                    label="Tatsächliche Ankunft am Ziel"
+                  />
+                </div>
+
+                <div
+                  :if={@claim.disruption_type == :cancellation}
+                  id="replacement-connection-fields"
+                  class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+                >
+                  <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
+                  <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+                    <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
+                    <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
+                    <.input
+                      field={@actual_form[:replacement_departure]}
+                      type="datetime-local"
+                      label="Abfahrt Ersatz"
+                    />
+                    <.input
+                      field={@actual_form[:replacement_arrival]}
+                      type="datetime-local"
+                      label="Ankunft Ersatz"
+                    />
+                  </div>
+                </div>
+                <button
+                  id="save-actual-journey"
+                  type="submit"
+                  disabled={!editable?(@claim.status)}
+                  class={[
+                    "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+                  ]}
+                >
+                  <.icon name="hero-check" class="size-5" /> Tatsächliche Reise bestätigen
+                </button>
+              </.form>
+            </section>
+
+            <section
+              id="claim-review-export-section"
+              data-state={@export_state_label}
+              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
+            >
+              <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
+                <div>
+                  <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
+                    Schritt 6
+                  </p>
+                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                    Prüfen und Gesamt-PDF erstellen
+                  </h2>
+                  <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
+                    Die Ausgabe enthält Deckblatt, offizielles Formular, Ticket und Rechnung. Das Unterschriftsfeld bleibt frei.
+                  </p>
+                </div>
+                <.step_badge state={@export_state_label} />
+              </div>
+
+              <div id="review-checklist" class={["mt-6 grid gap-3 sm:grid-cols-2"]}>
+                <.review_check label="Reisendenprofil" done?={@profile_complete?} />
+                <.review_check label="Falldaten" done?={@claim_complete?} />
+                <.review_check label="Ticket & Rechnung" done?={@documents_complete?} />
+                <.review_check label="Geplante Verbindung" done?={@planned_complete?} />
+                <.review_check label="Tatsächliche Reise" done?={@actual_complete?} />
+              </div>
+
+              <div id="claim-api-sources" phx-update="stream" class={["mt-6 grid gap-2"]}>
+                <p
+                  id="api-sources-heading"
+                  class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}
+                >
+                  Quellen und Abrufzeiten
+                </p>
+                <div
+                  id="api-sources-empty"
+                  class={["hidden rounded-xl bg-slate-50 p-3 text-xs text-slate-500 only:block"]}
+                >
+                  Keine API-Quelle gespeichert; manuelle Angaben sind zulässig.
+                </div>
+                <div
+                  :for={{dom_id, source} <- @streams.api_sources}
+                  id={dom_id}
+                  class={["rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-600"]}
+                >
+                  {source_label(source.operation)} · {source.provider} · {format_datetime(
+                    source.fetched_at
+                  )}
+                </div>
+              </div>
+
+              <div
+                :if={!@review_complete?}
+                id="export-blocked"
+                class={["mt-6 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900"]}
+              >
+                Vor der PDF-Erzeugung sind noch Angaben offen. Ergänze die oben markierten Schritte.
+              </div>
+              <button
+                id="generate-export-button"
+                type="button"
+                phx-click="generate_export"
+                phx-disable-with="PDF wird erstellt …"
+                disabled={!@review_complete? || @claim.status != :draft}
+                class={[
+                  "mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+                ]}
+              >
+                <.icon name="hero-document-arrow-down" class="size-5" /> Druckfertiges PDF erstellen
+              </button>
+
+              <div id="claim-exports" phx-update="stream" class={["mt-6 grid gap-3"]}>
+                <article
+                  :for={{dom_id, export} <- @streams.exports}
+                  id={dom_id}
+                  class={[
+                    "flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  ]}
+                >
+                  <div>
+                    <p class={["text-sm font-semibold text-emerald-950"]}>
+                      Ausgabe {export.version} · druckfertig
+                    </p>
+                    <p class={["mt-1 text-xs text-emerald-800"]}>
+                      Erstellt {format_datetime(export.inserted_at)}
+                    </p>
+                  </div>
+                  <a
+                    id={"download-export-#{export.id}"}
+                    href={~p"/dokumente/#{export.bundle_document_id}/download"}
+                    class={[
+                      "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                    ]}
+                  >
+                    <.icon name="hero-arrow-down-tray" class="size-5" /> Gesamt-PDF laden
+                  </a>
+                </article>
+              </div>
+            </section>
           </div>
 
           <aside class={["space-y-5"]}>
@@ -578,14 +1144,17 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"]}>
                 Ablauf
               </p>
-              <h2 class={["mt-2 text-lg font-semibold text-slate-950"]}>Nächste Bausteine</h2>
+              <h2 class={["mt-2 text-lg font-semibold text-slate-950"]}>Dein Fortschritt</h2>
               <ol class={["mt-5 space-y-3"]}>
                 <li
                   :for={
                     {label, done?} <- [
                       {"Reisendenprofil", @profile_complete?},
                       {"Falldaten", @claim_complete?},
-                      {"Ticket & Rechnung", @documents_complete?}
+                      {"Ticket & Rechnung", @documents_complete?},
+                      {"Geplante Verbindung", @planned_complete?},
+                      {"Tatsächliche Reise", @actual_complete?},
+                      {"Druckfertiges PDF", @exports_available?}
                     ]
                   }
                   class={["flex items-center gap-3 rounded-xl bg-slate-50 px-3.5 py-3"]}
@@ -601,21 +1170,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   </span>
                   <span class={["text-sm font-semibold text-slate-700"]}>{label}</span>
                 </li>
-                <li class={[
-                  "flex items-center gap-3 rounded-xl border border-dashed border-slate-200 px-3.5 py-3 text-slate-400"
-                ]}>
-                  <span class={[
-                    "flex size-7 items-center justify-center rounded-full border border-slate-200"
-                  ]}>4</span>
-                  <span class={["text-sm font-semibold"]}>Reiseverlauf & PDF-Ausgabe</span>
-                </li>
               </ol>
-              <p class={["mt-4 rounded-xl bg-amber-50 px-3.5 py-3 text-xs leading-5 text-amber-900"]}>
-                Reiseabgleich und druckfertiges Gesamt-PDF folgen mit C04/C05. Deine jetzigen Angaben und Dokumente bleiben erhalten.
-              </p>
               <.link
                 id="claim-profile-link"
-                navigate={~p"/profil"}
+                navigate={~p"/profil?antrag=#{@claim.id}"}
                 class={[
                   "mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
                 ]}
@@ -693,6 +1251,45 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         </div>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :state, :atom, required: true
+
+  def step_badge(assigns) do
+    ~H"""
+    <span class={[
+      "inline-flex w-fit shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+      step_badge_style(@state)
+    ]}>
+      <.icon name={step_badge_icon(@state)} class="size-4" /> {step_badge_label(@state)}
+    </span>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :done?, :boolean, required: true
+
+  def review_check(assigns) do
+    ~H"""
+    <div class={[
+      "flex items-center gap-3 rounded-xl border px-3.5 py-3",
+      if(@done?, do: "border-emerald-200 bg-emerald-50", else: "border-amber-200 bg-amber-50")
+    ]}>
+      <span class={[
+        "flex size-7 shrink-0 items-center justify-center rounded-full",
+        if(@done?, do: "bg-emerald-600 text-white", else: "bg-amber-100 text-amber-800")
+      ]}>
+        <.icon name={if(@done?, do: "hero-check", else: "hero-exclamation-triangle")} class="size-4" />
+      </span>
+      <span class={["text-sm font-semibold text-slate-800"]}>{@label}</span>
+      <span class={[
+        "ml-auto text-xs font-semibold",
+        if(@done?, do: "text-emerald-700", else: "text-amber-800")
+      ]}>
+        {if(@done?, do: "Bestätigt", else: "Offen")}
+      </span>
+    </div>
     """
   end
 
@@ -856,9 +1453,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     scope = socket.assigns.current_scope
     {:ok, documents} = Documents.list_documents(scope, claim.id)
     {:ok, changeset} = Claims.change_claim(scope, claim.id)
+    {:ok, exports} = Exports.list_exports(scope, claim.id)
+    {:ok, api_sources} = Rail.list_api_snapshots(scope, claim.id)
+    planned_journey = optional_journey(scope, claim.id, :planned)
+    actual_journey = optional_journey(scope, claim.id, :actual)
 
     suggestions =
-      Enum.flat_map(documents, fn document ->
+      documents
+      |> Enum.filter(&(&1.kind in @upload_kinds))
+      |> Enum.flat_map(fn document ->
         case Tickets.list_suggestions(scope, document.id) do
           {:ok, items} -> items
           {:error, _reason} -> []
@@ -870,9 +1473,27 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     claim_complete? = claim_complete?(claim)
     documents_complete? = Enum.all?(@upload_kinds, &Map.has_key?(documents_by_kind, &1))
     profile_complete? = Accounts.profile_complete?(scope)
+    planned_complete? = journey_complete?(planned_journey, :planned)
+    actual_complete? = journey_complete?(actual_journey, :actual)
+
+    review_complete? =
+      profile_complete? && claim_complete? && documents_complete? && planned_complete? &&
+        actual_complete?
+
+    exports_available? = exports != []
 
     completed_steps =
-      Enum.count([profile_complete?, claim_complete?, documents_complete?], & &1)
+      Enum.count(
+        [
+          profile_complete?,
+          claim_complete?,
+          documents_complete?,
+          planned_complete?,
+          actual_complete?,
+          exports_available?
+        ],
+        & &1
+      )
 
     socket
     |> assign(:claim, claim)
@@ -883,9 +1504,318 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:claim_complete?, claim_complete?)
     |> assign(:documents_complete?, documents_complete?)
     |> assign(:profile_complete?, profile_complete?)
+    |> assign(:planned_journey, planned_journey)
+    |> assign(:actual_journey, actual_journey)
+    |> assign(:planned_complete?, planned_complete?)
+    |> assign(:actual_complete?, actual_complete?)
+    |> assign(:review_complete?, review_complete?)
+    |> assign(:exports_available?, exports_available?)
+    |> assign(:planned_state, step_state(planned_complete?, !is_nil(planned_journey)))
+    |> assign(:actual_state, step_state(actual_complete?, !is_nil(actual_journey)))
+    |> assign(:export_state_label, step_state(exports_available?, review_complete?))
+    |> assign(:planned_form, to_form(planned_form_data(claim, planned_journey), as: :planned))
+    |> assign(
+      :actual_form,
+      to_form(actual_form_data(claim, planned_journey, actual_journey), as: :actual)
+    )
+    |> assign(
+      :connection_search_form,
+      to_form(connection_search_data(claim, planned_journey), as: :connection_search)
+    )
     |> assign(:completed_steps, completed_steps)
     |> stream(:suggestions, suggestions, reset: true)
+    |> stream(:exports, Enum.reverse(exports), reset: true)
+    |> stream(:api_sources, Enum.reverse(api_sources), reset: true)
   end
+
+  defp optional_journey(scope, claim_id, kind) do
+    case Rail.get_journey(scope, claim_id, kind) do
+      {:ok, journey} -> journey
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp find_connections(socket, params) do
+    scope = socket.assigns.current_scope
+    claim = socket.assigns.claim
+
+    with {:ok, departure_at} <- parse_datetime(params["departure_at"]),
+         {:ok, [origin | _]} <- Rail.search_stations(scope, claim.id, params["origin"] || ""),
+         {:ok, [destination | _]} <-
+           Rail.search_stations(scope, claim.id, params["destination"] || "") do
+      query = %{origin: origin.id, destination: destination.id, departure_at: departure_at}
+
+      case Rail.search_connections(scope, claim.id, query) do
+        {:ok, candidates} ->
+          {:ok, filter_candidates(candidates, params)}
+
+        {:error, :unsupported} ->
+          until = DateTime.add(departure_at, 6, :hour)
+
+          case Rail.departures(scope, claim.id, origin.id, departure_at, until) do
+            {:ok, candidates} -> {:ok, filter_candidates(candidates, params)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, []} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp filter_candidates(candidates, params) do
+    train_number = params["train_number"] |> to_string() |> String.trim()
+
+    if train_number == "" do
+      candidates
+    else
+      Enum.filter(candidates, fn candidate ->
+        Enum.any?(candidate.segments, &(&1.train_number == train_number))
+      end)
+    end
+  end
+
+  defp candidate_segments(candidate, claim) do
+    last_index = length(candidate.segments) - 1
+
+    candidate.segments
+    |> Enum.with_index()
+    |> Enum.map(fn {segment, index} ->
+      segment
+      |> Map.new()
+      |> Map.put(:origin_name, if(index == 0, do: claim.origin, else: segment.origin_name))
+      |> Map.put(
+        :destination_name,
+        if(index == last_index, do: claim.destination, else: segment.destination_name)
+      )
+    end)
+  end
+
+  defp planned_segments(segments) do
+    Enum.map(segments, fn segment ->
+      segment
+      |> Map.put(:actual_departure, nil)
+      |> Map.put(:actual_arrival, nil)
+      |> Map.put(:estimated_departure, nil)
+      |> Map.put(:estimated_arrival, nil)
+      |> Map.put(:cancelled, false)
+    end)
+  end
+
+  defp build_planned_segment(params) do
+    with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
+         {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
+         :ok <- validate_order(scheduled_departure, scheduled_arrival) do
+      {:ok,
+       %{
+         origin_name: params["origin_name"],
+         destination_name: params["destination_name"],
+         train_category: params["train_category"],
+         train_number: params["train_number"],
+         scheduled_departure: scheduled_departure,
+         scheduled_arrival: scheduled_arrival,
+         source: "manual",
+         manual: true
+       }}
+    end
+  end
+
+  defp parse_datetime(value) when is_binary(value) do
+    normalized = if String.length(value) == 16, do: value <> ":00", else: value
+
+    with {:ok, naive} <- NaiveDateTime.from_iso8601(normalized) do
+      {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+    else
+      _error -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_datetime(_value), do: {:error, :invalid_datetime}
+  defp parse_optional_datetime(value) when value in [nil, ""], do: {:ok, nil}
+  defp parse_optional_datetime(value), do: parse_datetime(value)
+
+  defp validate_order(from, until) do
+    if DateTime.compare(until, from) == :lt,
+      do: {:error, :invalid_time_order},
+      else: :ok
+  end
+
+  defp build_actual_segments(params, assigns) do
+    case assigns.claim.disruption_type do
+      :delay -> build_delay_segment(params)
+      :cancellation -> build_cancellation_segments(params, assigns.planned_journey)
+      _other -> {:error, :missing_disruption}
+    end
+  end
+
+  defp build_delay_segment(params) do
+    with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
+         {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
+         {:ok, actual_departure} <- parse_optional_datetime(params["actual_departure"]),
+         {:ok, actual_arrival} <- parse_datetime(params["actual_arrival"]),
+         :ok <- validate_order(scheduled_departure, scheduled_arrival) do
+      {:ok,
+       [
+         %{
+           origin_name: params["origin_name"],
+           destination_name: params["destination_name"],
+           train_category: params["train_category"],
+           train_number: params["train_number"],
+           scheduled_departure: scheduled_departure,
+           scheduled_arrival: scheduled_arrival,
+           actual_departure: actual_departure,
+           actual_arrival: actual_arrival,
+           cancelled: false,
+           source: "manual",
+           manual: true
+         }
+       ]}
+    end
+  end
+
+  defp build_cancellation_segments(_params, nil), do: {:error, :missing_planned}
+
+  defp build_cancellation_segments(params, planned_journey) do
+    planned = List.first(planned_journey.segments)
+
+    with {:ok, replacement_departure} <- parse_datetime(params["replacement_departure"]),
+         {:ok, replacement_arrival} <- parse_datetime(params["replacement_arrival"]),
+         :ok <- validate_order(replacement_departure, replacement_arrival) do
+      cancelled =
+        planned
+        |> Map.from_struct()
+        |> Map.drop([:__meta__, :id, :journey, :journey_id, :inserted_at, :updated_at, :position])
+        |> Map.put(:actual_departure, nil)
+        |> Map.put(:actual_arrival, nil)
+        |> Map.put(:estimated_departure, nil)
+        |> Map.put(:estimated_arrival, nil)
+        |> Map.put(:cancelled, true)
+        |> Map.put(:source, "manual")
+        |> Map.put(:manual, true)
+
+      replacement = %{
+        origin_name: params["origin_name"],
+        destination_name: params["destination_name"],
+        train_category: params["replacement_category"],
+        train_number: params["replacement_number"],
+        scheduled_departure: replacement_departure,
+        scheduled_arrival: replacement_arrival,
+        actual_departure: replacement_departure,
+        actual_arrival: replacement_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      {:ok, [cancelled, replacement]}
+    end
+  end
+
+  defp journey_complete?(nil, _kind), do: false
+
+  defp journey_complete?(journey, :planned) do
+    journey.segments != [] &&
+      Enum.all?(journey.segments, &(&1.scheduled_departure && &1.scheduled_arrival))
+  end
+
+  defp journey_complete?(journey, :actual) do
+    journey.segments != [] &&
+      Enum.any?(journey.segments, &(&1.actual_arrival || &1.estimated_arrival))
+  end
+
+  defp planned_form_data(claim, nil) do
+    %{
+      "origin_name" => claim.origin || "",
+      "destination_name" => claim.destination || "",
+      "train_category" => "",
+      "train_number" => "",
+      "scheduled_departure" => default_departure(claim),
+      "scheduled_arrival" => ""
+    }
+  end
+
+  defp planned_form_data(_claim, journey) do
+    first = List.first(journey.segments)
+    last = List.last(journey.segments)
+
+    %{
+      "origin_name" => first.origin_name || "",
+      "destination_name" => last.destination_name || "",
+      "train_category" => first.train_category || "",
+      "train_number" => first.train_number || "",
+      "scheduled_departure" => datetime_local(first.scheduled_departure),
+      "scheduled_arrival" => datetime_local(last.scheduled_arrival)
+    }
+  end
+
+  defp actual_form_data(claim, planned, nil) do
+    planned_data = planned_form_data(claim, planned)
+
+    Map.merge(planned_data, %{
+      "actual_departure" => "",
+      "actual_arrival" => "",
+      "replacement_category" => "",
+      "replacement_number" => "",
+      "replacement_departure" => "",
+      "replacement_arrival" => ""
+    })
+  end
+
+  defp actual_form_data(claim, planned, journey) do
+    first = List.first(journey.segments)
+    last = List.last(journey.segments)
+
+    claim
+    |> actual_form_data(planned, nil)
+    |> Map.put("origin_name", first.origin_name || claim.origin || "")
+    |> Map.put("destination_name", last.destination_name || claim.destination || "")
+    |> Map.put("train_category", first.train_category || "")
+    |> Map.put("train_number", first.train_number || "")
+    |> Map.put("scheduled_departure", datetime_local(first.scheduled_departure))
+    |> Map.put("scheduled_arrival", datetime_local(first.scheduled_arrival))
+    |> Map.put(
+      "actual_departure",
+      datetime_local(first.actual_departure || first.estimated_departure)
+    )
+    |> Map.put("actual_arrival", datetime_local(last.actual_arrival || last.estimated_arrival))
+    |> maybe_put_replacement(journey)
+  end
+
+  defp maybe_put_replacement(data, %{segments: [_first, replacement | _rest]}) do
+    data
+    |> Map.put("replacement_category", replacement.train_category || "")
+    |> Map.put("replacement_number", replacement.train_number || "")
+    |> Map.put(
+      "replacement_departure",
+      datetime_local(replacement.actual_departure || replacement.scheduled_departure)
+    )
+    |> Map.put(
+      "replacement_arrival",
+      datetime_local(replacement.actual_arrival || replacement.scheduled_arrival)
+    )
+  end
+
+  defp maybe_put_replacement(data, _journey), do: data
+
+  defp connection_search_data(claim, planned) do
+    planned_data = planned_form_data(claim, planned)
+
+    %{
+      "origin" => claim.origin || "",
+      "destination" => claim.destination || "",
+      "departure_at" => planned_data["scheduled_departure"],
+      "train_number" => planned_data["train_number"]
+    }
+  end
+
+  defp default_departure(%{travel_date: %Date{} = date}), do: "#{Date.to_iso8601(date)}T08:00"
+  defp default_departure(_claim), do: ""
+
+  defp datetime_local(nil), do: ""
+  defp datetime_local(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%dT%H:%M")
 
   defp refresh_workspace(socket) do
     case Claims.get_claim(socket.assigns.current_scope, socket.assigns.claim.id) do
@@ -964,10 +1894,99 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp save_state_style(:invalid), do: "bg-rose-50 text-rose-700"
   defp save_state_style(:conflict), do: "bg-amber-50 text-amber-700"
 
-  defp progress_width(0), do: "w-0"
-  defp progress_width(1), do: "w-1/3"
-  defp progress_width(2), do: "w-2/3"
-  defp progress_width(3), do: "w-full"
+  defp step_state(true, _started?), do: :confirmed
+  defp step_state(false, true), do: :incomplete
+  defp step_state(false, false), do: :open
+
+  defp step_badge_label(:confirmed), do: "Bestätigt"
+  defp step_badge_label(:incomplete), do: "Unvollständig"
+  defp step_badge_label(:open), do: "Offen"
+  defp step_badge_style(:confirmed), do: "bg-emerald-50 text-emerald-700"
+  defp step_badge_style(:incomplete), do: "bg-amber-50 text-amber-800"
+  defp step_badge_style(:open), do: "bg-slate-100 text-slate-600"
+  defp step_badge_icon(:confirmed), do: "hero-check-circle"
+  defp step_badge_icon(:incomplete), do: "hero-exclamation-circle"
+  defp step_badge_icon(:open), do: "hero-minus-circle"
+
+  defp candidate_primary_segment(candidate), do: List.first(candidate.segments) || %{}
+
+  defp candidate_status_label(%{cancelled: true}), do: "Zug fällt aus"
+
+  defp candidate_status_label(segment) do
+    case delay_minutes(segment) do
+      nil -> "Keine Prognose"
+      minutes when minutes <= 0 -> "Pünktlich"
+      minutes -> "+#{minutes} Min."
+    end
+  end
+
+  defp candidate_status_style(%{cancelled: true}), do: "bg-rose-100 text-rose-800"
+
+  defp candidate_status_style(segment) do
+    case delay_minutes(segment) do
+      nil -> "bg-slate-100 text-slate-700"
+      minutes when minutes <= 0 -> "bg-emerald-100 text-emerald-800"
+      minutes when minutes < 60 -> "bg-amber-100 text-amber-800"
+      _minutes -> "bg-rose-100 text-rose-800"
+    end
+  end
+
+  defp delay_minutes(segment) do
+    scheduled = Map.get(segment, :scheduled_arrival) || Map.get(segment, :scheduled_departure)
+
+    current =
+      Map.get(segment, :actual_arrival) || Map.get(segment, :estimated_arrival) ||
+        Map.get(segment, :actual_departure) || Map.get(segment, :estimated_departure)
+
+    if scheduled && current, do: div(DateTime.diff(current, scheduled, :second), 60), else: nil
+  end
+
+  defp candidate_current_time(segment) do
+    current =
+      Map.get(segment, :actual_arrival) || Map.get(segment, :estimated_arrival) ||
+        Map.get(segment, :actual_departure) || Map.get(segment, :estimated_departure)
+
+    if current, do: "#{format_time(current)} Uhr", else: "noch keine Prognose"
+  end
+
+  defp train_label(segment) do
+    [Map.get(segment, :train_category), Map.get(segment, :train_number)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" ")
+    |> case do
+      "" -> "Verbindung"
+      label -> label
+    end
+  end
+
+  defp disruption_choice_style(true),
+    do: "border-rose-700 bg-rose-50 text-rose-900 shadow-sm"
+
+  defp disruption_choice_style(false),
+    do: "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+
+  defp journey_delay_summary(journey) do
+    segment = List.last(journey.segments)
+
+    case delay_minutes(segment) do
+      nil -> "#{train_label(segment)} · tatsächliche Ankunft noch ergänzen"
+      minutes when minutes <= 0 -> "#{train_label(segment)} · derzeit pünktlich"
+      minutes -> "#{train_label(segment)} · derzeit #{minutes} Minuten verspätet"
+    end
+  end
+
+  defp source_label("search_stations"), do: "Bahnhofssuche"
+  defp source_label("search_connections"), do: "Verbindungssuche"
+  defp source_label("departures"), do: "Abfahrten und Abweichungen"
+  defp source_label(operation), do: operation
+
+  defp format_datetime(nil), do: "–"
+
+  defp format_datetime(%DateTime{} = datetime),
+    do: Calendar.strftime(datetime, "%d.%m.%Y, %H:%M Uhr")
+
+  defp format_time(nil), do: "–"
+  defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%H:%M")
 
   defp document_kind_label(:ticket), do: "DB-Ticket"
   defp document_kind_label(:invoice), do: "DB-Rechnung"
@@ -1045,6 +2064,29 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp format_bytes(bytes) when bytes < 1_000_000, do: "#{Float.round(bytes / 1_000, 1)} KB"
   defp format_bytes(bytes), do: "#{Float.round(bytes / 1_000_000, 1)} MB"
+
+  defp journey_error_message(:invalid_datetime), do: "Bitte trage alle benötigten Zeiten ein."
+
+  defp journey_error_message(:invalid_time_order),
+    do: "Die Ankunft darf nicht vor der Abfahrt liegen."
+
+  defp journey_error_message(:missing_disruption),
+    do: "Bitte wähle Verspätung oder Zugausfall."
+
+  defp journey_error_message(:missing_planned),
+    do: "Bestätige zuerst die geplante Verbindung."
+
+  defp journey_error_message(_reason),
+    do: "Die Verbindung konnte nicht bestätigt werden. Bitte prüfe die Angaben."
+
+  defp export_error_message(%{type: :incomplete}),
+    do: "Der Antrag ist noch unvollständig. Prüfe die markierten Schritte."
+
+  defp export_error_message(:template_unavailable),
+    do: "Das offizielle Formular ist derzeit nicht verfügbar."
+
+  defp export_error_message(:timeout), do: "Die PDF-Erzeugung hat zu lange gedauert."
+  defp export_error_message(_reason), do: "Das Gesamt-PDF konnte nicht erstellt werden."
 
   defp upload_error_message(:too_large), do: "Die PDF-Datei ist zu groß."
   defp upload_error_message(:not_accepted), do: "Bitte verwende ausschließlich PDF-Dateien."
