@@ -1,5 +1,37 @@
 import Config
 
+runtime_environment = config_env()
+
+field_encryption_key =
+  case {runtime_environment, System.get_env("FIELD_ENCRYPTION_KEY")} do
+    {:prod, nil} ->
+      raise "FIELD_ENCRYPTION_KEY is missing"
+
+    {_environment, nil} ->
+      :crypto.hash(:sha256, "fahrgastrechte-development-only-field-key")
+
+    {_environment, encoded_key} ->
+      case Base.decode64(encoded_key) do
+        {:ok, key} when byte_size(key) == 32 ->
+          key
+
+        _other ->
+          raise "FIELD_ENCRYPTION_KEY must be a Base64-encoded 32-byte key"
+      end
+  end
+
+field_encryption_key_version =
+  System.get_env("FIELD_ENCRYPTION_KEY_VERSION", "1")
+  |> Integer.parse()
+  |> case do
+    {version, ""} when version > 0 -> version
+    _other -> raise "FIELD_ENCRYPTION_KEY_VERSION must be a positive integer"
+  end
+
+config :fahrgastrechte, Fahrgastrechte.Accounts.BankDataCipher,
+  active_key_version: field_encryption_key_version,
+  keys: %{field_encryption_key_version => field_encryption_key}
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

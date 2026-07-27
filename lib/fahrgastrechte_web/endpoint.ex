@@ -4,11 +4,14 @@ defmodule FahrgastrechteWeb.Endpoint do
   # The session will be stored in the cookie and signed,
   # this means its contents can be read but not tampered with.
   # Set :encryption_salt if you would also like to encrypt it.
+  @secure_session_cookie Application.compile_env(:fahrgastrechte, :secure_session_cookie, true)
   @session_options [
     store: :cookie,
     key: "_fahrgastrechte_key",
     signing_salt: "GGqCH/Ce",
-    same_site: "Lax"
+    same_site: "Lax",
+    http_only: true,
+    secure: @secure_session_cookie
   ]
 
   socket "/live", Phoenix.LiveView.Socket,

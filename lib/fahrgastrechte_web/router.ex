@@ -1,6 +1,8 @@
 defmodule FahrgastrechteWeb.Router do
   use FahrgastrechteWeb, :router
 
+  import FahrgastrechteWeb.UserAuth
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,6 +10,11 @@ defmodule FahrgastrechteWeb.Router do
     plug :put_root_layout, html: {FahrgastrechteWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_current_scope
+  end
+
+  pipeline :authenticated do
+    plug :require_authenticated_user
   end
 
   pipeline :api do
@@ -18,6 +25,15 @@ defmodule FahrgastrechteWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+  end
+
+  scope "/", FahrgastrechteWeb do
+    pipe_through [:browser, :authenticated]
+
+    live_session :require_authenticated_user,
+      on_mount: [{FahrgastrechteWeb.UserAuth, :require_authenticated}] do
+      live "/profil", ProfileLive, :edit
+    end
   end
 
   # Other scopes may use custom stacks.
