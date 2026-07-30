@@ -14,6 +14,7 @@ defmodule Fahrgastrechte.Rail do
   alias Fahrgastrechte.Accounts.User
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Rail.ApiSnapshot
+  alias Fahrgastrechte.Rail.BerlinTime
   alias Fahrgastrechte.Rail.Candidate
   alias Fahrgastrechte.Rail.Journey
   alias Fahrgastrechte.Rail.Segment
@@ -317,22 +318,25 @@ defmodule Fahrgastrechte.Rail do
 
   def travel_summary(_scope, _claim_id), do: {:error, :not_authenticated}
 
-  @doc "Returns stable, structured C05 form values without exposing provider payloads."
+  @doc "Returns outcome-aware C05 form values in Europe/Berlin civil time."
   def form_values(%Scope{} = scope, claim_id) do
-    with {:ok, summary} <- travel_summary(scope, claim_id),
-         :ok <- validate_export_summary(summary) do
-      planned_first = List.first(summary.planned.segments)
-      planned_last = List.last(summary.planned.segments)
+    with {:ok, claim} <- Claims.get_claim(scope, claim_id) do
+      planned = optional_export_journey(scope, claim_id, :planned)
+      actual = optional_export_journey(scope, claim_id, :actual)
+      summary = export_summary(planned, actual)
 
-      {:ok,
-       %{
-         scheduled_departure: planned_first.scheduled_departure,
-         scheduled_arrival: planned_last.scheduled_arrival,
-         first_disrupted_train: export_segment(summary.first_disrupted_segment),
-         missed_connection: export_segment(summary.missed_connection_segment),
-         last_used_train: export_segment(summary.last_used_segment),
-         actual_destination_arrival: summary.actual_destination_arrival
-       }}
+      with :ok <- validate_export_summary(claim, summary) do
+        {:ok,
+         %{
+           scheduled_departure: local_time(summary.scheduled_departure),
+           scheduled_arrival: local_time(summary.scheduled_arrival),
+           first_disrupted_train: export_segment(summary.first_disrupted_segment),
+           missed_connection: export_segment(summary.missed_connection_segment),
+           last_used_train: export_segment(summary.last_used_segment),
+           actual_destination_arrival:
+             form_arrival(claim.journey_outcome, summary.actual_destination_arrival)
+         }}
+      end
     end
   end
 
@@ -686,23 +690,114 @@ defmodule Fahrgastrechte.Rail do
     }
   end
 
-  defp validate_export_summary(summary) do
+  defp optional_export_journey(scope, claim_id, kind) do
+    case get_journey(scope, claim_id, kind) do
+      {:ok, journey} -> journey
+      {:error, :not_found} -> nil
+    end
+  end
+
+  defp export_summary(planned, actual) do
+    planned_segments = if planned, do: planned.segments, else: []
+    actual_segments = if actual, do: actual.segments, else: []
+    planned_first = List.first(planned_segments)
+    planned_last = List.last(planned_segments)
+
+    first_disrupted =
+      if actual do
+        overridden_or_derived(
+          actual,
+          actual.first_disrupted_segment_id,
+          &first_disrupted_segment/1
+        )
+      end
+
+    missed_connection =
+      if actual do
+        overridden_or_derived(
+          actual,
+          actual.missed_connection_segment_id,
+          &missed_connection_segment/1
+        )
+      end
+
+    last_used =
+      if actual do
+        overridden_or_derived(actual, actual.last_used_segment_id, &last_used_segment/1)
+      end
+
+    %{
+      planned_segments: planned_segments,
+      actual_segments: actual_segments,
+      scheduled_departure: planned_first && planned_first.scheduled_departure,
+      scheduled_arrival: planned_last && planned_last.scheduled_arrival,
+      first_disrupted_segment: first_disrupted,
+      missed_connection_segment: missed_connection,
+      last_used_segment: last_used,
+      actual_destination_arrival:
+        if(actual, do: actual.actual_destination_arrival || effective_arrival(last_used))
+    }
+  end
+
+  defp validate_export_summary(claim, summary) do
     errors =
       []
-      |> required_error(summary.planned.segments, :planned_segments)
-      |> required_error(summary.actual.segments, :actual_segments)
-      |> required_error(summary.first_disrupted_segment, :first_disrupted_segment)
-      |> required_error(summary.last_used_segment, :last_used_segment)
-      |> required_error(summary.actual_destination_arrival, :actual_destination_arrival)
+      |> required_error(summary.planned_segments, :planned_segments)
+      |> required_error(summary.scheduled_departure, :scheduled_departure)
+      |> required_error(summary.scheduled_arrival, :scheduled_arrival)
+      |> require_actual_journey(claim.journey_outcome, summary)
+      |> require_missed_connection(claim.disruption_cause, summary)
 
     if errors == [], do: :ok, else: {:error, %{type: :incomplete, errors: Enum.reverse(errors)}}
   end
+
+  defp require_actual_journey(errors, outcome, summary)
+       when outcome in [:delayed_arrival, :aborted, :continued_with_other_transport] do
+    errors =
+      errors
+      |> required_error(summary.actual_segments, :actual_segments)
+      |> required_error(summary.first_disrupted_segment, :first_disrupted_segment)
+
+    case outcome do
+      :delayed_arrival ->
+        errors
+        |> required_error(summary.last_used_segment, :last_used_segment)
+        |> required_error(summary.actual_destination_arrival, :actual_destination_arrival)
+
+      :aborted ->
+        required_error(errors, summary.last_used_segment, :last_used_segment)
+
+      :continued_with_other_transport ->
+        required_error(
+          errors,
+          summary.actual_destination_arrival,
+          :actual_destination_arrival
+        )
+    end
+  end
+
+  defp require_actual_journey(errors, _outcome, _summary), do: errors
+
+  defp require_missed_connection(errors, :missed_connection, summary) do
+    required_error(errors, summary.missed_connection_segment, :missed_connection_segment)
+  end
+
+  defp require_missed_connection(errors, _cause, _summary), do: errors
 
   defp required_error(errors, value, field) when value in [nil, []] do
     [%{source: :rail, field: field, code: :required} | errors]
   end
 
   defp required_error(errors, _value, _field), do: errors
+
+  defp form_arrival(outcome, arrival)
+       when outcome in [:delayed_arrival, :continued_with_other_transport],
+       do: local_time(arrival)
+
+  defp form_arrival(_outcome, _arrival), do: nil
+
+  defp local_time(nil), do: nil
+  defp local_time(%DateTime{} = datetime), do: BerlinTime.to_local(datetime)
 
   defp validate_search_query(query) do
     if String.trim(query) == "", do: {:error, {:upstream, :invalid_query}}, else: :ok

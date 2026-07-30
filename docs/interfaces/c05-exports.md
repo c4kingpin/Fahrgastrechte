@@ -5,16 +5,21 @@ Fahrgastrechte-PDFs. Jede öffentliche Funktion verlangt einen
 Fahrgastrechte.Accounts.Scope; eine Antrag-, Export- oder Dokument-ID allein
 berechtigt nie zum Zugriff.
 
-## Erzeugung
+## Bereitschaft und Erzeugung
 
-generate_export(scope, claim_id, expected_claim_lock_version) liest die
+`readiness(scope, claim_id)` liefert entweder alle geprüften fachlichen
+Voraussetzungen oder eine aggregierte Fehlerliste aus Claim, Profil, Rail und
+Dokumenten. Die spätere Prüfseite kann damit alle offenen Punkte in einem Lauf
+anzeigen.
+
+`generate_export(scope, claim_id, expected_claim_lock_version)` liest die
 Voraussetzungen ausschließlich über die öffentlichen Schnittstellen von
 Accounts, Claims, Documents und Rail. Erforderlich sind:
 
 - ein vollständiger Antrag im Status draft,
 - ein vollständiges Reisendenprofil einschließlich IBAN und BIC,
-- bestätigte geplante und tatsächliche Reisen samt den von C04 abgeleiteten
-  Formularwerten,
+- eine bestätigte geplante Reise und die vom Reiseergebnis abhängigen
+  tatsächlichen Werte von C04,
 - je ein aktuelles Ticket und eine aktuelle Rechnung sowie
 - das konfigurierte, unveränderte Formulartemplate.
 
@@ -60,6 +65,12 @@ oder Reisen invalidieren nur die aktuelle Ausgabe über C02.
 Fremde IDs liefern stets not_found.
 
 ## Template und Betrieb
+
+Das versionierte JSON-Manifest legt Feldnamen, Radio-Werte und bewusst leere
+Felder fest. Vor jedem Rendering werden Konfiguration, Manifestmetadaten,
+Template-Prüfsumme und die erzeugten Radio-Werte gegeneinander geprüft.
+Optionale Profilwerte ohne Formularfeld werden nicht an das PDF-Backend
+übergeben.
 
 Die aufgenommene Version ist „Formular 2025 (ME/08/25)“ mit SHA-256
 4a30f9c7f00593bf5bda1b6eaa2d1b6e293357faa48631a1d7e2ade3b77a39a9.

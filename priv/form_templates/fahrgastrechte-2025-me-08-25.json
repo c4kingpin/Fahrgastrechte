@@ -1,0 +1,58 @@
+{
+  "source_url": "https://cms.static-bahn.de/wmedia/redaktion/aushaenge/fahrgastrechte/Fahrgastrechte-Formular_deutsch-feb25-2.pdf",
+  "checked_at": "2026-07-27",
+  "displayed_version": "Formular 2025 (ME/08/25)",
+  "sha256": "4a30f9c7f00593bf5bda1b6eaa2d1b6e293357faa48631a1d7e2ade3b77a39a9",
+  "pages": 2,
+  "page_size": "A4",
+  "required_fields": [
+    "journey",
+    "planned_day",
+    "planned_month",
+    "planned_year",
+    "planned_direction",
+    "planned_departure_station",
+    "planned_departure_hours",
+    "planned_departure_minutes",
+    "planned_destination_station",
+    "planned_destination_hours",
+    "planned_destination_minutes",
+    "arrived_day",
+    "arrived_month",
+    "arrived_year",
+    "arrived_hours",
+    "arrived_minutes",
+    "ticket_digital",
+    "ticket_digital_number",
+    "compensation",
+    "compensation_accountholder",
+    "compensation_iban",
+    "compensation_bic",
+    "personal",
+    "personal_firstname",
+    "personal_lastname",
+    "personal_street",
+    "personal_housenumber",
+    "personal_postcode",
+    "personal_city",
+    "date",
+    "signature"
+  ],
+  "radio_values": {
+    "journey": [
+      "Verspätung am Ziel (mind. 60 Minuten)",
+      "Reise nicht angetreten (Zugausfall oder erwartete Verspätung am Ziel von mind. 60 Minuten)",
+      "Reise unterwegs abgebrochen und zurück zum Startbahnhof",
+      "Reise unterbrochen und mit anderem Verkehrsmittel fortgesetzt, für das Zusatzkosten entstanden sind"
+    ],
+    "planned_direction": ["Hinfahrt", "Rückfahrt"],
+    "compensation": ["Gutschein", "Geldauszahlung/Überweisung"],
+    "personal": ["Frau", "Herr", "Neutrale Anrede"]
+  },
+  "intentionally_blank": [
+    "signature",
+    "personal_email",
+    "personal_emailaddress",
+    "personal_englishreply"
+  ]
+}
