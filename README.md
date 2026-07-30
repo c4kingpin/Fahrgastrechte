@@ -107,22 +107,28 @@ benötigten Provider- sowie Runtime-Einstellungen sind unter
 
 ## Bereitstellung
 
-Für Proxmox VE steht eine automatisierte Bereitstellung in einem unprivilegierten
-Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
-Betriebshinweise stehen unter
+Die Anwendung wird direkt in einem bereits vorhandenen Debian-LXC installiert.
+Der Installer benötigt keinen Zugriff auf den Proxmox-Host und erstellt oder
+verändert keine Container-Konfiguration. Voraussetzungen, Erstinstallation,
+Updates und Betriebshinweise stehen unter
 [`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md). Zoraxy/TLS,
 verschlüsselte Backups, Restore, Rollback und die Betriebsabnahme sind im selben
 Dokumentationsbereich verlinkt.
 
-Die Community-Scripts-artige Installation wird direkt als `root` auf dem
-Proxmox-Host gestartet:
+Die Installation wird als `root` innerhalb des LXC gestartet:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
 ```
 
-Danach lässt sich die Instanz innerhalb des Containers mit optionalem Git-Ref
-aktualisieren:
+Der öffentliche Hostname kann beim Start gesetzt werden:
+
+```bash
+PHX_HOST=fahrgastrechte.example.org \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
+```
+
+Danach lässt sich die Instanz im Container mit optionalem Git-Ref aktualisieren:
 
 ```bash
 update v0.2.0
