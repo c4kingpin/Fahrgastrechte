@@ -300,7 +300,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_section={:claims}>
       <div id="claim-workspace" class={["space-y-7 pb-14"]}>
         <section class={[
           "overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-7 text-white shadow-[0_30px_80px_-38px_rgba(15,23,42,0.7)] sm:px-9 sm:py-9"
@@ -338,7 +338,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               class={["w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-4"]}
             >
               <div class={["flex items-center justify-between text-xs font-semibold"]}>
-                <span class={["text-slate-300"]}>Verfügbare MVP-Bausteine</span>
+                <span class={["text-slate-300"]}>Bearbeitungsbereiche</span>
                 <span>{@completed_steps} von 6 bestätigt</span>
               </div>
               <div

@@ -35,7 +35,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_section={:claims}>
       <div id="claims-dashboard" class={["space-y-8 pb-14"]}>
         <section class={[
           "relative overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-8 text-white shadow-[0_30px_80px_-36px_rgba(15,23,42,0.65)] sm:px-9 sm:py-10"

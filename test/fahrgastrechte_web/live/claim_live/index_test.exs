@@ -22,6 +22,9 @@ defmodule FahrgastrechteWeb.ClaimLive.IndexTest do
     assert has_element?(view, "#claim-route-filter.scheme-light.bg-white.text-slate-950")
     assert has_element?(view, "#claim-number-filter.scheme-light.bg-white.text-slate-950")
     assert has_element?(view, "#claim-status-filter.scheme-light.bg-white.text-slate-950")
+    assert has_element?(view, "#claims-nav-link[aria-current=page]")
+    assert has_element?(view, "#mobile-navigation")
+    assert has_element?(view, "#logout-link")
     assert has_element?(view, "#claims-empty")
 
     view |> element("#new-claim-button") |> render_click()

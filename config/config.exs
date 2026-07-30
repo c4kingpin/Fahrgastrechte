@@ -10,7 +10,14 @@ import Config
 config :fahrgastrechte,
   ecto_repos: [Fahrgastrechte.Repo],
   generators: [timestamp_type: :utc_datetime],
+  identity_provider: Fahrgastrechte.Accounts.Authentik,
   secure_session_cookie: true
+
+config :fahrgastrechte, Fahrgastrechte.Accounts.Authentik,
+  issuer: nil,
+  client_id: nil,
+  client_secret: nil,
+  allowed_algorithms: ["RS256"]
 
 config :fahrgastrechte, Fahrgastrechte.Documents,
   max_file_size_bytes: 10 * 1024 * 1024,

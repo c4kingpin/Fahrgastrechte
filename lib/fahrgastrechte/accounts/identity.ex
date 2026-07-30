@@ -2,9 +2,8 @@ defmodule Fahrgastrechte.Accounts.Identity do
   @moduledoc """
   The trusted output of an identity provider.
 
-  This struct deliberately does not validate OIDC tokens. The future Authentik
-  adapter must verify the complete OIDC response before it constructs an
-  identity and hands it to `Fahrgastrechte.Accounts`.
+  The Authentik adapter verifies the complete OIDC response before it
+  constructs an identity and hands it to `Fahrgastrechte.Accounts`.
   """
 
   @enforce_keys [:issuer, :subject]
@@ -18,7 +17,7 @@ defmodule Fahrgastrechte.Accounts.Identity do
         }
 
   @doc """
-  Builds the explicit local identity used only while no real login exists.
+  Builds the explicit local identity used for development without Authentik.
   """
   @spec development(map()) :: {:ok, t()} | {:error, :invalid_development_identity}
   def development(%{issuer: issuer, subject: subject} = attrs)
