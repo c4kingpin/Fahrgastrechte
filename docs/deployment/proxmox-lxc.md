@@ -1,10 +1,10 @@
-# Bereitstellung auf Proxmox LXC
+# Bereitstellung direkt im LXC
 
-Die Bereitstellung folgt dem Bedienmodell der
-[Proxmox VE Community Scripts](https://community-scripts.github.io/ProxmoxVE/):
-Ein einzelner Befehl auf dem Proxmox-Host öffnet einen Standard-/Erweitert-Dialog,
-erstellt einen unprivilegierten Debian-LXC und installiert die Anwendung darin.
-Ein Repository-Checkout auf dem Proxmox-Host ist nicht erforderlich.
+Der Installer wird als `root` direkt in einem bereits vorhandenen Debian-LXC
+ausgeführt. Er benötigt keine Proxmox-Werkzeuge und greift weder auf den
+Proxmox-Host noch auf dessen API zu. Die Erstellung des Containers sowie dessen
+VMID-, Storage-, Netzwerk- und Ressourcen-Konfiguration bleiben Aufgabe der
+jeweiligen Virtualisierungsumgebung.
 
 Die konkrete TLS-/Firewall-Konfiguration steht unter
 [`zoraxy.md`](zoraxy.md). Backup, Restore, Migration, Rollback, Secrets und
@@ -14,93 +14,71 @@ praktische Freigabe wird mit der
 
 ## Schnellinstallation
 
-Als `root` in der Shell eines Proxmox-VE-Knotens:
+Als `root` in der Shell des LXC:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
 ```
-
-Im Dialog stehen zwei Modi zur Auswahl:
-
-- **Standard** verwendet die nächste freie VMID, Debian 13, DHCP, `vmbr0`,
-  `local`/`local-lvm`, 2 vCPU, 2 GiB RAM und 8 GiB Disk.
-- **Erweitert** fragt VMID, Hostnamen, Git-Ref, Storages, Bridge,
-  IP-Konfiguration und Ressourcen ab.
 
 Der öffentliche Phoenix-Hostname ist standardmäßig
-`fahrgastrechte.local`. Er kann schon beim Start gesetzt werden:
+`fahrgastrechte.local`. Für eine produktive Installation sollte er direkt beim
+Start gesetzt werden:
 
 ```bash
 PHX_HOST=fahrgastrechte.example.org \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)"
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
 ```
 
-Eine Installation ohne Dialog ist ebenfalls möglich:
+Ein bestimmter Branch, Tag oder Commit lässt sich über `APP_REF` installieren:
 
 ```bash
-VMID=240 \
 PHX_HOST=fahrgastrechte.example.org \
-IP_CONFIG='ip=192.168.1.40/24,gw=192.168.1.1' \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)" -- --defaults
+APP_REF=v0.2.0 \
+INSTALLER_REF=v0.2.0 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/v0.2.0/install/fahrgastrechte-install.sh)"
 ```
 
-Mit `--advanced` wird direkt der erweiterte Dialog geöffnet. `--dry-run`
-zeigt nur die resultierende Konfiguration an.
-
-Wurde eine Erstinstallation nach der Container-Erstellung unterbrochen, kann
-derselbe Container gezielt weiterverwendet werden:
+Vor der Installation können die Voraussetzungen ohne Änderungen geprüft werden:
 
 ```bash
-VMID=104 \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/ct/fahrgastrechte.sh)" -- --defaults --reuse
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)" -- --check
 ```
 
-`--reuse` verlangt immer eine explizite VMID und erstellt keinen neuen
-Container. Für eine bereits vollständig installierte Instanz ist stattdessen
-das unten beschriebene `update`-Kommando vorgesehen.
-
-> Ein `curl | bash`-Einzeiler führt den aktuellen Stand des angegebenen
-> Branches als `root` aus. Für reproduzierbare Produktionsinstallationen
-> sollte ein geprüfter Release-Tag oder Commit-SHA für Einstieg, Installer und
-> App verwendet und das Script vor der Ausführung kontrolliert werden:
->
-> ```bash
-> INSTALLER_REF=v0.2.0 APP_REF=v0.2.0 \
->   bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/v0.2.0/ct/fahrgastrechte.sh)" -- --defaults
-> ```
+> Ein `curl | bash`-Einzeiler führt den heruntergeladenen Stand als `root` aus.
+> Für reproduzierbare Produktionsinstallationen sollten ein geprüfter
+> Release-Tag oder vollständiger Commit-SHA verwendet und das Script vor der
+> Ausführung kontrolliert werden.
 
 ## Aufbau des Deployments
 
-Die Trennung entspricht dem Community-Scripts-Muster:
+1. [`install/fahrgastrechte-install.sh`](../../install/fahrgastrechte-install.sh)
+   prüft, dass es in einem Debian-LXC mit systemd läuft. Anschließend installiert
+   es PostgreSQL und die Toolchain, baut die OTP-Release, migriert die Datenbank
+   und richtet systemd ein.
+2. Der Installer legt `fahrgastrechte-update` und den kurzen Alias `update` unter
+   `/usr/local/bin` an. Derselbe Installer übernimmt danach idempotent alle
+   Aktualisierungen.
+3. [`ct/fahrgastrechte.sh`](../../ct/fahrgastrechte.sh) bleibt als kompatibler
+   Bootstrap erhalten, erstellt aber keinen LXC mehr und startet ebenfalls den
+   Installer im aktuellen Container.
 
-1. [`ct/fahrgastrechte.sh`](../../ct/fahrgastrechte.sh) läuft ausschließlich
-   auf dem Proxmox-Host. Es sammelt die Einstellungen, lädt ein Debian-Template
-   und erstellt den LXC.
-2. [`install/fahrgastrechte-install.sh`](../../install/fahrgastrechte-install.sh)
-   wird in den Container übertragen. Es installiert PostgreSQL und die
-   Toolchain, baut die OTP-Release, migriert die Datenbank und richtet systemd
-   ein.
-3. Der Container-Installer legt `fahrgastrechte-update` und den kurzen Alias
-   `update` unter `/usr/local/bin` an. Derselbe Installer übernimmt danach
-   idempotent alle Aktualisierungen.
-
-Die vorhandenen Scripte unter `scripts/deploy/` bleiben als Wrapper für lokale
-Checkouts und bestehende Automatisierung erhalten.
+Für lokale Repository-Checkouts steht
+[`scripts/deploy/provision-lxc.sh`](../../scripts/deploy/provision-lxc.sh) als
+Wrapper zur Verfügung.
 
 ## Voraussetzungen
 
-- Proxmox VE mit `pct`, `pveam`, `pvesh` und `curl`
-- Storage für Container-Templates (Standard: `local`)
-- Storage für das Root-Dateisystem (Standard: `local-lvm`)
-- Netzwerk-Bridge (Standard: `vmbr0`) mit DHCP oder statischer Konfiguration
-- Internetzugriff aus dem LXC auf Debian-, GitHub-, Hex- und Toolchain-Quellen
-- mindestens 2 GiB RAM, 2 vCPU und 8 GiB Speicherplatz
+- bereits erstellter Debian-LXC (Debian 12 oder 13) mit systemd
+- Ausführung als `root` innerhalb des Containers
+- `curl` und Internetzugriff auf Debian-, GitHub-, Hex- und Toolchain-Quellen
+- mindestens 2 GiB RAM, 2 vCPU und 8 GiB Speicherplatz für Installation und
+  spätere Updates
+- vom Reverse-Proxy erreichbares LXC-Netzwerk
 
 Die erste Installation kompiliert die in `.tool-versions` festgelegte
 Erlang-/Elixir-Version und kann deshalb einige Zeit dauern. Die Mindestwerte
 berücksichtigen diesen Build; für den reinen App-Betrieb wäre weniger möglich,
-würde aber spätere Updates unnötig störanfällig machen. Auf dem Proxmox-Host
-selbst werden Elixir und PostgreSQL nicht installiert.
+würde aber spätere Updates unnötig störanfällig machen.
 
 ## Was im Container eingerichtet wird
 
@@ -119,35 +97,21 @@ selbst werden Elixir und PostgreSQL nicht installiert.
 
 Secrets liegen nur in
 `/etc/fahrgastrechte/fahrgastrechte.env` (Gruppe `fahrgastrechte`,
-Modus `0640`). Sie werden weder in Git geschrieben noch auf dem
-Proxmox-Host ausgegeben.
+Modus `0640`). Sie werden weder in Git geschrieben noch in der
+Installer-Ausgabe offengelegt.
 
 ## Updates
 
-Am einfachsten wird innerhalb des Containers aktualisiert:
+Innerhalb des Containers installiert `update` den aktuellen Stand von `main`:
 
 ```bash
-pct enter 240
 update
 ```
 
-`update` installiert den aktuellen Stand von `main`. Ein Branch, Tag oder
-Commit kann explizit angegeben werden:
+Ein Branch, Tag oder Commit kann explizit angegeben werden:
 
 ```bash
 update v0.2.0
-```
-
-Alternativ direkt vom Proxmox-Host:
-
-```bash
-pct exec 240 -- update v0.2.0
-```
-
-Für einen lokalen Repository-Checkout steht weiterhin ein Wrapper zur Verfügung:
-
-```bash
-scripts/deploy/update-proxmox-lxc.sh 240 v0.2.0
 ```
 
 Repository, externer Hostname, Datenbankzugang und Verschlüsselungs-Secrets werden
@@ -174,8 +138,8 @@ X-Forwarded-Proto: https
 X-Forwarded-For: <Client-IP>
 ```
 
-Port 4000 sollte über Proxmox-Firewall oder Netzsegmentierung nur für den
-Reverse-Proxy erreichbar sein.
+Port 4000 sollte über die Firewall der Virtualisierungsumgebung oder über
+Netzsegmentierung nur für den Reverse-Proxy erreichbar sein.
 
 Host-/Forwarded-Header, Firewall und LiveView-WebSocket werden nach
 [`zoraxy.md`](zoraxy.md) konfiguriert und mit
@@ -184,13 +148,13 @@ Host-/Forwarded-Header, Firewall und LiveView-WebSocket werden nach
 ## Betrieb und Diagnose
 
 ```bash
-pct exec 240 -- systemctl status fahrgastrechte
-pct exec 240 -- journalctl -u fahrgastrechte -n 100 --no-pager
-pct exec 240 -- curl \
+systemctl status fahrgastrechte
+journalctl -u fahrgastrechte -n 100 --no-pager
+curl \
   -H 'Host: fahrgastrechte.example.org' \
   -H 'X-Forwarded-Proto: https' \
   http://127.0.0.1:4000/readyz
-pct exec 240 -- fahrgastrechte-backup
+fahrgastrechte-backup
 ```
 
 Die verschlüsselten Backup-Dateien müssen regelmäßig auf ein getrenntes System

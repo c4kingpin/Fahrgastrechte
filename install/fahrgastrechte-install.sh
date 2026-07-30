@@ -26,6 +26,28 @@ INSTALLER_BASE_URL="${INSTALLER_BASE_URL:-$DEFAULT_INSTALLER_BASE_URL}"
 INSTALLER_REF="${INSTALLER_REF:-main}"
 PHX_HOST="${PHX_HOST:-}"
 
+usage() {
+  cat <<'USAGE'
+Fahrgastrechte direkt in einem Debian-LXC installieren oder aktualisieren.
+
+Als root innerhalb des Containers:
+
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
+
+Konfiguration erfolgt über Umgebungsvariablen:
+  PHX_HOST              Öffentlicher Hostname (Standard: fahrgastrechte.local)
+  APP_REF               Zu installierender Git-Ref (Standard: main)
+  APP_REPOSITORY        Git-Repository der Anwendung
+  INSTALLER_REF         Ref für spätere Installer-Updates (Standard: main)
+  INSTALLER_BASE_URL    Basis-URL für spätere Installer-Updates
+  BACKUP_AGE_RECIPIENT  Optionaler Age-Empfänger für externe Backups
+
+Optionen:
+  --check       LXC-Voraussetzungen prüfen, ohne Änderungen vorzunehmen
+  -h, --help    Hilfe anzeigen
+USAGE
+}
+
 log() {
   printf '[fahrgastrechte-install] %s\n' "$*"
 }
@@ -33,6 +55,30 @@ log() {
 die() {
   printf '[fahrgastrechte-install] Fehler: %s\n' "$*" >&2
   exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 ||
+    die "Benötigtes Kommando fehlt: $1"
+}
+
+check_lxc_environment() {
+  local virtualization
+
+  [[ $EUID -eq 0 ]] || die "Das Script muss im LXC als root laufen"
+  [[ -r /etc/os-release ]] || die "Debian-Systeminformationen fehlen"
+
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  [[ "${ID:-}" == "debian" ]] ||
+    die "Unterstützt wird ausschließlich ein Debian-LXC"
+
+  require_command systemd-detect-virt
+  virtualization="$(systemd-detect-virt --container 2>/dev/null || true)"
+  [[ "$virtualization" == "lxc" ]] ||
+    die "Das Script muss direkt in einem LXC ausgeführt werden (erkannt: ${virtualization:-kein Container})"
+  [[ -d /run/systemd/system ]] ||
+    die "Der LXC muss mit systemd als Init-System gestartet sein"
 }
 
 existing_value() {
@@ -318,7 +364,29 @@ UNIT
   systemctl enable fahrgastrechte
 }
 
-[[ $EUID -eq 0 ]] || die "Das Script muss im LXC als root laufen"
+CHECK_ONLY=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --check) CHECK_ONLY=1 ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    die "Unbekannte Option: $1"
+    ;;
+  esac
+  shift
+done
+
+check_lxc_environment
+
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  log "Debian-LXC mit systemd erkannt; die Installation kann gestartet werden"
+  exit 0
+fi
 
 if [[ -z "$PHX_HOST" ]]; then
   PHX_HOST="$(existing_value "$ENV_FILE" PHX_HOST)"
