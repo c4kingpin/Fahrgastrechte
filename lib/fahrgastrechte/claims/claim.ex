@@ -7,12 +7,36 @@ defmodule Fahrgastrechte.Claims.Claim do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @statuses [:draft, :ready, :sent, :completed]
-  @disruption_types [:delay, :cancellation]
-  @editable_fields [:travel_date, :origin, :destination, :disruption_type]
-  @required_export_fields [:travel_date, :origin, :destination, :disruption_type]
+  @journey_outcomes [
+    :delayed_arrival,
+    :not_started,
+    :aborted,
+    :continued_with_other_transport
+  ]
+  @disruption_causes [:delay, :cancellation, :missed_connection]
+  @journey_directions [:outbound, :return]
+  @editable_fields [
+    :travel_date,
+    :origin,
+    :destination,
+    :journey_outcome,
+    :disruption_cause,
+    :journey_direction
+  ]
+  @required_export_fields [
+    :travel_date,
+    :origin,
+    :destination,
+    :journey_outcome,
+    :disruption_cause,
+    :journey_direction
+  ]
 
   @type status :: :draft | :ready | :sent | :completed
-  @type disruption_type :: :delay | :cancellation
+  @type journey_outcome ::
+          :delayed_arrival | :not_started | :aborted | :continued_with_other_transport
+  @type disruption_cause :: :delay | :cancellation | :missed_connection
+  @type journey_direction :: :outbound | :return
   @type t :: %__MODULE__{}
 
   schema "claims" do
@@ -21,7 +45,9 @@ defmodule Fahrgastrechte.Claims.Claim do
     field :travel_date, :date
     field :origin, :string
     field :destination, :string
-    field :disruption_type, Ecto.Enum, values: @disruption_types
+    field :journey_outcome, Ecto.Enum, values: @journey_outcomes
+    field :disruption_cause, Ecto.Enum, values: @disruption_causes
+    field :journey_direction, Ecto.Enum, values: @journey_directions, default: :outbound
     field :compensation_method, Ecto.Enum, values: [bank_transfer: "bank_transfer"]
     field :generated_at, :utc_datetime_usec
     field :sent_at, :utc_datetime_usec
@@ -65,6 +91,17 @@ defmodule Fahrgastrechte.Claims.Claim do
   def statuses, do: @statuses
   def editable_fields, do: @editable_fields
   def required_export_fields, do: @required_export_fields
+  def journey_outcomes, do: @journey_outcomes
+  def disruption_causes, do: @disruption_causes
+  def journey_directions, do: @journey_directions
+
+  def cause_allowed?(%__MODULE__{
+        journey_outcome: :not_started,
+        disruption_cause: :missed_connection
+      }),
+      do: false
+
+  def cause_allowed?(%__MODULE__{}), do: true
 
   defp normalize_route(changeset) do
     changeset

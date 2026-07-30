@@ -45,6 +45,8 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
 config :fahrgastrechte, Fahrgastrechte.Exports,
   backend: Fahrgastrechte.Exports.SystemPDFBackend,
   template_path: Path.expand("../priv/form_templates/fahrgastrechte-2025-me-08-25.pdf", __DIR__),
+  template_manifest_path:
+    Path.expand("../priv/form_templates/fahrgastrechte-2025-me-08-25.json", __DIR__),
   template_version: "Formular 2025 (ME/08/25)",
   template_source:
     "https://cms.static-bahn.de/wmedia/redaktion/aushaenge/fahrgastrechte/Fahrgastrechte-Formular_deutsch-feb25-2.pdf",

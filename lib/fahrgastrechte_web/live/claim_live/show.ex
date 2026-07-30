@@ -6,6 +6,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Exports
   alias Fahrgastrechte.Rail
+  alias Fahrgastrechte.Rail.BerlinTime
   alias Fahrgastrechte.Tickets
 
   @upload_kinds [:ticket, :invoice]
@@ -158,7 +159,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   def handle_event("set_disruption", %{"type" => type}, socket)
       when type in ["delay", "cancellation"] do
-    {:noreply, persist_claim(socket, %{"disruption_type" => type}, false)}
+    {:noreply, persist_claim(socket, %{"disruption_cause" => type}, false)}
   end
 
   def handle_event("save_actual_journey", %{"actual" => params}, socket) do
@@ -403,12 +404,38 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                     phx-debounce="500"
                   />
                   <.input
-                    field={@claim_form[:disruption_type]}
-                    id="claim-disruption-type"
+                    field={@claim_form[:journey_outcome]}
+                    id="claim-journey-outcome"
                     type="select"
-                    label="Störung"
+                    label="Reiseverlauf"
                     prompt="Bitte auswählen"
-                    options={[{"Verspätung", "delay"}, {"Zugausfall", "cancellation"}]}
+                    options={[
+                      {"Verspätet am Ziel angekommen", "delayed_arrival"},
+                      {"Reise nicht angetreten", "not_started"},
+                      {"Reise abgebrochen", "aborted"},
+                      {"Mit anderem Verkehrsmittel weitergefahren", "continued_with_other_transport"}
+                    ]}
+                    disabled={!editable?(@claim.status)}
+                  />
+                  <.input
+                    field={@claim_form[:disruption_cause]}
+                    id="claim-disruption-cause"
+                    type="select"
+                    label="Ursache"
+                    prompt="Bitte auswählen"
+                    options={[
+                      {"Verspätung", "delay"},
+                      {"Zugausfall", "cancellation"},
+                      {"Anschlussverlust", "missed_connection"}
+                    ]}
+                    disabled={!editable?(@claim.status)}
+                  />
+                  <.input
+                    field={@claim_form[:journey_direction]}
+                    id="claim-journey-direction"
+                    type="select"
+                    label="Fahrtrichtung"
+                    options={[{"Hinfahrt", "outbound"}, {"Rückfahrt", "return"}]}
                     disabled={!editable?(@claim.status)}
                   />
                   <.input
@@ -927,7 +954,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   disabled={!editable?(@claim.status)}
                   class={[
                     "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
-                    disruption_choice_style(@claim.disruption_type == :delay)
+                    disruption_choice_style(@claim.disruption_cause == :delay)
                   ]}
                 >
                   <.icon name="hero-clock" class="size-6" />
@@ -942,7 +969,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   disabled={!editable?(@claim.status)}
                   class={[
                     "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
-                    disruption_choice_style(@claim.disruption_type == :cancellation)
+                    disruption_choice_style(@claim.disruption_cause == :cancellation)
                   ]}
                 >
                   <.icon name="hero-no-symbol" class="size-6" />
@@ -1001,7 +1028,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 </div>
 
                 <div
-                  :if={@claim.disruption_type == :cancellation}
+                  :if={@claim.disruption_cause == :cancellation}
                   id="replacement-connection-fields"
                   class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
                 >
@@ -1474,7 +1501,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     documents_complete? = Enum.all?(@upload_kinds, &Map.has_key?(documents_by_kind, &1))
     profile_complete? = Accounts.profile_complete?(scope)
     planned_complete? = journey_complete?(planned_journey, :planned)
-    actual_complete? = journey_complete?(actual_journey, :actual)
+    actual_complete? = actual_journey_complete?(claim, actual_journey)
 
     review_complete? =
       profile_complete? && claim_complete? && documents_complete? && planned_complete? &&
@@ -1626,8 +1653,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp parse_datetime(value) when is_binary(value) do
     normalized = if String.length(value) == 16, do: value <> ":00", else: value
 
-    with {:ok, naive} <- NaiveDateTime.from_iso8601(normalized) do
-      {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+    with {:ok, naive} <- NaiveDateTime.from_iso8601(normalized),
+         {:ok, utc} <- BerlinTime.from_local(naive) do
+      {:ok, utc}
     else
       _error -> {:error, :invalid_datetime}
     end
@@ -1644,7 +1672,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   defp build_actual_segments(params, assigns) do
-    case assigns.claim.disruption_type do
+    case assigns.claim.disruption_cause do
       :delay -> build_delay_segment(params)
       :cancellation -> build_cancellation_segments(params, assigns.planned_journey)
       _other -> {:error, :missing_disruption}
@@ -1721,7 +1749,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       Enum.all?(journey.segments, &(&1.scheduled_departure && &1.scheduled_arrival))
   end
 
-  defp journey_complete?(journey, :actual) do
+  defp actual_journey_complete?(%{journey_outcome: :not_started}, _journey), do: true
+  defp actual_journey_complete?(_claim, nil), do: false
+
+  defp actual_journey_complete?(_claim, journey) do
     journey.segments != [] &&
       Enum.any?(journey.segments, &(&1.actual_arrival || &1.estimated_arrival))
   end
@@ -1815,7 +1846,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp default_departure(_claim), do: ""
 
   defp datetime_local(nil), do: ""
-  defp datetime_local(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%dT%H:%M")
+
+  defp datetime_local(%DateTime{} = datetime) do
+    datetime
+    |> BerlinTime.to_local_naive()
+    |> Calendar.strftime("%Y-%m-%dT%H:%M")
+  end
 
   defp refresh_workspace(socket) do
     case Claims.get_claim(socket.assigns.current_scope, socket.assigns.claim.id) do
@@ -1851,7 +1887,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp claim_complete?(claim) do
     Enum.all?(
-      [claim.travel_date, claim.origin, claim.destination, claim.disruption_type],
+      [
+        claim.travel_date,
+        claim.origin,
+        claim.destination,
+        claim.journey_outcome,
+        claim.disruption_cause,
+        claim.journey_direction
+      ],
       &(!is_nil(&1))
     )
   end
@@ -1982,11 +2025,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp format_datetime(nil), do: "–"
 
-  defp format_datetime(%DateTime{} = datetime),
-    do: Calendar.strftime(datetime, "%d.%m.%Y, %H:%M Uhr")
+  defp format_datetime(%DateTime{} = datetime) do
+    datetime
+    |> BerlinTime.to_local()
+    |> Calendar.strftime("%d.%m.%Y, %H:%M Uhr")
+  end
 
   defp format_time(nil), do: "–"
-  defp format_time(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%H:%M")
+
+  defp format_time(%DateTime{} = datetime) do
+    datetime
+    |> BerlinTime.to_local()
+    |> Calendar.strftime("%H:%M")
+  end
 
   defp document_kind_label(:ticket), do: "DB-Ticket"
   defp document_kind_label(:invoice), do: "DB-Rechnung"

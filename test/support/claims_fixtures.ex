@@ -11,7 +11,9 @@ defmodule Fahrgastrechte.ClaimsFixtures do
         "travel_date" => ~D[2026-07-15],
         "origin" => "Berlin Hbf",
         "destination" => "Hamburg Hbf",
-        "disruption_type" => "delay"
+        "journey_outcome" => "delayed_arrival",
+        "disruption_cause" => "delay",
+        "journey_direction" => "outbound"
       },
       attrs
     )

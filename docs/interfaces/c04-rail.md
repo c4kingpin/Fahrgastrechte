@@ -43,8 +43,10 @@ normalisiert; sonst bleibt `time_real` eine Prognose.
 
 ## Bestätigte Reisen
 
-`confirm_journey/5` speichert genau eine geplante (`:planned`) und eine
-tatsächliche (`:actual`) Reise pro Antrag. Die übergebene Segmentliste bestimmt
+`confirm_journey/5` speichert höchstens eine geplante (`:planned`) und eine
+tatsächliche (`:actual`) Reise pro Antrag. Die geplante Reise ist für jeden
+Export erforderlich; bei `not_started` ist bewusst keine tatsächliche Reise
+erforderlich. Die übergebene Segmentliste bestimmt
 die Reihenfolge; fremde Positionswerte werden ignoriert. Ein Segment enthält:
 
 - Start und Ziel samt optionalen providergebundenen IDs
@@ -80,7 +82,15 @@ aktueller `ready`- oder `sent`-Export fällt dadurch auf `draft` zurück.
 Manuelle Overrides haben dabei Vorrang. `form_values/2` liefert anschließend
 eine stabile Map mit `scheduled_departure`, `scheduled_arrival`,
 `first_disrupted_train`, `missed_connection`, `last_used_train` und
-`actual_destination_arrival`. Fehlende Reisen oder Pflichtableitungen werden
+`actual_destination_arrival`. Alle für Anzeige und Formular bestimmten Zeiten
+liegen als `DateTime` in `Europe/Berlin` vor; Speicherung und Providergrenzen
+bleiben UTC.
+
+Die Pflichtableitungen hängen vom Reiseergebnis ab: `not_started` benötigt
+keine tatsächliche Reise, `aborted` keine Zielankunft, und
+`continued_with_other_transport` keinen letzten verwendeten Zug. Eine
+verspätete Zielankunft benötigt alle tatsächlichen Basiswerte; die Ursache
+`missed_connection` zusätzlich den verpassten Anschluss. Fehlende Werte werden
 als `%{type: :incomplete, errors: [...]}` strukturiert zurückgegeben.
 
 ## Fehlervertrag

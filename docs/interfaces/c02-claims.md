@@ -42,8 +42,13 @@ Beachtung der Groß-/Kleinschreibung als Teiltext gesucht.
 Änderungen zu speichern. Auch diese Funktion gibt für fremde oder unbekannte
 Anträge ausschließlich `{:error, :not_found}` zurück.
 
-Nur `travel_date`, `origin`, `destination` und `disruption_type` sind über
-`create_claim/2` und `update_claim/4` änderbar. Benutzerzuordnung,
+Über `create_claim/2` und `update_claim/4` sind `travel_date`, `origin`,
+`destination`, `journey_outcome`, `disruption_cause` und `journey_direction`
+änderbar. Reiseergebnis (`delayed_arrival`, `not_started`, `aborted`,
+`continued_with_other_transport`), Ursache (`delay`, `cancellation`,
+`missed_connection`) und Richtung (`outbound`, `return`) bleiben getrennte
+Fachwerte. Ein Anschlussverlust ist mit einer nicht angetretenen Reise nicht
+vereinbar. Benutzerzuordnung,
 Antragsnummer, Status, Entschädigungsart, Zeitpunkte und Sperrversion werden von
 der Domäne gesetzt.
 
@@ -84,13 +89,15 @@ Fehlende C02-Felder werden so zurückgegeben:
  %{
    type: :incomplete,
    errors: [
-     %{source: :claim, field: :travel_date, code: :required}
+     %{source: :claim, field: :journey_outcome, code: :required},
+     %{source: :claim, field: :disruption_cause, code: :invalid_for_outcome}
    ]
  }}
 ```
 
-C05 ergänzt Fehler aus Accounts, Documents und Rail unter deren jeweiliger
-`source`, ohne dieses Format zu verändern. Weitere Domänenfehler sind
+`Exports.readiness/2` sammelt Fehler aus Claims, Accounts, Documents und Rail
+unter deren jeweiliger `source`, ohne dieses Format zu verändern oder nach dem
+ersten unvollständigen Bereich abzubrechen. Weitere Domänenfehler sind
 `:not_authenticated`, `:not_found`, `:not_editable`, `:stale`,
 `{:invalid_filter, field}` und
 `{:invalid_transition, current_status, requested_status}`. Validierungsfehler

@@ -35,7 +35,9 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
         "travel_date" => "2026-08-03",
         "origin" => "Leipzig Hbf",
         "destination" => "Dresden Hbf",
-        "disruption_type" => "cancellation"
+        "journey_outcome" => "aborted",
+        "disruption_cause" => "cancellation",
+        "journey_direction" => "return"
       }
     )
     |> render_change()
@@ -44,7 +46,9 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert updated.travel_date == ~D[2026-08-03]
     assert updated.origin == "Leipzig Hbf"
     assert updated.destination == "Dresden Hbf"
-    assert updated.disruption_type == :cancellation
+    assert updated.journey_outcome == :aborted
+    assert updated.disruption_cause == :cancellation
+    assert updated.journey_direction == :return
     assert has_element?(view, "#claim-save-state")
   end
 

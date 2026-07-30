@@ -383,12 +383,20 @@ defmodule Fahrgastrechte.Claims do
   defp complete_for_transition(_claim, _target_status), do: :ok
 
   defp completeness_errors(claim) do
-    Claim.required_export_fields()
-    |> Enum.filter(fn field ->
-      value = Map.fetch!(claim, field)
-      is_nil(value) or value == ""
-    end)
-    |> Enum.map(&%{source: :claim, field: &1, code: :required})
+    missing_errors =
+      Claim.required_export_fields()
+      |> Enum.filter(fn field ->
+        value = Map.fetch!(claim, field)
+        is_nil(value) or value == ""
+      end)
+      |> Enum.map(&%{source: :claim, field: &1, code: :required})
+
+    if Claim.cause_allowed?(claim) do
+      missing_errors
+    else
+      missing_errors ++
+        [%{source: :claim, field: :disruption_cause, code: :invalid_for_outcome}]
+    end
   end
 
   defp editable_status(status) when status in [:draft, :ready], do: :ok

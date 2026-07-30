@@ -57,6 +57,22 @@ defmodule Fahrgastrechte.Exports do
   def generate_export(_scope, _claim_id, _expected_claim_lock_version),
     do: {:error, :not_authenticated}
 
+  @doc "Returns all structured fach data errors needed by a later review page."
+  @spec readiness(Scope.t(), Ecto.UUID.t()) :: {:ok, map()} | {:error, domain_error()}
+  def readiness(%Scope{} = scope, claim_id) do
+    with {:ok, _claim} <- Claims.get_claim(scope, claim_id) do
+      [
+        claim: Claims.export_readiness(scope, claim_id),
+        profile: complete_profile(scope),
+        rail: Rail.form_values(scope, claim_id),
+        documents: required_documents(scope, claim_id)
+      ]
+      |> collect_readiness(scope)
+    end
+  end
+
+  def readiness(_scope, _claim_id), do: {:error, :not_authenticated}
+
   @doc "Lists immutable output versions oldest first for one scoped claim."
   @spec list_exports(Scope.t(), Ecto.UUID.t()) ::
           {:ok, [ExportVersion.t()]} | {:error, domain_error()}
@@ -101,22 +117,42 @@ defmodule Fahrgastrechte.Exports do
   def stream_bundle(_scope, _export_id), do: {:error, :not_authenticated}
 
   defp build_model(scope, claim_id, expected_lock_version) do
-    with {:ok, claim} <- Claims.export_readiness(scope, claim_id),
-         :ok <- editable_claim(claim, expected_lock_version),
-         {:ok, profile} <- complete_profile(scope),
-         {:ok, rail} <- Rail.form_values(scope, claim_id),
-         {:ok, documents} <- required_documents(scope, claim_id),
-         {:ok, ticket_values} <- accepted_ticket_values(scope, documents.ticket) do
+    with {:ok, prerequisites} <- readiness(scope, claim_id),
+         :ok <- editable_claim(prerequisites.claim, expected_lock_version) do
       {:ok,
        %{
-         claim: claim,
-         profile: profile,
-         rail: rail,
-         ticket: documents.ticket,
-         ticket_order_number: ticket_values.order_number,
-         invoice: documents.invoice,
+         claim: prerequisites.claim,
+         profile: prerequisites.profile,
+         rail: prerequisites.rail,
+         ticket: prerequisites.documents.ticket,
+         ticket_order_number: prerequisites.ticket_values.order_number,
+         invoice: prerequisites.documents.invoice,
          created_on: Date.utc_today()
        }}
+    end
+  end
+
+  defp collect_readiness(results, scope) do
+    case Enum.reduce_while(results, {%{}, []}, fn
+           {key, {:ok, value}}, {values, errors} ->
+             {:cont, {Map.put(values, key, value), errors}}
+
+           {_key, {:error, %{type: :incomplete, errors: readiness_errors}}}, {values, errors} ->
+             {:cont, {values, errors ++ readiness_errors}}
+
+           {_key, {:error, reason}}, _acc ->
+             {:halt, {:error, reason}}
+         end) do
+      {:error, reason} ->
+        {:error, reason}
+
+      {_values, errors} when errors != [] ->
+        {:error, %{type: :incomplete, errors: errors}}
+
+      {values, []} ->
+        with {:ok, ticket_values} <- accepted_ticket_values(scope, values.documents.ticket) do
+          {:ok, Map.put(values, :ticket_values, ticket_values)}
+        end
     end
   end
 
@@ -187,15 +223,17 @@ defmodule Fahrgastrechte.Exports do
     backend = exports_config(:backend)
     options = backend_options(template)
     paths = output_paths(work_dir)
+    fields = form_fields(model)
 
-    with {:ok, template_info} <-
+    with :ok <- Template.validate_form_fields(template, fields),
+         {:ok, template_info} <-
            backend.validate(template.path, Keyword.put(options, :template, true)),
          {:ok, ticket_info} <- backend.validate(ticket_path, options),
          {:ok, invoice_info} <- backend.validate(invoice_path, options),
          false <- template_info.encrypted || ticket_info.encrypted || invoice_info.encrypted,
          :ok <- CoverRenderer.render(model, paths.cover),
          {:ok, %{pages: 1}} <- backend.validate(paths.cover, options),
-         :ok <- backend.fill_form(template.path, form_fields(model), paths.filled_form, options),
+         :ok <- backend.fill_form(template.path, fields, paths.filled_form, options),
          :ok <- backend.normalize(paths.filled_form, paths.form, options),
          :ok <- backend.normalize(ticket_path, paths.ticket, options),
          :ok <- backend.normalize(invoice_path, paths.invoice, options),
@@ -275,26 +313,20 @@ defmodule Fahrgastrechte.Exports do
   defp form_fields(model) do
     departure = model.rail.scheduled_departure
     arrival = model.rail.scheduled_arrival
-    actual_arrival = model.rail.actual_destination_arrival
     profile = model.profile
 
-    fields = [
-      {"journey", journey_value(model.claim.disruption_type)},
+    [
+      {"journey", journey_value(model.claim.journey_outcome)},
       {"planned_day", two(departure.day)},
       {"planned_month", two(departure.month)},
       {"planned_year", two(rem(departure.year, 100))},
-      {"planned_direction", "Hinfahrt"},
+      {"planned_direction", direction_value(model.claim.journey_direction)},
       {"planned_departure_station", model.claim.origin},
       {"planned_departure_hours", two(departure.hour)},
       {"planned_departure_minutes", two(departure.minute)},
       {"planned_destination_station", model.claim.destination},
       {"planned_destination_hours", two(arrival.hour)},
       {"planned_destination_minutes", two(arrival.minute)},
-      {"arrived_day", two(actual_arrival.day)},
-      {"arrived_month", two(actual_arrival.month)},
-      {"arrived_year", two(rem(actual_arrival.year, 100))},
-      {"arrived_hours", two(actual_arrival.hour)},
-      {"arrived_minutes", two(actual_arrival.minute)},
       {"ticket_digital", "Ja"},
       {"compensation", "Geldauszahlung/Überweisung"},
       {"compensation_accountholder", profile.account_holder},
@@ -309,18 +341,47 @@ defmodule Fahrgastrechte.Exports do
       {"personal_city", profile.city},
       {"date", Calendar.strftime(model.created_on, "%d.%m.%Y")}
     ]
-
-    if model.ticket_order_number,
-      do: fields ++ [{"ticket_digital_number", model.ticket_order_number}],
-      else: fields
+    |> maybe_add_arrival(model.rail.actual_destination_arrival)
+    |> maybe_add_ticket_order(model.ticket_order_number)
   end
 
-  defp journey_value(:delay), do: "Verspätung am Ziel (mind. 60 Minuten)"
-  defp journey_value(:cancellation), do: "Zugausfall oder Fahrtabbruch"
+  defp maybe_add_arrival(fields, nil), do: fields
+
+  defp maybe_add_arrival(fields, arrival) do
+    fields ++
+      [
+        {"arrived_day", two(arrival.day)},
+        {"arrived_month", two(arrival.month)},
+        {"arrived_year", two(rem(arrival.year, 100))},
+        {"arrived_hours", two(arrival.hour)},
+        {"arrived_minutes", two(arrival.minute)}
+      ]
+  end
+
+  defp maybe_add_ticket_order(fields, nil), do: fields
+
+  defp maybe_add_ticket_order(fields, order_number),
+    do: fields ++ [{"ticket_digital_number", order_number}]
+
+  defp journey_value(:delayed_arrival), do: "Verspätung am Ziel (mind. 60 Minuten)"
+
+  defp journey_value(:not_started),
+    do:
+      "Reise nicht angetreten (Zugausfall oder erwartete Verspätung am Ziel von mind. 60 Minuten)"
+
+  defp journey_value(:aborted),
+    do: "Reise unterwegs abgebrochen und zurück zum Startbahnhof"
+
+  defp journey_value(:continued_with_other_transport),
+    do:
+      "Reise unterbrochen und mit anderem Verkehrsmittel fortgesetzt, für das Zusatzkosten entstanden sind"
+
+  defp direction_value(:outbound), do: "Hinfahrt"
+  defp direction_value(:return), do: "Rückfahrt"
 
   defp salutation("female"), do: "Frau"
   defp salutation("male"), do: "Herr"
-  defp salutation("neutral"), do: "Divers"
+  defp salutation("neutral"), do: "Neutrale Anrede"
 
   defp two(number), do: number |> Integer.to_string() |> String.pad_leading(2, "0")
 
