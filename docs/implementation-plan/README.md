@@ -5,10 +5,12 @@
 Stand: 30. Juli 2026
 
 Die Komponenten C00 bis C05 sind als Fachbasis implementiert. C06 stellt
-Dashboard, Profil, Falldaten, PDF-Upload und Ticketvorschläge bereit, verbindet
-Bahndaten und PDF-Erzeugung aber noch nicht zu einer vollständigen
-Antragsstrecke. Welle 2 ergänzt die echte Authentik-Anmeldung und die produktive
-App-Hülle; die praktische Betriebsabnahme aus C07/C08 steht weiterhin aus.
+Dashboard, Profil, Falldaten, PDF-Upload und Ticketvorschläge bereit. Welle 2
+ergänzt die echte Authentik-Anmeldung und die produktive App-Hülle; Welle 3
+führt die Detailseite als adressierbaren, fortsetzbaren Sechs-Schritt-
+Assistenten mit fachlich abgeleitetem Fortschritt. Dokumentkomfort,
+Reiseeditor, Prüfstrecke und praktische Betriebsabnahme folgen in den weiteren
+Wellen.
 
 Der priorisierte Ausbau ab diesem Stand ist im
 [`Ausbauplan nach Wellen`](waves.md) beschrieben. Die folgenden

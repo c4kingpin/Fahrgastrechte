@@ -48,6 +48,7 @@ defmodule FahrgastrechteWeb.Router do
       live "/profil", ProfileLive, :edit
       live "/antraege", ClaimLive.Index, :index
       live "/antraege/:id", ClaimLive.Show, :show
+      live "/antraege/:id/:step", ClaimLive.Show, :show
     end
   end
 

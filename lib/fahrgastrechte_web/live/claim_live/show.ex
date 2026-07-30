@@ -10,6 +10,50 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Tickets
 
   @upload_kinds [:ticket, :invoice]
+  @steps [
+    %{
+      id: :claim,
+      slug: "falldaten",
+      label: "Falldaten",
+      heading_id: "claim-data-heading",
+      icon: "hero-clipboard-document-list"
+    },
+    %{
+      id: :documents,
+      slug: "dokumente",
+      label: "Ticket & Rechnung",
+      heading_id: "claim-documents-heading",
+      icon: "hero-document-arrow-up"
+    },
+    %{
+      id: :suggestions,
+      slug: "vorschlaege",
+      label: "Angaben prüfen",
+      heading_id: "ticket-suggestions-heading",
+      icon: "hero-sparkles"
+    },
+    %{
+      id: :planned,
+      slug: "geplante-reise",
+      label: "Geplante Reise",
+      heading_id: "planned-journey-heading",
+      icon: "hero-map"
+    },
+    %{
+      id: :actual,
+      slug: "tatsaechliche-reise",
+      label: "Tatsächliche Reise",
+      heading_id: "actual-journey-heading",
+      icon: "hero-clock"
+    },
+    %{
+      id: :review,
+      slug: "pruefung",
+      label: "Prüfung & PDF",
+      heading_id: "claim-review-heading",
+      icon: "hero-document-check"
+    }
+  ]
 
   @impl true
   def mount(%{"id" => claim_id}, _session, socket) do
@@ -50,6 +94,36 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
          socket
          |> put_flash(:error, "Dieser Antrag wurde nicht gefunden.")
          |> redirect(to: ~p"/antraege")}
+    end
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    requested_step = step_by_slug(params["step"])
+    step = requested_step || resume_step(socket.assigns.steps)
+    index = step_index(step)
+    previous_step = if(index > 0, do: Enum.at(@steps, index - 1), else: nil)
+    next_step = Enum.at(@steps, index + 1)
+    step_changed? = socket.assigns[:active_step] not in [nil, step.id]
+
+    socket =
+      socket
+      |> assign(:active_step, step.id)
+      |> assign(:active_step_number, index + 1)
+      |> assign(:previous_step, previous_step)
+      |> assign(:next_step, next_step)
+
+    socket =
+      if connected?(socket) && step_changed? do
+        push_event(socket, "focus-claim-step", %{id: step.heading_id})
+      else
+        socket
+      end
+
+    if connected?(socket) && is_binary(params["step"]) && is_nil(requested_step) do
+      {:noreply, push_patch(socket, to: step_path(socket.assigns.claim, step))}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -301,7 +375,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} current_section={:claims}>
-      <div id="claim-workspace" class={["space-y-7 pb-14"]}>
+      <div
+        id="claim-workspace"
+        phx-hook=".ClaimStepFocus"
+        class={["space-y-7 pb-28 lg:pb-14"]}
+      >
         <section class={[
           "overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-7 text-white shadow-[0_30px_80px_-38px_rgba(15,23,42,0.7)] sm:px-9 sm:py-9"
         ]}>
@@ -359,10 +437,57 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           </div>
         </section>
 
+        <nav
+          id="claim-stepper"
+          aria-label="Schritte des Antragsassistenten"
+          class={["overflow-x-auto rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"]}
+        >
+          <ol class={["grid min-w-[54rem] grid-cols-6 gap-2"]}>
+            <li :for={{step, step_number} <- Enum.with_index(@steps, 1)}>
+              <.link
+                id={"claim-step-#{step.slug}"}
+                patch={step_path(@claim, step)}
+                aria-current={if(@active_step == step.id, do: "step", else: nil)}
+                data-state={step.state}
+                class={[
+                  "group flex min-h-20 items-center gap-3 rounded-2xl px-3 py-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+                  if(@active_step == step.id,
+                    do: "bg-slate-950 text-white shadow-sm",
+                    else: "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+                  )
+                ]}
+              >
+                <span class={[
+                  "flex size-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold",
+                  if(@active_step == step.id,
+                    do: "bg-white/15 text-white",
+                    else: "bg-slate-100 text-slate-600 group-hover:bg-white"
+                  )
+                ]}>
+                  {step_number}
+                </span>
+                <span class="min-w-0">
+                  <span class="block truncate text-xs font-bold">{step.label}</span>
+                  <span class={[
+                    "mt-1 flex items-center gap-1 text-[0.68rem] font-semibold",
+                    if(@active_step == step.id, do: "text-slate-300", else: "text-slate-500")
+                  ]}>
+                    <.icon name={step_badge_icon(step.state)} class="size-3.5" />
+                    {step_badge_label(step.state)}
+                  </span>
+                </span>
+              </.link>
+            </li>
+          </ol>
+        </nav>
+
         <div class={["grid gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.75fr)]"]}>
           <div class={["space-y-7"]}>
             <section
               id="claim-data-section"
+              hidden={@active_step != :claim}
+              aria-labelledby="claim-data-heading"
+              data-state={@step_states.claim}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
               <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
@@ -370,27 +495,50 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
                     Schritt 1
                   </p>
-                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>Falldaten</h2>
+                  <h2
+                    id="claim-data-heading"
+                    tabindex="-1"
+                    class={[
+                      "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+                    ]}
+                  >
+                    Falldaten
+                  </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
                     Änderungen werden automatisch gespeichert. Bestätigte Ticketwerte können direkt übernommen werden.
                   </p>
                 </div>
                 <span
                   id="claim-save-state"
+                  data-state={@save_state}
+                  role="status"
+                  aria-live="polite"
                   class={[
-                    "inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+                    "group inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold data-[state=saving]:bg-sky-50 data-[state=saving]:text-sky-700",
                     save_state_style(@save_state)
                   ]}
                 >
-                  <span class={["size-2 rounded-full bg-current"]}></span>
-                  {save_state_label(@save_state)}
+                  <.icon
+                    name="hero-arrow-path"
+                    class="hidden size-4 motion-safe:animate-spin group-data-[state=saving]:block"
+                  />
+                  <span class="size-2 rounded-full bg-current group-data-[state=saving]:hidden"></span>
+                  <span data-save-label="result" class="group-data-[state=saving]:hidden">
+                    {save_state_label(@save_state)}
+                  </span>
+                  <span data-save-label="saving" class="hidden group-data-[state=saving]:inline">
+                    Speichert …
+                  </span>
                 </span>
               </div>
 
               <.form
                 for={@claim_form}
                 id="claim-form"
-                phx-change="claim_autosave"
+                phx-change={
+                  JS.set_attribute({"data-state", "saving"}, to: "#claim-save-state")
+                  |> JS.push("claim_autosave")
+                }
                 phx-submit="claim_save"
                 class={["mt-6 space-y-5"]}
               >
@@ -472,13 +620,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <section
               id="claim-documents-section"
+              hidden={@active_step != :documents}
+              aria-labelledby="claim-documents-heading"
+              data-state={@step_states.documents}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
               <div>
                 <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
                   Schritt 2
                 </p>
-                <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>Ticket & Rechnung</h2>
+                <h2
+                  id="claim-documents-heading"
+                  tabindex="-1"
+                  class={[
+                    "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+                  ]}
+                >
+                  Ticket & Rechnung
+                </h2>
                 <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
                   Nur PDF, maximal {@max_file_size_label}. Dateien werden privat gespeichert und nie öffentlich verlinkt.
                 </p>
@@ -645,6 +804,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <section
               id="ticket-suggestions-section"
+              hidden={@active_step != :suggestions}
+              aria-labelledby="ticket-suggestions-heading"
+              data-state={@step_states.suggestions}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
               <div class={["flex items-start gap-3"]}>
@@ -656,7 +818,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-sky-700"]}>
                     Schritt 3
                   </p>
-                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                  <h2
+                    id="ticket-suggestions-heading"
+                    tabindex="-1"
+                    class={[
+                      "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-sky-700"
+                    ]}
+                  >
                     Erkannte Angaben prüfen
                   </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
@@ -754,6 +922,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <section
               id="planned-journey-section"
+              hidden={@active_step != :planned}
+              aria-labelledby="planned-journey-heading"
               data-state={@planned_state}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
@@ -762,7 +932,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
                     Schritt 4
                   </p>
-                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                  <h2
+                    id="planned-journey-heading"
+                    tabindex="-1"
+                    class={[
+                      "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+                    ]}
+                  >
                     Verbindung und Verspätung auswählen
                   </h2>
                   <p class={["mt-1 max-w-2xl text-sm leading-6 text-slate-500"]}>
@@ -927,6 +1103,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <section
               id="actual-journey-section"
+              hidden={@active_step != :actual}
+              aria-labelledby="actual-journey-heading"
               data-state={@actual_state}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
@@ -935,7 +1113,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
                     Schritt 5
                   </p>
-                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                  <h2
+                    id="actual-journey-heading"
+                    tabindex="-1"
+                    class={[
+                      "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+                    ]}
+                  >
                     Tatsächliche Reise bestätigen
                   </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
@@ -1063,6 +1247,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <section
               id="claim-review-export-section"
+              hidden={@active_step != :review}
+              aria-labelledby="claim-review-heading"
               data-state={@export_state_label}
               class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
             >
@@ -1071,7 +1257,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
                     Schritt 6
                   </p>
-                  <h2 class={["mt-2 text-xl font-semibold text-slate-950"]}>
+                  <h2
+                    id="claim-review-heading"
+                    tabindex="-1"
+                    class={[
+                      "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+                    ]}
+                  >
                     Prüfen und Gesamt-PDF erstellen
                   </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
@@ -1172,30 +1364,40 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 Ablauf
               </p>
               <h2 class={["mt-2 text-lg font-semibold text-slate-950"]}>Dein Fortschritt</h2>
-              <ol class={["mt-5 space-y-3"]}>
-                <li
-                  :for={
-                    {label, done?} <- [
-                      {"Reisendenprofil", @profile_complete?},
-                      {"Falldaten", @claim_complete?},
-                      {"Ticket & Rechnung", @documents_complete?},
-                      {"Geplante Verbindung", @planned_complete?},
-                      {"Tatsächliche Reise", @actual_complete?},
-                      {"Druckfertiges PDF", @exports_available?}
-                    ]
-                  }
-                  class={["flex items-center gap-3 rounded-xl bg-slate-50 px-3.5 py-3"]}
-                >
-                  <span class={[
-                    "flex size-7 items-center justify-center rounded-full",
-                    if(done?,
-                      do: "bg-emerald-600 text-white",
-                      else: "border border-slate-300 bg-white text-slate-400"
-                    )
-                  ]}>
-                    <.icon name={if(done?, do: "hero-check", else: "hero-minus")} class="size-4" />
-                  </span>
-                  <span class={["text-sm font-semibold text-slate-700"]}>{label}</span>
+              <ol class={["mt-5 space-y-2"]}>
+                <li :for={step <- @steps}>
+                  <.link
+                    id={"claim-progress-step-#{step.slug}"}
+                    patch={step_path(@claim, step)}
+                    aria-current={if(@active_step == step.id, do: "step", else: nil)}
+                    data-state={step.state}
+                    class={[
+                      "flex items-center gap-3 rounded-xl px-3.5 py-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+                      if(@active_step == step.id,
+                        do: "bg-slate-950 text-white",
+                        else: "bg-slate-50 hover:bg-slate-100"
+                      )
+                    ]}
+                  >
+                    <span class={[
+                      "flex size-7 shrink-0 items-center justify-center rounded-full",
+                      if(@active_step == step.id,
+                        do: "bg-white/15 text-white",
+                        else: step_badge_style(step.state)
+                      )
+                    ]}>
+                      <.icon name={step_badge_icon(step.state)} class="size-4" />
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-semibold">{step.label}</span>
+                      <span class={[
+                        "mt-0.5 block text-xs font-semibold",
+                        if(@active_step == step.id, do: "text-slate-300", else: "text-slate-500")
+                      ]}>
+                        {step_badge_label(step.state)}
+                      </span>
+                    </span>
+                  </.link>
                 </li>
               </ol>
               <.link
@@ -1276,6 +1478,71 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
             </section>
           </aside>
         </div>
+
+        <nav
+          id="claim-step-mobile-navigation"
+          aria-label="Navigation zwischen den Antragsschritten"
+          class={[
+            "fixed inset-x-4 bottom-24 z-30 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-[0_18px_50px_-20px_rgba(15,23,42,0.5)] backdrop-blur-xl md:hidden"
+          ]}
+        >
+          <%= if @previous_step do %>
+            <.link
+              id="claim-step-back"
+              patch={step_path(@claim, @previous_step)}
+              class="inline-flex min-h-11 items-center justify-start gap-2 rounded-xl px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700"
+            >
+              <.icon name="hero-arrow-left" class="size-4" /> Zurück
+            </.link>
+          <% else %>
+            <.link
+              id="claim-step-back"
+              navigate={~p"/antraege"}
+              class="inline-flex min-h-11 items-center justify-start gap-2 rounded-xl px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700"
+            >
+              <.icon name="hero-arrow-left" class="size-4" /> Anträge
+            </.link>
+          <% end %>
+
+          <span class="whitespace-nowrap px-2 text-xs font-bold text-slate-500">
+            {@active_step_number} / {length(@steps)}
+          </span>
+
+          <%= if @next_step do %>
+            <.link
+              id="claim-step-forward"
+              patch={step_path(@claim, @next_step)}
+              class="inline-flex min-h-11 items-center justify-end gap-2 rounded-xl bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700"
+            >
+              Weiter <.icon name="hero-arrow-right" class="size-4" />
+            </.link>
+          <% else %>
+            <span
+              id="claim-step-forward"
+              aria-disabled="true"
+              class="inline-flex min-h-11 items-center justify-end gap-2 rounded-xl bg-emerald-700 px-3 text-sm font-semibold text-white"
+            >
+              Fertig <.icon name="hero-check" class="size-4" />
+            </span>
+          <% end %>
+        </nav>
+
+        <script :type={Phoenix.LiveView.ColocatedHook} name=".ClaimStepFocus">
+          export default {
+            mounted() {
+              this.handleEvent("focus-claim-step", ({id}) => {
+                window.requestAnimationFrame(() => {
+                  const heading = document.getElementById(id)
+                  if (!heading) return
+
+                  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                  heading.focus({preventScroll: true})
+                  heading.scrollIntoView({behavior: reducedMotion ? "auto" : "smooth", block: "start"})
+                })
+              })
+            }
+          }
+        </script>
       </div>
     </Layouts.app>
     """
@@ -1346,10 +1613,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         handle_stale(socket)
 
       {:error, :not_editable} ->
-        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
+        socket
+        |> assign(:save_state, :error)
+        |> put_flash(:error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
 
       {:error, _reason} ->
-        put_flash(socket, :error, "Die Falldaten konnten nicht gespeichert werden.")
+        socket
+        |> assign(:save_state, :error)
+        |> put_flash(:error, "Die Falldaten konnten nicht gespeichert werden.")
     end
   end
 
@@ -1498,10 +1769,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     documents_by_kind = Map.new(documents, &{&1.kind, &1})
     documents_by_id = Map.new(documents, &{&1.id, &1})
     claim_complete? = claim_complete?(claim)
+    claim_started? = claim_started?(claim)
     documents_complete? = Enum.all?(@upload_kinds, &Map.has_key?(documents_by_kind, &1))
+    documents_started? = documents != []
+
+    analysis_complete? =
+      documents_complete? &&
+        Enum.all?(documents, &(&1.analysis_status in [:completed, :manual_required]))
+
+    suggestions_complete? =
+      analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
+
     profile_complete? = Accounts.profile_complete?(scope)
     planned_complete? = journey_complete?(planned_journey, :planned)
     actual_complete? = actual_journey_complete?(claim, actual_journey)
+
+    actual_started? =
+      !is_nil(actual_journey) || claim.journey_outcome == :not_started ||
+        !is_nil(claim.disruption_cause)
 
     review_complete? =
       profile_complete? && claim_complete? && documents_complete? && planned_complete? &&
@@ -1509,18 +1794,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     exports_available? = exports != []
 
-    completed_steps =
-      Enum.count(
-        [
-          profile_complete?,
-          claim_complete?,
-          documents_complete?,
-          planned_complete?,
-          actual_complete?,
-          exports_available?
-        ],
+    review_started? =
+      Enum.any?(
+        [claim_started?, documents_started?, !is_nil(planned_journey), actual_started?],
         & &1
       )
+
+    step_states = %{
+      claim: step_state(claim_complete?, claim_started?),
+      documents: step_state(documents_complete?, documents_started?),
+      suggestions: step_state(suggestions_complete?, documents_started?),
+      planned: step_state(planned_complete?, !is_nil(planned_journey)),
+      actual: step_state(actual_complete?, actual_started?),
+      review: step_state(exports_available?, review_complete? || review_started?)
+    }
+
+    steps = Enum.map(@steps, &Map.put(&1, :state, Map.fetch!(step_states, &1.id)))
+    completed_steps = Enum.count(steps, &(&1.state == :confirmed))
 
     socket
     |> assign(:claim, claim)
@@ -1537,9 +1827,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:actual_complete?, actual_complete?)
     |> assign(:review_complete?, review_complete?)
     |> assign(:exports_available?, exports_available?)
-    |> assign(:planned_state, step_state(planned_complete?, !is_nil(planned_journey)))
-    |> assign(:actual_state, step_state(actual_complete?, !is_nil(actual_journey)))
-    |> assign(:export_state_label, step_state(exports_available?, review_complete?))
+    |> assign(:step_states, step_states)
+    |> assign(:steps, steps)
+    |> assign(:planned_state, step_states.planned)
+    |> assign(:actual_state, step_states.actual)
+    |> assign(:export_state_label, step_states.review)
     |> assign(:planned_form, to_form(planned_form_data(claim, planned_journey), as: :planned))
     |> assign(
       :actual_form,
@@ -1885,6 +2177,33 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp transition_message(:sent), do: "Der Antrag wurde als versendet markiert."
   defp transition_message(:completed), do: "Der Antrag wurde als erledigt markiert."
 
+  defp step_by_slug(nil), do: nil
+
+  defp step_by_slug(slug) when is_binary(slug),
+    do: Enum.find(@steps, &(&1.slug == slug))
+
+  defp resume_step(steps),
+    do: Enum.find(steps, &(&1.state != :confirmed)) || List.last(steps)
+
+  defp step_index(step),
+    do: Enum.find_index(@steps, &(&1.id == step.id))
+
+  defp step_path(claim, step),
+    do: ~p"/antraege/#{claim.id}/#{step.slug}"
+
+  defp claim_started?(claim) do
+    Enum.any?(
+      [
+        claim.travel_date,
+        claim.origin,
+        claim.destination,
+        claim.journey_outcome,
+        claim.disruption_cause
+      ],
+      &(&1 not in [nil, ""])
+    )
+  end
+
   defp claim_complete?(claim) do
     Enum.all?(
       [
@@ -1929,13 +2248,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp status_explanation(:completed),
     do: "Dieser Fall ist abgeschlossen und bleibt in deiner Übersicht erhalten."
 
-  defp save_state_label(:saved), do: "Gespeichert"
+  defp save_state_label(:saved), do: "Erfolgreich gespeichert"
   defp save_state_label(:invalid), do: "Eingabe prüfen"
-  defp save_state_label(:conflict), do: "Neu geladen"
+  defp save_state_label(:error), do: "Speichern fehlgeschlagen"
+  defp save_state_label(:conflict), do: "Konflikt erkannt – neu geladen"
 
   defp save_state_style(:saved), do: "bg-emerald-50 text-emerald-700"
   defp save_state_style(:invalid), do: "bg-rose-50 text-rose-700"
-  defp save_state_style(:conflict), do: "bg-amber-50 text-amber-700"
+  defp save_state_style(:error), do: "bg-rose-50 text-rose-700"
+  defp save_state_style(:conflict), do: "bg-amber-50 text-amber-800"
 
   defp step_state(true, _started?), do: :confirmed
   defp step_state(false, true), do: :incomplete
