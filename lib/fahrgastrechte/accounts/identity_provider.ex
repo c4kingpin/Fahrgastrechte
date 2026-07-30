@@ -1,17 +1,20 @@
 defmodule Fahrgastrechte.Accounts.IdentityProvider do
   @moduledoc """
-  Integration boundary for the future Authentik OIDC adapter.
+  Integration boundary for the configured OpenID Connect provider.
 
   Implementations are responsible for authorization-code exchange and for
   validating issuer, signature, audience, expiry, state and nonce. Accounts
-  only accepts the resulting trusted `Identity`.
+  only accepts the resulting trusted authenticated session.
   """
 
-  alias Fahrgastrechte.Accounts.Identity
+  alias Fahrgastrechte.Accounts.AuthenticatedSession
+
+  @callback authorization_request(callback_uri :: String.t()) ::
+              {:ok, %{uri: String.t(), session_state: map()}} | {:error, term()}
 
   @callback validate_callback(callback_params :: map(), session_state :: map()) ::
-              {:ok, Identity.t()} | {:error, term()}
+              {:ok, AuthenticatedSession.t()} | {:error, term()}
 
-  @callback logout_uri(Identity.t(), return_to :: URI.t()) ::
-              {:ok, URI.t()} | {:error, term()}
+  @callback logout_uri(id_token_hint :: String.t() | nil, return_to :: String.t()) ::
+              {:ok, String.t()} | {:error, term()}
 end

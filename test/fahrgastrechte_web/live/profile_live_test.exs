@@ -35,6 +35,9 @@ defmodule FahrgastrechteWeb.ProfileLiveTest do
     assert has_element?(view, "#profile-form")
     assert has_element?(view, "#profile-save")
     assert has_element?(view, "#profile-completeness")
+    assert has_element?(view, "#profile-nav-link[aria-current=page]")
+    assert has_element?(view, "#mobile-navigation")
+    assert has_element?(view, "#logout-link")
   end
 
   test "validates and saves the current user's profile", %{conn: conn} do

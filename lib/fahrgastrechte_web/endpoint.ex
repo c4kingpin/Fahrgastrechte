@@ -8,6 +8,7 @@ defmodule FahrgastrechteWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_fahrgastrechte_key",
+    encryption_salt: "Lf8Pq1eW0g4nRc2K",
     signing_salt: "GGqCH/Ce",
     same_site: "Lax",
     http_only: true,

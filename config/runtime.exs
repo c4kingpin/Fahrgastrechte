@@ -32,6 +32,11 @@ config :fahrgastrechte, Fahrgastrechte.Accounts.BankDataCipher,
   active_key_version: field_encryption_key_version,
   keys: %{field_encryption_key_version => field_encryption_key}
 
+config :fahrgastrechte, Fahrgastrechte.Accounts.Authentik,
+  issuer: System.get_env("AUTHENTIK_ISSUER"),
+  client_id: System.get_env("AUTHENTIK_CLIENT_ID"),
+  client_secret: System.get_env("AUTHENTIK_CLIENT_SECRET")
+
 config :fahrgastrechte, Fahrgastrechte.Rail.Providers.Timetables,
   client_id: System.get_env("DB_CLIENT_ID"),
   api_key: System.get_env("DB_API_KEY")
