@@ -212,8 +212,11 @@ defmodule FahrgastrechteWeb.CoreComponents do
       end)
 
     ~H"""
-    <div class="fieldset mb-2">
-      <label for={@id}>
+    <div class="mb-2">
+      <label
+        for={@id}
+        class="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700"
+      >
         <input
           type="hidden"
           name={@name}
@@ -221,17 +224,19 @@ defmodule FahrgastrechteWeb.CoreComponents do
           disabled={@rest[:disabled]}
           form={@rest[:form]}
         />
-        <span class="label">
-          <input
-            type="checkbox"
-            id={@id}
-            name={@name}
-            value="true"
-            checked={@checked}
-            class={@class || "checkbox checkbox-sm"}
-            {@rest}
-          />{@label}
-        </span>
+        <input
+          type="checkbox"
+          id={@id}
+          name={@name}
+          value="true"
+          checked={@checked}
+          class={
+            @class ||
+              "scheme-light size-4 rounded border-slate-300 bg-white text-rose-700 accent-rose-700 focus:ring-2 focus:ring-rose-600/20 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-100"
+          }
+          {@rest}
+        />
+        <span>{@label}</span>
       </label>
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
@@ -240,13 +245,21 @@ defmodule FahrgastrechteWeb.CoreComponents do
 
   def input(%{type: "select"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <div class="mb-2">
+      <label for={@id} class="block">
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
+          {@label}
+        </span>
         <select
           id={@id}
           name={@name}
-          class={[@class || "w-full select", @errors != [] && (@error_class || "select-error")]}
+          class={[
+            @class ||
+              "scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 pr-10 text-base text-slate-950 shadow-sm outline-none transition focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm",
+            @errors != [] &&
+              (@error_class ||
+                 "select-error border-rose-600 ring-4 ring-rose-600/10")
+          ]}
           multiple={@multiple}
           {@rest}
         >
@@ -261,15 +274,20 @@ defmodule FahrgastrechteWeb.CoreComponents do
 
   def input(%{type: "textarea"} = assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <div class="mb-2">
+      <label for={@id} class="block">
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
+          {@label}
+        </span>
         <textarea
           id={@id}
           name={@name}
           class={[
-            @class || "w-full textarea",
-            @errors != [] && (@error_class || "textarea-error")
+            @class ||
+              "scheme-light block min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm",
+            @errors != [] &&
+              (@error_class ||
+                 "textarea-error border-rose-600 ring-4 ring-rose-600/10")
           ]}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
@@ -282,17 +300,21 @@ defmodule FahrgastrechteWeb.CoreComponents do
   # All other inputs text, datetime-local, url, password, etc. are handled here...
   def input(assigns) do
     ~H"""
-    <div class="fieldset mb-2">
-      <label for={@id}>
-        <span :if={@label} class="label mb-1">{@label}</span>
+    <div class="mb-2">
+      <label for={@id} class="block">
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
+          {@label}
+        </span>
         <input
           type={@type}
           name={@name}
           id={@id}
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
           class={[
-            @class || "w-full input",
-            @errors != [] && (@error_class || "input-error")
+            @class ||
+              "scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 file:mr-3 file:border-0 file:bg-transparent file:text-sm file:font-semibold file:text-slate-700 sm:text-sm",
+            @errors != [] &&
+              (@error_class || "input-error border-rose-600 ring-4 ring-rose-600/10")
           ]}
           {@rest}
         />
