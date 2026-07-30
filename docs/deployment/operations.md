@@ -22,8 +22,9 @@ Entschlüsselungsidentität verfügbar sein.
 ## Secrets und externe Dienste
 
 Der Installer erzeugt Datenbankpasswort, `SECRET_KEY_BASE`,
-`FIELD_ENCRYPTION_KEY` und standardmäßig eine lokale Age-Identität. Optionale
-Werte für Authentik, DB API und Bahndaten werden bei Updates bewahrt:
+`FIELD_ENCRYPTION_KEY` und standardmäßig eine lokale Age-Identität. Die drei
+Authentik-Werte sind für die Anmeldung gemeinsam erforderlich; optionale DB-API-
+und Bahndatenwerte sowie alle gesetzten Werte werden bei Updates bewahrt:
 
 ```text
 AUTHENTIK_ISSUER
@@ -50,6 +51,11 @@ curl -H 'Host: fahrgastrechte.example.org' \
 Erwartete Berechtigung ist `root:fahrgastrechte 640`. API-/OIDC-Secrets dürfen
 nicht in Diagnoseausgaben landen. Phoenix filtert zusätzlich Passwort-, Token-,
 IBAN- und BIC-Parameter; Produktionslogs laufen auf Info-Level.
+
+Nach einer Authentik-Änderung zusätzlich Anmeldung, Callback, Zugriff auf
+`/antraege`, Abmeldung und Rückkehr zu `/auth/abgemeldet` im Browser prüfen.
+`/readyz` bestätigt bewusst nur die lokale Betriebsbereitschaft und ersetzt
+keinen OIDC-Smoke-Test.
 
 ## Health und Diagnose
 

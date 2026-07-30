@@ -12,7 +12,7 @@ vereinbarten Grenze: deutsche DB-Flexpreis-Reisen, eine reisende Person,
 
 | Bereich | Stand |
 | --- | --- |
-| Accounts und Profil | Scope, Reisendenprofil und verschlüsselte Bankdaten vorhanden; Authentik/OIDC fehlt |
+| Accounts und Profil | Scope, Reisendenprofil, verschlüsselte Bankdaten und Authentik/OIDC vorhanden |
 | Claims | Antrag, Statushistorie, Filter und optimistisches Locking vorhanden |
 | Documents und Tickets | privater PDF-Speicher, Download, Extraktion und Vorschläge vorhanden |
 | Rail | Provider, Suche, geplante/tatsächliche Reise, manuelle Werte und Snapshots vorhanden; UI fehlt |

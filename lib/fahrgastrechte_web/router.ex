@@ -32,6 +32,10 @@ defmodule FahrgastrechteWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
+    get "/anmelden", AuthController, :login
+    get "/auth/callback", AuthController, :callback
+    get "/auth/abgemeldet", AuthController, :logged_out
+    delete "/abmelden", AuthController, :logout
   end
 
   scope "/", FahrgastrechteWeb do

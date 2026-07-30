@@ -1,4 +1,4 @@
-<Layouts.app flash={@flash} current_scope={@current_scope}>
+<Layouts.app flash={@flash} current_scope={@current_scope} current_section={:home}>
   <div id="home-page" class="space-y-16 pb-12 sm:space-y-24 sm:pb-20">
     <section
       id="preview-hero"
@@ -16,7 +16,7 @@
               <span class="absolute inline-flex size-full animate-ping rounded-full bg-rose-400 opacity-60"></span>
               <span class="relative inline-flex size-2 rounded-full bg-rose-400"></span>
             </span>
-            Erster Produktstand
+            Deine digitale Antragshilfe
           </div>
 
           <h1 class="mt-7 max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-balance sm:text-5xl lg:text-6xl">
@@ -41,13 +41,13 @@
                 />
               </.link>
             <% else %>
-              <a
-                id="preview-cta"
-                href="#ablauf"
+              <.link
+                id="login-cta"
+                href={~p"/anmelden"}
                 class="group inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
               >
-                Vorschau ansehen <.icon name="hero-arrow-right" class="size-4" />
-              </a>
+                Sicher anmelden <.icon name="hero-arrow-right" class="size-4" />
+              </.link>
             <% end %>
             <a
               href="#ablauf"
@@ -156,7 +156,7 @@
               </ol>
             </div>
             <div class="border-t border-slate-100 bg-slate-50 px-5 py-3 text-center text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-              Vorschau des geplanten Ablaufs
+              Dein Antrag bleibt jederzeit bearbeitbar
             </div>
           </div>
         </div>
@@ -279,7 +279,13 @@
           Anträge öffnen <.icon name="hero-arrow-up-right" class="size-4" />
         </.link>
       <% else %>
-        <span class="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-500">Anmeldung folgt</span>
+        <.link
+          id="login-secondary-cta"
+          href={~p"/anmelden"}
+          class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-rose-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+        >
+          <.icon name="hero-lock-closed" class="size-4" /> Anmelden
+        </.link>
       <% end %>
     </section>
   </div>
