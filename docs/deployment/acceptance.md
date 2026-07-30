@@ -40,9 +40,9 @@ personenbezogene Daten oder PDFs.
 - [ ] Session-Cookie ist `Secure`, `HttpOnly`, `SameSite=Lax`
 - [ ] ungültiger Redirect-/Origin-Host wird nicht akzeptiert
 
-Bis zur Implementierung des in `docs/integrations/authentik.md` beschriebenen
-Adapters bleiben diese Punkte bewusst offen; eine Zoraxy-Anmeldung ersetzt sie
-nicht.
+Der in `docs/integrations/authentik.md` beschriebene Adapter ist implementiert.
+Die Punkte bleiben bis zur praktischen Prüfung gegen die konkrete
+Produktionsinstanz offen; eine Zoraxy-Anmeldung ersetzt sie nicht.
 
 ## Backup und Restore
 
