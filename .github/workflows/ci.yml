@@ -58,7 +58,7 @@ jobs:
         run: mix deps.get --only test
 
       - name: PDF-Werkzeuge installieren
-        run: sudo apt-get update && sudo apt-get install --yes poppler-utils
+        run: sudo apt-get update && sudo apt-get install --yes pdftk-java poppler-utils qpdf
         
       - name: Deployment-Scripte prüfen
         run: |
