@@ -17,7 +17,7 @@ vereinbarten Grenze: deutsche DB-Flexpreis-Reisen, eine reisende Person,
 | Documents und Tickets | privater PDF-Speicher, Download, Extraktion und Vorschläge vorhanden |
 | Rail | Provider, Suche, geplante/tatsächliche Reise, manuelle Werte und Snapshots vorhanden; UI fehlt |
 | Exports | versionierte, atomare PDF-Erzeugung vorhanden; Prüf-, Erzeugungs- und Download-UI fehlt |
-| LiveView | Dashboard, Profil, Falldaten, Upload und Vorschläge vorhanden; geführter Assistent unvollständig |
+| LiveView | Dashboard, Profil und fortsetzbarer Sechs-Schritt-Assistent mit fachlichem Fortschritt vorhanden |
 | Betrieb | Proxmox-Grundlage vorhanden; C07-Arbeit und praktische Produktionsabnahme ausstehend |
 
 ## Welle 0 – Saubere Ausgangslage

@@ -130,6 +130,9 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#generate-export-button:not([disabled])")
+    assert has_element?(view, "#claim-step-dokumente[data-state=confirmed]")
+    assert has_element?(view, "#claim-step-geplante-reise[data-state=confirmed]")
+    assert has_element?(view, "#claim-step-tatsaechliche-reise[data-state=confirmed]")
 
     view |> element("#generate-export-button") |> render_click()
 
