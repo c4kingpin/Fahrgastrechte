@@ -22,6 +22,13 @@ defmodule FahrgastrechteWeb.Router do
   end
 
   scope "/", FahrgastrechteWeb do
+    pipe_through :api
+
+    get "/healthz", HealthController, :health
+    get "/readyz", HealthController, :readiness
+  end
+
+  scope "/", FahrgastrechteWeb do
     pipe_through :browser
 
     get "/", PageController, :home

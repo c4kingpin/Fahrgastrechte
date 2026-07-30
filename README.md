@@ -110,7 +110,9 @@ Authentik-Anbindung, den lokalen Entwicklungs-Scope und die Runtime-Secrets unte
 Für Proxmox VE steht eine automatisierte Bereitstellung in einem unprivilegierten
 Debian-LXC zur Verfügung. Voraussetzungen, Erstinstallation, Updates und
 Betriebshinweise stehen unter
-[`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md).
+[`docs/deployment/proxmox-lxc.md`](docs/deployment/proxmox-lxc.md). Zoraxy/TLS,
+verschlüsselte Backups, Restore, Rollback und die Betriebsabnahme sind im selben
+Dokumentationsbereich verlinkt.
 
 Die Community-Scripts-artige Installation wird direkt als `root` auf dem
 Proxmox-Host gestartet:

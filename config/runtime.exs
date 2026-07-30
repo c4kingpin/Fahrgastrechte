@@ -64,8 +64,10 @@ if System.get_env("PHX_SERVER") do
   config :fahrgastrechte, FahrgastrechteWeb.Endpoint, server: true
 end
 
-config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
-  http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+if config_env() != :prod do
+  config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
+    http: [port: String.to_integer(System.get_env("PORT", "4000"))]
+end
 
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
@@ -85,11 +87,21 @@ if config_env() == :dev do
 end
 
 if config_env() == :prod do
+  positive_integer = fn name, default ->
+    name
+    |> System.get_env(default)
+    |> Integer.parse()
+    |> case do
+      {value, ""} when value > 0 -> value
+      _other -> raise "#{name} must be a positive integer"
+    end
+  end
+
   document_storage_path =
     System.get_env("DOCUMENT_STORAGE_PATH") ||
       raise "DOCUMENT_STORAGE_PATH is missing"
 
-  if not Path.type(document_storage_path) == :absolute do
+  if Path.type(document_storage_path) != :absolute do
     raise "DOCUMENT_STORAGE_PATH must be an absolute path"
   end
 
@@ -105,11 +117,8 @@ if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :fahrgastrechte, Fahrgastrechte.Repo,
-    # ssl: true,
     url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
-    # For machines with several cores, consider starting multiple pools of `pool_size`
-    # pool_count: 4,
+    pool_size: positive_integer.("POOL_SIZE", "10"),
     socket_options: maybe_ipv6
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
@@ -119,24 +128,31 @@ if config_env() == :prod do
   # variable instead.
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      environment variable SECRET_KEY_BASE is missing.
-      You can generate one by calling: mix phx.gen.secret
-      """
+      raise "SECRET_KEY_BASE is missing"
 
-  host = System.get_env("PHX_HOST") || "example.com"
+  host =
+    System.get_env("PHX_HOST") ||
+      raise "PHX_HOST is missing"
 
+  if not Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\z/, host) do
+    raise "PHX_HOST must be a hostname without scheme, port or path"
+  end
+
+  bind_address = System.get_env("PHX_BIND_ADDRESS", "0.0.0.0")
+
+  bind_ip =
+    case :inet.parse_address(String.to_charlist(bind_address)) do
+      {:ok, address} -> address
+      {:error, _reason} -> raise "PHX_BIND_ADDRESS must be an IPv4 or IPv6 address"
+    end
+
+  config :fahrgastrechte, :canonical_host, host
   config :fahrgastrechte, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
-    http: [
-      # Enable IPv6 and bind on all interfaces.
-      # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
-      # See the documentation on https://bandit.hexdocs.pm/Bandit.html#t:options/0
-      # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
-    ],
+    http: [ip: bind_ip, port: positive_integer.("PORT", "4000")],
+    check_origin: ["//#{host}"],
     secret_key_base: secret_key_base
 
   # ## SSL Support

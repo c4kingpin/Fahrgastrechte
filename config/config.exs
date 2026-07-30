@@ -112,6 +112,21 @@ config :logger, :default_formatter,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]
 
+config :phoenix, :filter_parameters, [
+  "password",
+  "secret",
+  "token",
+  "authorization",
+  "code",
+  "iban",
+  "bic",
+  "account_holder",
+  "DB_API_KEY",
+  "AUTHENTIK_CLIENT_SECRET",
+  "FIELD_ENCRYPTION_KEY",
+  "SECRET_KEY_BASE"
+]
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
