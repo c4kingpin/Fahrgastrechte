@@ -49,7 +49,7 @@ defmodule FahrgastrechteWeb.ProfileLiveTest do
     |> form("#profile-form", profile: valid_profile_attributes(%{"iban" => "DE00123"}))
     |> render_change()
 
-    assert has_element?(view, "#profile-iban.input-error")
+    assert has_element?(view, "#profile-iban[aria-invalid=\"true\"]")
 
     view
     |> form("#profile-form", profile: valid_profile_attributes())
