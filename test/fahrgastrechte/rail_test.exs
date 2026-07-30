@@ -262,6 +262,131 @@ defmodule Fahrgastrechte.RailTest do
     end
   end
 
+  describe "outcome-aware export readiness" do
+    test "does not require an actual journey when the trip was not started" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "not_started",
+          "disruption_cause" => "cancellation"
+        })
+
+      journey_fixture(scope, claim, :planned, [
+        segment_attributes(%{actual_departure: nil, actual_arrival: nil})
+      ])
+
+      assert {:ok, values} = Rail.form_values(scope, claim.id)
+      assert values.first_disrupted_train == nil
+      assert values.last_used_train == nil
+      assert values.actual_destination_arrival == nil
+    end
+
+    test "reports every missing actual fact for a delayed arrival" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      journey_fixture(scope, claim, :planned, [
+        segment_attributes(%{actual_departure: nil, actual_arrival: nil})
+      ])
+
+      assert {:error, %{type: :incomplete, errors: errors}} =
+               Rail.form_values(scope, claim.id)
+
+      assert Enum.map(errors, & &1.field) == [
+               :actual_segments,
+               :first_disrupted_segment,
+               :last_used_segment,
+               :actual_destination_arrival
+             ]
+    end
+
+    test "omits destination arrival fields after an aborted journey" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"journey_outcome" => "aborted"})
+      journey_fixture(scope, claim, :planned)
+      journey_fixture(scope, claim, :actual)
+
+      assert {:ok, values} = Rail.form_values(scope, claim.id)
+      assert values.first_disrupted_train
+      assert values.last_used_train
+      assert values.actual_destination_arrival == nil
+    end
+
+    test "accepts explicit other-transport arrival without a last used train" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "continued_with_other_transport",
+          "disruption_cause" => "cancellation"
+        })
+
+      journey_fixture(scope, claim, :planned)
+
+      journey_fixture(scope, claim, :actual, [
+        segment_attributes(%{
+          cancelled: true,
+          actual_departure: nil,
+          actual_arrival: nil,
+          estimated_departure: nil,
+          estimated_arrival: nil
+        })
+      ])
+
+      assert {:error, %{type: :incomplete, errors: [error]}} =
+               Rail.form_values(scope, claim.id)
+
+      assert error.field == :actual_destination_arrival
+
+      assert {:ok, _result} =
+               Rail.set_summary_overrides(
+                 scope,
+                 claim.id,
+                 %{actual_destination_arrival: ~U[2026-07-15 09:15:00Z]},
+                 claim.lock_version
+               )
+
+      assert {:ok, values} = Rail.form_values(scope, claim.id)
+      assert values.last_used_train == nil
+      assert values.actual_destination_arrival.time_zone == "Europe/Berlin"
+
+      assert {values.actual_destination_arrival.hour, values.actual_destination_arrival.minute} ==
+               {11, 15}
+    end
+
+    test "requires a derived or confirmed missed connection for that cause" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"disruption_cause" => "missed_connection"})
+      journey_fixture(scope, claim, :planned)
+      journey_fixture(scope, claim, :actual)
+
+      assert {:error, %{type: :incomplete, errors: errors}} =
+               Rail.form_values(scope, claim.id)
+
+      assert %{source: :rail, field: :missed_connection_segment, code: :required} in errors
+
+      journey_fixture(scope, claim, :actual, [
+        segment_attributes(%{
+          destination_name: "Hannover Hbf",
+          scheduled_arrival: ~U[2026-07-15 08:00:00Z],
+          actual_arrival: ~U[2026-07-15 08:30:00Z]
+        }),
+        segment_attributes(%{
+          origin_name: "Hannover Hbf",
+          train_number: "200",
+          scheduled_departure: ~U[2026-07-15 08:15:00Z],
+          scheduled_arrival: ~U[2026-07-15 10:00:00Z],
+          actual_departure: ~U[2026-07-15 08:45:00Z],
+          actual_arrival: ~U[2026-07-15 10:30:00Z]
+        })
+      ])
+
+      assert {:ok, values} = Rail.form_values(scope, claim.id)
+      assert values.missed_connection.train_number == "200"
+    end
+  end
+
   describe "manual priority, lifecycle and scoping" do
     test "refresh never overwrites a manually edited segment" do
       scope = scope_fixture()

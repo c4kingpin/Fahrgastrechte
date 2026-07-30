@@ -36,7 +36,9 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
         "travel_date" => ~D[2026-04-15],
         "origin" => "Teststadt Hbf",
         "destination" => "Beispielstadt Hbf",
-        "disruption_type" => "delay"
+        "journey_outcome" => "delayed_arrival",
+        "disruption_cause" => "delay",
+        "journey_direction" => "outbound"
       })
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
@@ -111,7 +113,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
 
     assert {:ok, values} = Rail.form_values(scope, claim.id)
 
-    assert DateTime.compare(values.actual_destination_arrival, ~U[2026-07-15 09:15:00Z]) ==
+    assert DateTime.compare(values.actual_destination_arrival, ~U[2026-07-15 07:15:00Z]) ==
              :eq
 
     assert has_element?(resumed, "#actual-journey-section[data-state='confirmed']")

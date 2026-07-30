@@ -11,6 +11,7 @@ config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
 config :fahrgastrechte, Fahrgastrechte.Exports,
   backend: Fahrgastrechte.TestPDFBackend,
   template_path: Path.expand("../test/fixtures/c00/synthetic-ticket-flexpreis.pdf", __DIR__),
+  template_manifest_path: Path.expand("../test/fixtures/c00/form-template.json", __DIR__),
   template_version: "synthetic-test-template-v1",
   template_source: "fixture://synthetic-ticket-flexpreis.pdf",
   template_sha256:

@@ -62,7 +62,7 @@ defmodule Fahrgastrechte.ExportsTest do
       assert fields["planned_departure_station"] == "Berlin Hbf"
       assert fields["planned_destination_station"] == "Hamburg Hbf"
       assert fields["ticket_digital_number"] == "000000000001"
-      assert fields["arrived_hours"] == "09"
+      assert fields["arrived_hours"] == "11"
       assert fields["compensation"] == "Geldauszahlung/Überweisung"
       assert fields["compensation_iban"] == "DE89370400440532013000"
       refute Map.has_key?(fields, "signature")
@@ -94,7 +94,13 @@ defmodule Fahrgastrechte.ExportsTest do
     test "supports a cancelled first train and a manually confirmed replacement" do
       scope = scope_fixture()
       {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
-      claim = claim_fixture(scope, %{"disruption_type" => "cancellation"})
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "delayed_arrival",
+          "disruption_cause" => "cancellation"
+        })
+
       {_ticket, claim} = document_fixture(scope, claim)
 
       {_invoice, claim} =
@@ -147,8 +153,8 @@ defmodule Fahrgastrechte.ExportsTest do
       cleanup_export(export)
       assert_receive {:pdf_backend_fields, fields}
       fields = Map.new(fields)
-      assert fields["journey"] == "Zugausfall oder Fahrtabbruch"
-      assert fields["arrived_hours"] == "09"
+      assert fields["journey"] == "Verspätung am Ziel (mind. 60 Minuten)"
+      assert fields["arrived_hours"] == "11"
       assert fields["arrived_minutes"] == "15"
     end
 
@@ -160,6 +166,9 @@ defmodule Fahrgastrechte.ExportsTest do
                Exports.generate_export(scope, claim.id, claim.lock_version)
 
       assert %{source: :profile, field: :salutation, code: :required} in errors
+      assert %{source: :rail, field: :planned_segments, code: :required} in errors
+      assert %{source: :documents, field: :ticket, code: :required} in errors
+      assert %{source: :documents, field: :invoice, code: :required} in errors
       assert {:ok, unchanged} = Claims.get_claim(scope, claim.id)
       assert unchanged.status == :draft
       assert unchanged.generated_at == nil
@@ -200,6 +209,56 @@ defmodule Fahrgastrechte.ExportsTest do
 
       assert {:error, :template_changed} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
+    end
+  end
+
+  describe "template manifest contract" do
+    test "uses every official outcome radio value and both directions" do
+      scope = scope_fixture()
+
+      cases = [
+        {:delayed_arrival, :outbound, "Verspätung am Ziel (mind. 60 Minuten)", true},
+        {:not_started, :return,
+         "Reise nicht angetreten (Zugausfall oder erwartete Verspätung am Ziel von mind. 60 Minuten)",
+         false},
+        {:aborted, :outbound, "Reise unterwegs abgebrochen und zurück zum Startbahnhof", false},
+        {:continued_with_other_transport, :return,
+         "Reise unterbrochen und mit anderem Verkehrsmittel fortgesetzt, für das Zusatzkosten entstanden sind",
+         true}
+      ]
+
+      for {outcome, direction, expected_radio, arrival_expected?} <- cases do
+        claim =
+          export_ready_fixture(scope, %{
+            "journey_outcome" => Atom.to_string(outcome),
+            "journey_direction" => Atom.to_string(direction)
+          })
+
+        assert {:ok, _profile} =
+                 Accounts.update_profile(
+                   scope,
+                   valid_profile_attributes(%{
+                     "title" => "Dr.",
+                     "phone_number" => "+49 30 123456"
+                   })
+                 )
+
+        assert {:ok, %{export: export}} =
+                 Exports.generate_export(scope, claim.id, claim.lock_version)
+
+        cleanup_export(export)
+        assert_receive {:pdf_backend_fields, fields}
+        fields = Map.new(fields)
+
+        assert fields["journey"] == expected_radio
+        assert fields["planned_direction"] == direction_radio(direction)
+        assert fields["personal"] == "Neutrale Anrede"
+        assert Map.has_key?(fields, "arrived_hours") == arrival_expected?
+        refute Map.has_key?(fields, "signature")
+        refute Map.has_key?(fields, "personal_title")
+        refute Map.has_key?(fields, "personal_phone")
+        refute Map.has_key?(fields, "personal_country")
+      end
     end
   end
 
@@ -273,6 +332,9 @@ defmodule Fahrgastrechte.ExportsTest do
       assert {:error, :not_authenticated} = Exports.stream_bundle(nil, Ecto.UUID.generate())
     end
   end
+
+  defp direction_radio(:outbound), do: "Hinfahrt"
+  defp direction_radio(:return), do: "Rückfahrt"
 
   defp cleanup_export(export) do
     on_exit(fn ->

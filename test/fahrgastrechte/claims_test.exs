@@ -165,7 +165,8 @@ defmodule Fahrgastrechte.ClaimsTest do
                %{source: :claim, field: :travel_date, code: :required},
                %{source: :claim, field: :origin, code: :required},
                %{source: :claim, field: :destination, code: :required},
-               %{source: :claim, field: :disruption_type, code: :required}
+               %{source: :claim, field: :journey_outcome, code: :required},
+               %{source: :claim, field: :disruption_cause, code: :required}
              ]
 
       assert {:error, %{type: :incomplete, errors: ^errors}} =
@@ -292,6 +293,41 @@ defmodule Fahrgastrechte.ClaimsTest do
     end
   end
 
+  describe "wave one export fields" do
+    test "stores journey outcome, disruption cause and return direction independently" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "aborted",
+          "disruption_cause" => "cancellation",
+          "journey_direction" => "return"
+        })
+
+      assert claim.journey_outcome == :aborted
+      assert claim.disruption_cause == :cancellation
+      assert claim.journey_direction == :return
+      assert {:ok, ^claim} = Claims.export_readiness(scope, claim.id)
+    end
+
+    test "reports an incompatible missed connection before a journey was started" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "not_started",
+          "disruption_cause" => "missed_connection"
+        })
+
+      assert {:error, %{type: :incomplete, errors: errors}} =
+               Claims.export_readiness(scope, claim.id)
+
+      assert errors == [
+               %{source: :claim, field: :disruption_cause, code: :invalid_for_outcome}
+             ]
+    end
+  end
+
   describe "filters and deletion" do
     test "filters only scoped claims by status, date, route and claim number" do
       scope = scope_fixture()
@@ -304,7 +340,7 @@ defmodule Fahrgastrechte.ClaimsTest do
           "travel_date" => ~D[2026-08-20],
           "origin" => "München Hbf",
           "destination" => "Nürnberg Hbf",
-          "disruption_type" => "cancellation"
+          "disruption_cause" => "cancellation"
         })
 
       _foreign = claim_fixture(other_scope, %{"origin" => "München Hbf"})
