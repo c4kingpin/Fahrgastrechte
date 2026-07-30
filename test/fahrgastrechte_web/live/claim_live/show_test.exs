@@ -78,6 +78,8 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert has_element?(view, "#ticket-document-card #download-ticket")
     assert has_element?(view, "#ticket-document-card #reanalyze-ticket")
     assert has_element?(view, "#ticket-suggestions article")
+    assert has_element?(view, "#claim-step-dokumente[data-state=incomplete]")
+    assert has_element?(view, "#claim-step-vorschlaege[data-state=incomplete]")
 
     assert {:ok, [document]} = Documents.list_documents(scope, claim.id)
     assert document.kind == :ticket
