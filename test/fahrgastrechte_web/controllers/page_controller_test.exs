@@ -10,5 +10,7 @@ defmodule FahrgastrechteWeb.PageControllerTest do
     assert response =~ ~s(id="home-page")
     assert response =~ ~s(id="claim-preview")
     assert response =~ ~s(id="ablauf")
+    assert response =~ ~s(id="login-link")
+    refute response =~ "Anmeldung folgt"
   end
 end

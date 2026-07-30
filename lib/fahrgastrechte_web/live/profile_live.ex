@@ -52,7 +52,7 @@ defmodule FahrgastrechteWeb.ProfileLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} current_section={:profile}>
       <div id="profile-page" class={["space-y-8"]}>
         <section class={[
           "overflow-hidden rounded-3xl bg-slate-950 px-6 py-8 text-white shadow-xl sm:px-10"
@@ -66,7 +66,7 @@ defmodule FahrgastrechteWeb.ProfileLive do
                 Dein Reisendenprofil
               </h1>
               <p class={["mt-3 text-sm leading-6 text-slate-300"]}>
-                Diese Angaben werden später in deine Fahrgastrechte-Anträge übernommen.
+                Diese Angaben werden in deine Fahrgastrechte-Anträge übernommen.
                 Bankdaten liegen verschlüsselt in der Datenbank.
               </p>
             </div>
