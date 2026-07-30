@@ -8,12 +8,8 @@ defmodule FahrgastrechteWeb.CoreComponents do
   with doc strings and declarative assigns. You may customize and style
   them in any way you want, based on your application growth and needs.
 
-  The foundation for styling is Tailwind CSS, a utility-first CSS framework,
-  augmented with daisyUI, a Tailwind CSS plugin that provides UI components
-  and themes. Here are useful references:
-
-    * [daisyUI](https://daisyui.com/docs/intro/) - a good place to get
-      started and see the available components.
+  The foundation for styling is Tailwind CSS, a utility-first CSS framework.
+  Here are useful references:
 
     * [Tailwind CSS](https://tailwindcss.com) - the foundational framework
       we build on. You will use it for layout, sizing, flexbox, grid, and
@@ -63,13 +59,13 @@ defmodule FahrgastrechteWeb.CoreComponents do
       id={@id}
       phx-click={JS.push("lv:clear-flash", value: %{key: @kind}) |> hide("##{@id}")}
       role="alert"
-      class="toast toast-top toast-end z-50"
+      class="fixed inset-x-4 top-4 z-50 flex justify-end sm:inset-x-6"
       {@rest}
     >
       <div class={[
-        "alert w-80 sm:w-96 max-w-80 sm:max-w-96 text-wrap",
-        @kind == :info && "alert-info",
-        @kind == :error && "alert-error"
+        "flex w-full max-w-sm items-start gap-3 rounded-2xl border px-4 py-3.5 text-sm shadow-[0_20px_50px_-24px_rgba(15,23,42,0.6)] backdrop-blur-xl",
+        @kind == :info && "border-sky-200 bg-sky-50/95 text-sky-950",
+        @kind == :error && "border-rose-200 bg-rose-50/95 text-rose-950"
       ]}>
         <.icon :if={@kind == :info} name="hero-information-circle" class="size-5 shrink-0" />
         <.icon :if={@kind == :error} name="hero-exclamation-circle" class="size-5 shrink-0" />
@@ -78,7 +74,11 @@ defmodule FahrgastrechteWeb.CoreComponents do
           <p>{msg}</p>
         </div>
         <div class="flex-1" />
-        <button type="button" class="group self-start cursor-pointer" aria-label={gettext("close")}>
+        <button
+          type="button"
+          class="group -mr-1 self-start rounded-lg p-1 transition hover:bg-black/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          aria-label={gettext("close")}
+        >
           <.icon name="hero-x-mark" class="size-5 opacity-40 group-hover:opacity-70" />
         </button>
       </div>
@@ -101,11 +101,18 @@ defmodule FahrgastrechteWeb.CoreComponents do
   slot :inner_block, required: true
 
   def button(%{rest: rest} = assigns) do
-    variants = %{"primary" => "btn-primary", nil => "btn-primary btn-soft"}
+    variants = %{
+      "primary" => "bg-rose-700 text-white shadow-sm hover:bg-rose-800",
+      nil =>
+        "border border-rose-200 bg-rose-50 text-rose-800 hover:border-rose-300 hover:bg-rose-100"
+    }
 
     assigns =
       assign_new(assigns, :class, fn ->
-        ["btn", Map.fetch!(variants, assigns[:variant])]
+        [
+          "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 disabled:cursor-not-allowed disabled:opacity-40",
+          Map.fetch!(variants, assigns[:variant])
+        ]
       end)
 
     if rest[:href] || rest[:navigate] || rest[:patch] do
@@ -228,6 +235,7 @@ defmodule FahrgastrechteWeb.CoreComponents do
           type="checkbox"
           id={@id}
           name={@name}
+          aria-invalid={if(@errors != [], do: "true", else: nil)}
           value="true"
           checked={@checked}
           class={
@@ -253,12 +261,13 @@ defmodule FahrgastrechteWeb.CoreComponents do
         <select
           id={@id}
           name={@name}
+          aria-invalid={if(@errors != [], do: "true", else: nil)}
           class={[
             @class ||
               "scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 pr-10 text-base text-slate-950 shadow-sm outline-none transition focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm",
             @errors != [] &&
               (@error_class ||
-                 "select-error border-rose-600 ring-4 ring-rose-600/10")
+                 "border-rose-600 ring-4 ring-rose-600/10")
           ]}
           multiple={@multiple}
           {@rest}
@@ -282,12 +291,13 @@ defmodule FahrgastrechteWeb.CoreComponents do
         <textarea
           id={@id}
           name={@name}
+          aria-invalid={if(@errors != [], do: "true", else: nil)}
           class={[
             @class ||
               "scheme-light block min-h-28 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm",
             @errors != [] &&
               (@error_class ||
-                 "textarea-error border-rose-600 ring-4 ring-rose-600/10")
+                 "border-rose-600 ring-4 ring-rose-600/10")
           ]}
           {@rest}
         >{Phoenix.HTML.Form.normalize_value("textarea", @value)}</textarea>
@@ -310,11 +320,12 @@ defmodule FahrgastrechteWeb.CoreComponents do
           name={@name}
           id={@id}
           value={Phoenix.HTML.Form.normalize_value(@type, @value)}
+          aria-invalid={if(@errors != [], do: "true", else: nil)}
           class={[
             @class ||
               "scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 file:mr-3 file:border-0 file:bg-transparent file:text-sm file:font-semibold file:text-slate-700 sm:text-sm",
             @errors != [] &&
-              (@error_class || "input-error border-rose-600 ring-4 ring-rose-600/10")
+              (@error_class || "border-rose-600 ring-4 ring-rose-600/10")
           ]}
           {@rest}
         />
@@ -327,7 +338,7 @@ defmodule FahrgastrechteWeb.CoreComponents do
   # Helper used by inputs to generate form errors
   defp error(assigns) do
     ~H"""
-    <p class="mt-1.5 flex gap-2 items-center text-sm text-error">
+    <p class="mt-1.5 flex items-center gap-2 text-sm font-medium text-rose-700">
       <.icon name="hero-exclamation-circle" class="size-5" />
       {render_slot(@inner_block)}
     </p>

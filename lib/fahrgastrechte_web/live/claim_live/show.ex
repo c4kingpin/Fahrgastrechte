@@ -68,6 +68,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_state, :idle)
           |> assign(:candidate_lookup, %{})
           |> assign(:export_state, :idle)
+          |> assign(:origin_station_options, [])
+          |> assign(:destination_station_options, [])
           |> assign(:upload_forms, upload_forms())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
@@ -138,6 +140,34 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
+  def handle_event("cancel_upload", %{"kind" => kind, "ref" => ref}, socket)
+      when kind in ["ticket", "invoice"] do
+    {:noreply, cancel_upload(socket, String.to_existing_atom(kind), ref)}
+  end
+
+  def handle_event("suggest_stations", %{"connection_search" => params}, socket) do
+    socket = assign(socket, :connection_search_form, to_form(params, as: :connection_search))
+
+    {:noreply,
+     socket
+     |> assign_station_options(:origin, params["origin"])
+     |> assign_station_options(:destination, params["destination"])}
+  end
+
+  def handle_event("save_suggestion_corrections", %{"correction" => params}, socket) do
+    attrs = Map.take(params, ["travel_date", "origin", "destination"])
+    socket = persist_claim(socket, attrs, false)
+
+    socket =
+      if socket.assigns.save_state == :saved do
+        put_flash(socket, :info, "Die manuell geprüften Angaben wurden gespeichert.")
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
   def handle_event("search_connections", %{"connection_search" => params}, socket) do
     socket = assign(socket, :connection_search_form, to_form(params, as: :connection_search))
 
@@ -206,13 +236,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("save_planned_journey", %{"planned" => params}, socket) do
-    with {:ok, segment} <- build_planned_segment(params),
+    with {:ok, segments} <- build_planned_segments(params),
          {:ok, %{claim: claim}} <-
            Rail.confirm_journey(
              socket.assigns.current_scope,
              socket.assigns.claim.id,
              :planned,
-             [segment],
+             segments,
              socket.assigns.claim.lock_version
            ) do
       {:noreply,
@@ -327,6 +357,32 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       "rejected" -> {:noreply, update_suggestion_state(socket, suggestion_id, :rejected)}
       _other -> {:noreply, put_flash(socket, :error, "Unbekannte Vorschlagsaktion.")}
     end
+  end
+
+  def handle_event("set_suggestion_group_state", %{"topic" => topic, "state" => state}, socket)
+      when topic in ["route", "booking", "other"] and state in ["accepted", "rejected"] do
+    suggestions = proposed_suggestions(socket, String.to_existing_atom(topic))
+
+    result =
+      case state do
+        "accepted" -> accept_suggestion_group(socket, suggestions)
+        "rejected" -> reject_suggestion_group(socket, suggestions)
+      end
+
+    {:noreply, result}
+  end
+
+  def handle_event("set_all_suggestions_state", %{"state" => state}, socket)
+      when state in ["accepted", "rejected"] do
+    suggestions = proposed_suggestions(socket, :all)
+
+    result =
+      case state do
+        "accepted" -> accept_suggestion_group(socket, suggestions)
+        "rejected" -> reject_suggestion_group(socket, suggestions)
+      end
+
+    {:noreply, result}
   end
 
   def handle_event("transition_claim", %{"status" => status}, socket) do
@@ -732,6 +788,54 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                           <.icon name="hero-trash" class="size-4" /> Löschen
                         </button>
                       </div>
+                      <.form
+                        for={upload_form}
+                        id={"#{kind}-replace-form"}
+                        phx-change="validate_upload"
+                        class={["mt-3"]}
+                      >
+                        <label class={[
+                          "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-800"
+                        ]}>
+                          <.live_file_input upload={upload} class="sr-only" />
+                          <.icon name="hero-arrow-path" class="size-4" /> PDF ersetzen
+                        </label>
+                        <div
+                          :for={entry <- upload.entries}
+                          id={"#{kind}-replacement-#{entry.ref}"}
+                          class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
+                        >
+                          <div class={["flex items-start justify-between gap-3"]}>
+                            <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
+                              {entry.client_name}
+                            </p>
+                            <button
+                              id={"cancel-#{kind}-replacement-#{entry.ref}"}
+                              type="button"
+                              phx-click="cancel_upload"
+                              phx-value-kind={kind}
+                              phx-value-ref={entry.ref}
+                              aria-label={"Upload von #{entry.client_name} abbrechen"}
+                              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                            >
+                              <.icon name="hero-x-mark" class="size-4" />
+                            </button>
+                          </div>
+                          <div
+                            class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
+                            role="progressbar"
+                            aria-valuemin="0"
+                            aria-valuemax="100"
+                            aria-valuenow={entry.progress}
+                          >
+                            <div
+                              class="h-full rounded-full bg-rose-600"
+                              style={"width: #{entry.progress}%"}
+                            >
+                            </div>
+                          </div>
+                        </div>
+                      </.form>
                     <% else %>
                       <.form
                         for={upload_form}
@@ -764,7 +868,22 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                           id={"#{kind}-upload-#{entry.ref}"}
                           class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
                         >
-                          <p class={["truncate font-semibold text-slate-700"]}>{entry.client_name}</p>
+                          <div class={["flex items-start justify-between gap-3"]}>
+                            <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
+                              {entry.client_name}
+                            </p>
+                            <button
+                              id={"cancel-#{kind}-upload-#{entry.ref}"}
+                              type="button"
+                              phx-click="cancel_upload"
+                              phx-value-kind={kind}
+                              phx-value-ref={entry.ref}
+                              aria-label={"Upload von #{entry.client_name} abbrechen"}
+                              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                            >
+                              <.icon name="hero-x-mark" class="size-4" />
+                            </button>
+                          </div>
                           <div
                             class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
                             role="progressbar"
@@ -833,90 +952,108 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 </div>
               </div>
 
-              <div id="ticket-suggestions" phx-update="stream" class={["mt-6 grid gap-3"]}>
+              <div id="ticket-suggestions" class={["mt-6 space-y-5"]}>
                 <div
+                  :if={!@suggestions_empty?}
+                  id="suggestion-bulk-actions"
+                  class={[
+                    "flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  ]}
+                >
+                  <p class={["text-sm font-semibold text-slate-800"]}>
+                    Alle noch offenen Werte gemeinsam prüfen
+                  </p>
+                  <div class={["flex flex-wrap gap-2"]}>
+                    <button
+                      id="accept-all-suggestions"
+                      type="button"
+                      phx-click="set_all_suggestions_state"
+                      phx-value-state="accepted"
+                      disabled={!@proposed_suggestions? || !editable?(@claim.status)}
+                      class="inline-flex min-h-10 items-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-40"
+                    >
+                      <.icon name="hero-check" class="size-4" /> Alle übernehmen
+                    </button>
+                    <button
+                      id="reject-all-suggestions"
+                      type="button"
+                      phx-click="set_all_suggestions_state"
+                      phx-value-state="rejected"
+                      disabled={!@proposed_suggestions? || !editable?(@claim.status)}
+                      class="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 disabled:opacity-40"
+                    >
+                      <.icon name="hero-x-mark" class="size-4" /> Alle verwerfen
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  :if={@suggestions_empty?}
                   id="suggestions-empty"
                   class={[
-                    "hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center only:block"
+                    "rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center"
                   ]}
                 >
                   <.icon name="hero-document-magnifying-glass" class="mx-auto size-7 text-slate-400" />
                   <p class={["mt-3 text-sm font-semibold text-slate-800"]}>Noch keine Vorschläge</p>
                   <p class={["mt-1 text-xs leading-5 text-slate-500"]}>
-                    Nach dem Upload wird lesbarer PDF-Text automatisch ausgewertet. Textlose Dokumente bleiben manuell bearbeitbar.
+                    Das PDF enthält möglicherweise keinen lesbaren Text. Trage die Angaben direkt unten ein – der manuelle Weg bleibt immer verfügbar.
                   </p>
                 </div>
 
-                <article
-                  :for={{dom_id, suggestion} <- @streams.suggestions}
-                  id={dom_id}
-                  class={[
-                    "rounded-2xl border p-4 transition",
-                    suggestion_card_style(suggestion.state)
-                  ]}
+                <.suggestion_group
+                  id="route-suggestions"
+                  topic="route"
+                  label="Reise und Strecke"
+                  items={@streams.route_suggestions}
+                  documents_by_id={@documents_by_id}
+                  editable?={editable?(@claim.status)}
+                />
+                <.suggestion_group
+                  id="booking-suggestions"
+                  topic="booking"
+                  label="Buchung und Preis"
+                  items={@streams.booking_suggestions}
+                  documents_by_id={@documents_by_id}
+                  editable?={editable?(@claim.status)}
+                />
+                <.suggestion_group
+                  id="other-suggestions"
+                  topic="other"
+                  label="Weitere Angaben"
+                  items={@streams.other_suggestions}
+                  documents_by_id={@documents_by_id}
+                  editable?={editable?(@claim.status)}
+                />
+
+                <.form
+                  for={@suggestion_correction_form}
+                  id="suggestion-correction-form"
+                  phx-submit="save_suggestion_corrections"
+                  class="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
                 >
-                  <div class={["flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"]}>
-                    <div class={["min-w-0"]}>
-                      <div class={["flex flex-wrap items-center gap-2"]}>
-                        <span class={["text-xs font-bold uppercase tracking-[0.14em] text-slate-500"]}>{suggestion_field_label(
-                          suggestion.field
-                        )}</span>
-                        <span class={[
-                          "rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm"
-                        ]}>{confidence_label(suggestion.confidence)}</span>
-                      </div>
-                      <p class={["mt-2 text-sm font-semibold text-slate-950"]}>
-                        {suggestion_value(suggestion)}
-                      </p>
-                      <p class={["mt-2 text-xs leading-5 text-slate-500"]}>
-                        {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
-                      </p>
-                    </div>
-                    <div class={["flex shrink-0 flex-wrap gap-2"]}>
-                      <%= if suggestion.state == :proposed do %>
-                        <button
-                          id={"accept-suggestion-#{suggestion.id}"}
-                          type="button"
-                          phx-click="set_suggestion_state"
-                          phx-value-id={suggestion.id}
-                          phx-value-state="accepted"
-                          disabled={!editable?(@claim.status)}
-                          class={[
-                            "inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-                          ]}
-                        >
-                          <.icon name="hero-check" class="size-4" /> {accept_label(suggestion.field)}
-                        </button>
-                        <button
-                          id={"reject-suggestion-#{suggestion.id}"}
-                          type="button"
-                          phx-click="set_suggestion_state"
-                          phx-value-id={suggestion.id}
-                          phx-value-state="rejected"
-                          disabled={!editable?(@claim.status)}
-                          class={[
-                            "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-                          ]}
-                        >
-                          <.icon name="hero-x-mark" class="size-4" /> Verwerfen
-                        </button>
-                      <% else %>
-                        <span class={[
-                          "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold",
-                          suggestion_state_style(suggestion.state)
-                        ]}>
-                          <.icon
-                            name={
-                              if(suggestion.state == :accepted, do: "hero-check", else: "hero-x-mark")
-                            }
-                            class="size-4"
-                          />
-                          {if(suggestion.state == :accepted, do: "Bestätigt", else: "Verworfen")}
-                        </span>
-                      <% end %>
-                    </div>
+                  <h3 class="text-sm font-semibold text-slate-950">Angaben manuell korrigieren</h3>
+                  <p class="mt-1 text-xs leading-5 text-slate-500">
+                    Diese Werte überschreiben erkannte Angaben und können jederzeit erneut geändert werden.
+                  </p>
+                  <div class="mt-4 grid gap-4 sm:grid-cols-3">
+                    <.input
+                      field={@suggestion_correction_form[:travel_date]}
+                      type="date"
+                      label="Reisedatum"
+                    />
+                    <.input field={@suggestion_correction_form[:origin]} label="Startbahnhof" />
+                    <.input field={@suggestion_correction_form[:destination]} label="Zielbahnhof" />
                   </div>
-                </article>
+                  <button
+                    id="save-suggestion-corrections"
+                    type="submit"
+                    disabled={!editable?(@claim.status)}
+                    class="mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-40"
+                  >
+                    <.icon name="hero-pencil-square" class="size-4" /> Manuelle Angaben speichern
+                  </button>
+                </.form>
               </div>
             </section>
 
@@ -952,6 +1089,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 for={@connection_search_form}
                 id="connection-search-form"
                 phx-submit="search_connections"
+                phx-change="suggest_stations"
                 class={["mt-6 rounded-2xl bg-slate-50 p-4 sm:p-5"]}
               >
                 <div class={["grid gap-4 sm:grid-cols-2"]}>
@@ -959,12 +1097,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                     field={@connection_search_form[:origin]}
                     id="connection-origin"
                     label="Startbahnhof"
+                    list="origin-stations"
+                    autocomplete="off"
+                    phx-debounce="350"
                   />
+                  <datalist id="origin-stations">
+                    <option :for={station <- @origin_station_options} value={station}></option>
+                  </datalist>
                   <.input
                     field={@connection_search_form[:destination]}
                     id="connection-destination"
                     label="Zielbahnhof"
+                    list="destination-stations"
+                    autocomplete="off"
+                    phx-debounce="350"
                   />
+                  <datalist id="destination-stations">
+                    <option :for={station <- @destination_station_options} value={station}></option>
+                  </datalist>
                   <.input
                     field={@connection_search_form[:departure_at]}
                     id="connection-departure-at"
@@ -1039,6 +1189,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                           item.candidate.fetched_at
                         )}
                       </p>
+                      <p class="mt-1 text-xs text-slate-500">
+                        {candidate_transfer_label(item.candidate)} · Quelle {candidate_source(
+                          item.candidate
+                        )}
+                      </p>
                     </div>
                     <button
                       id={"choose-connection-#{item.id}"}
@@ -1087,6 +1242,37 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                       label="Planmäßige Ankunft"
                     />
                   </div>
+                  <details
+                    id="manual-transfer-editor"
+                    class="mt-5 rounded-xl border border-slate-200 bg-slate-50"
+                  >
+                    <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
+                      Umstieg oder weiteren Zug ergänzen
+                    </summary>
+                    <div class="grid gap-5 border-t border-slate-200 p-4 sm:grid-cols-2">
+                      <.input
+                        field={@planned_form[:via_name]}
+                        label="Umstiegsbahnhof"
+                        placeholder="Leer lassen für Direktfahrt"
+                      />
+                      <div class="hidden sm:block"></div>
+                      <.input
+                        field={@planned_form[:transfer_arrival]}
+                        type="datetime-local"
+                        label="Ankunft am Umstieg"
+                      />
+                      <.input
+                        field={@planned_form[:transfer_departure]}
+                        type="datetime-local"
+                        label="Weiterfahrt ab Umstieg"
+                      />
+                      <.input field={@planned_form[:second_category]} label="Zuggattung Weiterfahrt" />
+                      <.input field={@planned_form[:second_number]} label="Zugnummer Weiterfahrt" />
+                    </div>
+                    <p class="border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500">
+                      Für weitere Umstiege kann die gespeicherte Timeline abschnittsweise korrigiert werden. Ohne API-Daten bleibt die manuelle Verbindung vollständig nutzbar.
+                    </p>
+                  </details>
                   <button
                     id="save-planned-journey"
                     type="submit"
@@ -1176,6 +1362,58 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 <p class={["mt-1 text-xs text-slate-600"]}>
                   API-Werte sind Vorschläge und können unten korrigiert werden.
                 </p>
+              </div>
+
+              <div
+                id="actual-journey-timeline"
+                phx-update="stream"
+                class="mt-5 grid gap-3"
+                aria-label="Timeline der tatsächlichen Reise"
+              >
+                <p
+                  id="actual-journey-timeline-empty"
+                  class="hidden rounded-xl bg-slate-50 p-4 text-sm text-slate-500 only:block"
+                >
+                  Noch kein Reiseabschnitt bestätigt. Trage den Verlauf unten manuell ein.
+                </p>
+                <article
+                  :for={{dom_id, segment} <- @streams.actual_segments}
+                  id={dom_id}
+                  class={[
+                    "relative rounded-2xl border p-4 pl-12",
+                    if(segment.cancelled,
+                      do: "border-rose-200 bg-rose-50",
+                      else: "border-slate-200 bg-white"
+                    )
+                  ]}
+                >
+                  <span class={[
+                    "absolute left-4 top-4 flex size-6 items-center justify-center rounded-full text-white",
+                    if(segment.cancelled, do: "bg-rose-700", else: "bg-slate-950")
+                  ]}>
+                    <.icon
+                      name={if(segment.cancelled, do: "hero-x-mark", else: "hero-arrow-right")}
+                      class="size-4"
+                    />
+                  </span>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <strong class="text-sm text-slate-950">{train_label(segment)}</strong>
+                    <span
+                      :if={segment.cancelled}
+                      class="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800"
+                    >Ausgefallen</span>
+                  </div>
+                  <p class="mt-1 text-sm text-slate-700">
+                    {segment.origin_name} → {segment.destination_name}
+                  </p>
+                  <p class="mt-1 text-xs text-slate-500">
+                    Plan {format_datetime(segment.scheduled_departure)} – {format_datetime(
+                      segment.scheduled_arrival
+                    )} · tatsächlich {format_optional_datetime(
+                      segment.actual_arrival || segment.estimated_arrival
+                    )}
+                  </p>
+                </article>
               </div>
 
               <.form
@@ -1274,12 +1512,85 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               </div>
 
               <div id="review-checklist" class={["mt-6 grid gap-3 sm:grid-cols-2"]}>
-                <.review_check label="Reisendenprofil" done?={@profile_complete?} />
-                <.review_check label="Falldaten" done?={@claim_complete?} />
-                <.review_check label="Ticket & Rechnung" done?={@documents_complete?} />
-                <.review_check label="Geplante Verbindung" done?={@planned_complete?} />
-                <.review_check label="Tatsächliche Reise" done?={@actual_complete?} />
+                <.review_check
+                  label="Reisendenprofil"
+                  done?={@profile_complete?}
+                  href={~p"/profil?antrag=#{@claim.id}"}
+                  navigate={true}
+                />
+                <.review_check
+                  label="Falldaten"
+                  done?={@claim_complete?}
+                  href={step_path(@claim, step_by_id(:claim))}
+                />
+                <.review_check
+                  label="Ticket & Rechnung"
+                  done?={@documents_complete?}
+                  href={step_path(@claim, step_by_id(:documents))}
+                />
+                <.review_check
+                  label="Erkannte Angaben"
+                  done?={@suggestions_complete?}
+                  href={step_path(@claim, step_by_id(:suggestions))}
+                />
+                <.review_check
+                  label="Geplante Verbindung"
+                  done?={@planned_complete?}
+                  href={step_path(@claim, step_by_id(:planned))}
+                />
+                <.review_check
+                  label="Tatsächliche Reise"
+                  done?={@actual_complete?}
+                  href={step_path(@claim, step_by_id(:actual))}
+                />
               </div>
+
+              <section
+                id="official-form-review"
+                class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+              >
+                <h3 class="text-sm font-semibold text-slate-950">Angaben in Formularreihenfolge</h3>
+                <dl class="mt-4 grid gap-4 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Reisestrecke
+                    </dt><dd class="mt-1 font-semibold text-slate-900">{route_label(@claim)}</dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Reisedatum
+                    </dt><dd class="mt-1 font-semibold text-slate-900">
+                      {format_date(@claim.travel_date)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Reiseergebnis
+                    </dt><dd class="mt-1 font-semibold text-slate-900">
+                      {journey_outcome_label(@claim.journey_outcome)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Ursache
+                    </dt><dd class="mt-1 font-semibold text-slate-900">
+                      {disruption_label(@claim.disruption_cause)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Fahrtrichtung
+                    </dt><dd class="mt-1 font-semibold text-slate-900">
+                      {journey_direction_label(@claim.journey_direction)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Auszahlung
+                    </dt><dd class="mt-1 font-semibold text-slate-900">Überweisung</dd>
+                  </div>
+                </dl>
+              </section>
 
               <div id="claim-api-sources" phx-update="stream" class={["mt-6 grid gap-2"]}>
                 <p
@@ -1352,6 +1663,32 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   </a>
                 </article>
               </div>
+
+              <section
+                :if={@exports_available?}
+                id="submission-checklist"
+                class="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:p-5"
+              >
+                <h3 class="text-sm font-semibold text-violet-950">Nach dem Download</h3>
+                <ol class="mt-3 grid gap-2 text-sm text-violet-950 sm:grid-cols-2">
+                  <li class="flex items-center gap-2">
+                    <span class="flex size-6 items-center justify-center rounded-full bg-violet-700 text-xs font-bold text-white">1</span>
+                    Gesamt-PDF herunterladen
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span class="flex size-6 items-center justify-center rounded-full bg-violet-700 text-xs font-bold text-white">2</span>
+                    Formular unterschreiben
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span class="flex size-6 items-center justify-center rounded-full bg-violet-700 text-xs font-bold text-white">3</span>
+                    Ticket und Rechnung prüfen
+                  </li>
+                  <li class="flex items-center gap-2">
+                    <span class="flex size-6 items-center justify-center rounded-full bg-violet-700 text-xs font-bold text-white">4</span>
+                    Antrag versenden
+                  </li>
+                </ol>
+              </section>
             </section>
           </div>
 
@@ -1457,6 +1794,39 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <.icon name="hero-pencil-square" class="size-4" /> Erneut bearbeiten
                 </button>
               </div>
+
+              <dl
+                :if={@claim.sent_at || @claim.completed_at}
+                class="mt-5 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs"
+              >
+                <div :if={@claim.sent_at} class="flex items-center justify-between gap-3">
+                  <dt class="font-semibold text-slate-500">Versendet</dt>
+                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.sent_at)}</dd>
+                </div>
+                <div :if={@claim.completed_at} class="flex items-center justify-between gap-3">
+                  <dt class="font-semibold text-slate-500">Abgeschlossen</dt>
+                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.completed_at)}</dd>
+                </div>
+              </dl>
+
+              <div id="claim-status-history" phx-update="stream" class="mt-5 space-y-2">
+                <p
+                  id="claim-status-history-heading"
+                  class="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                >
+                  Verlauf
+                </p>
+                <article
+                  :for={{dom_id, entry} <- @streams.status_history}
+                  id={dom_id}
+                  class="rounded-xl border border-slate-200 px-3 py-2.5"
+                >
+                  <p class="text-xs font-semibold text-slate-800">{status_history_label(entry)}</p>
+                  <p class="mt-1 text-[0.68rem] text-slate-500">
+                    {format_datetime(entry.changed_at)}
+                  </p>
+                </article>
+              </div>
             </section>
 
             <section class={["rounded-3xl border border-rose-200 bg-rose-50/60 p-6"]}>
@@ -1548,6 +1918,117 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     """
   end
 
+  attr :id, :string, required: true
+  attr :topic, :string, required: true
+  attr :label, :string, required: true
+  attr :items, :any, required: true
+  attr :documents_by_id, :map, required: true
+  attr :editable?, :boolean, required: true
+
+  def suggestion_group(assigns) do
+    ~H"""
+    <section id={@id} class="rounded-2xl border border-slate-200 bg-white p-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h3 class="text-sm font-semibold text-slate-950">{@label}</h3>
+        <div class="flex flex-wrap gap-2">
+          <button
+            id={"accept-#{@topic}-suggestions"}
+            type="button"
+            phx-click="set_suggestion_group_state"
+            phx-value-topic={@topic}
+            phx-value-state="accepted"
+            disabled={!@editable?}
+            class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-40"
+          >
+            <.icon name="hero-check" class="size-4" /> Gruppe übernehmen
+          </button>
+          <button
+            id={"reject-#{@topic}-suggestions"}
+            type="button"
+            phx-click="set_suggestion_group_state"
+            phx-value-topic={@topic}
+            phx-value-state="rejected"
+            disabled={!@editable?}
+            class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+          >
+            <.icon name="hero-x-mark" class="size-4" /> Gruppe verwerfen
+          </button>
+        </div>
+      </div>
+      <div id={"#{@id}-items"} phx-update="stream" class="mt-3 grid gap-3">
+        <p
+          id={"#{@id}-empty"}
+          class="hidden rounded-xl bg-slate-50 p-3 text-xs text-slate-500 only:block"
+        >
+          Keine erkannten Werte in diesem Bereich.
+        </p>
+        <article
+          :for={{dom_id, suggestion} <- @items}
+          id={dom_id}
+          class={[
+            "rounded-xl border p-4 transition",
+            suggestion_card_style(suggestion.state)
+          ]}
+        >
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                  {suggestion_field_label(suggestion.field)}
+                </span>
+                <span class="rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm">
+                  {confidence_label(suggestion.confidence)}
+                </span>
+              </div>
+              <p class="mt-2 text-sm font-semibold text-slate-950">{suggestion_value(suggestion)}</p>
+              <p class="mt-2 text-xs leading-5 text-slate-500">
+                {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
+              </p>
+            </div>
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <%= if suggestion.state == :proposed do %>
+                <button
+                  id={"accept-suggestion-#{suggestion.id}"}
+                  type="button"
+                  phx-click="set_suggestion_state"
+                  phx-value-id={suggestion.id}
+                  phx-value-state="accepted"
+                  disabled={!@editable?}
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-40"
+                >
+                  <.icon name="hero-check" class="size-4" /> {accept_label(suggestion.field)}
+                </button>
+                <button
+                  id={"reject-suggestion-#{suggestion.id}"}
+                  type="button"
+                  phx-click="set_suggestion_state"
+                  phx-value-id={suggestion.id}
+                  phx-value-state="rejected"
+                  disabled={!@editable?}
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 disabled:opacity-40"
+                >
+                  <.icon name="hero-x-mark" class="size-4" /> Verwerfen
+                </button>
+              <% else %>
+                <span class={[
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold",
+                  suggestion_state_style(suggestion.state)
+                ]}>
+                  <.icon
+                    name={if(suggestion.state == :accepted, do: "hero-check", else: "hero-x-mark")}
+                    class="size-4"
+                  />
+                  {if(suggestion.state == :accepted, do: "Bestätigt", else: "Verworfen")}
+                </span>
+              <% end %>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+    """
+  end
+
   attr :state, :atom, required: true
 
   def step_badge(assigns) do
@@ -1563,6 +2044,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   attr :label, :string, required: true
   attr :done?, :boolean, required: true
+  attr :href, :string, required: true
+  attr :navigate, :boolean, default: false
 
   def review_check(assigns) do
     ~H"""
@@ -1577,12 +2060,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         <.icon name={if(@done?, do: "hero-check", else: "hero-exclamation-triangle")} class="size-4" />
       </span>
       <span class={["text-sm font-semibold text-slate-800"]}>{@label}</span>
-      <span class={[
-        "ml-auto text-xs font-semibold",
-        if(@done?, do: "text-emerald-700", else: "text-amber-800")
-      ]}>
-        {if(@done?, do: "Bestätigt", else: "Offen")}
-      </span>
+      <span :if={@done?} class="ml-auto text-xs font-semibold text-emerald-700">Bestätigt</span>
+      <.link
+        :if={!@done? && !@navigate}
+        patch={@href}
+        class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
+      >
+        Öffnen
+      </.link>
+      <.link
+        :if={!@done? && @navigate}
+        navigate={@href}
+        class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
+      >
+        Öffnen
+      </.link>
     </div>
     """
   end
@@ -1677,6 +2169,100 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     put_flash(socket, :error, "Bitte wähle zuerst eine vollständige PDF-Datei aus.")
   end
 
+  defp accept_suggestion_group(socket, []),
+    do: put_flash(socket, :info, "In diesem Bereich sind keine offenen Vorschläge vorhanden.")
+
+  defp accept_suggestion_group(socket, suggestions) do
+    attrs =
+      Enum.reduce(suggestions, %{}, fn suggestion, collected ->
+        Map.merge(collected, claim_attrs_for_suggestion(suggestion))
+      end)
+
+    claim_result =
+      if attrs == %{} do
+        {:ok, socket.assigns.claim}
+      else
+        Claims.update_claim(
+          socket.assigns.current_scope,
+          socket.assigns.claim.id,
+          attrs,
+          socket.assigns.claim.lock_version
+        )
+      end
+
+    with {:ok, claim} <- claim_result,
+         {:ok, _updated} <-
+           Tickets.set_suggestion_states(
+             socket.assigns.current_scope,
+             Enum.map(suggestions, & &1.id),
+             :accepted
+           ) do
+      socket
+      |> load_workspace(claim)
+      |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam übernommen.")
+    else
+      {:error, :stale} ->
+        handle_stale(socket)
+
+      {:error, _reason} ->
+        put_flash(socket, :error, "Die Vorschläge konnten nicht übernommen werden.")
+    end
+  end
+
+  defp reject_suggestion_group(socket, []),
+    do: put_flash(socket, :info, "In diesem Bereich sind keine offenen Vorschläge vorhanden.")
+
+  defp reject_suggestion_group(socket, suggestions) do
+    case Tickets.set_suggestion_states(
+           socket.assigns.current_scope,
+           Enum.map(suggestions, & &1.id),
+           :rejected
+         ) do
+      {:ok, _updated} ->
+        socket
+        |> refresh_workspace()
+        |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam verworfen.")
+
+      {:error, _reason} ->
+        put_flash(socket, :error, "Die Vorschläge konnten nicht aktualisiert werden.")
+    end
+  end
+
+  defp proposed_suggestions(socket, topic) do
+    socket
+    |> all_suggestions()
+    |> Enum.filter(fn suggestion ->
+      suggestion.state == :proposed && (topic == :all || suggestion_topic(suggestion) == topic)
+    end)
+  end
+
+  defp all_suggestions(socket) do
+    Enum.flat_map(socket.assigns.documents_by_id, fn {_document_id, document} ->
+      case Tickets.list_suggestions(socket.assigns.current_scope, document.id) do
+        {:ok, suggestions} -> suggestions
+        {:error, _reason} -> []
+      end
+    end)
+  end
+
+  defp assign_station_options(socket, field, query) when field in [:origin, :destination] do
+    options =
+      if is_binary(query) && String.length(String.trim(query)) >= 2 do
+        case Rail.search_stations(
+               socket.assigns.current_scope,
+               socket.assigns.claim.id,
+               query
+             ) do
+          {:ok, stations} -> stations |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.take(8)
+          {:error, _reason} -> []
+        end
+      else
+        []
+      end
+
+    assign(socket, String.to_existing_atom("#{field}_station_options"), options)
+  end
+
   defp accept_suggestion(socket, suggestion_id) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
          {:ok, claim} <- maybe_apply_suggestion(socket, suggestion),
@@ -1753,18 +2339,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     {:ok, changeset} = Claims.change_claim(scope, claim.id)
     {:ok, exports} = Exports.list_exports(scope, claim.id)
     {:ok, api_sources} = Rail.list_api_snapshots(scope, claim.id)
+    {:ok, status_history} = Claims.list_status_history(scope, claim.id)
     planned_journey = optional_journey(scope, claim.id, :planned)
     actual_journey = optional_journey(scope, claim.id, :actual)
+    upload_documents = Enum.filter(documents, &(&1.kind in @upload_kinds))
 
     suggestions =
-      documents
-      |> Enum.filter(&(&1.kind in @upload_kinds))
+      upload_documents
       |> Enum.flat_map(fn document ->
         case Tickets.list_suggestions(scope, document.id) do
           {:ok, items} -> items
           {:error, _reason} -> []
         end
       end)
+
+    suggestion_groups = Enum.group_by(suggestions, &suggestion_topic/1)
+    route_suggestions = Map.get(suggestion_groups, :route, [])
+    booking_suggestions = Map.get(suggestion_groups, :booking, [])
+    other_suggestions = Map.get(suggestion_groups, :other, [])
 
     documents_by_kind = Map.new(documents, &{&1.kind, &1})
     documents_by_id = Map.new(documents, &{&1.id, &1})
@@ -1775,7 +2367,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     analysis_complete? =
       documents_complete? &&
-        Enum.all?(documents, &(&1.analysis_status in [:completed, :manual_required]))
+        Enum.all?(upload_documents, &(&1.analysis_status in [:completed, :manual_required]))
 
     suggestions_complete? =
       analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
@@ -1789,8 +2381,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         !is_nil(claim.disruption_cause)
 
     review_complete? =
-      profile_complete? && claim_complete? && documents_complete? && planned_complete? &&
-        actual_complete?
+      profile_complete? && claim_complete? && documents_complete? && suggestions_complete? &&
+        planned_complete? && actual_complete?
 
     exports_available? = exports != []
 
@@ -1817,12 +2409,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:claim_form, to_form(changeset))
     |> assign(:documents_by_kind, documents_by_kind)
     |> assign(:documents_by_id, documents_by_id)
+    |> assign(:suggestions_empty?, suggestions == [])
+    |> assign(:proposed_suggestions?, Enum.any?(suggestions, &(&1.state == :proposed)))
+    |> assign(
+      :suggestion_correction_form,
+      to_form(suggestion_correction_data(claim), as: :correction)
+    )
     |> assign(:upload_kinds, @upload_kinds)
     |> assign(:claim_complete?, claim_complete?)
     |> assign(:documents_complete?, documents_complete?)
     |> assign(:profile_complete?, profile_complete?)
     |> assign(:planned_journey, planned_journey)
     |> assign(:actual_journey, actual_journey)
+    |> assign(:suggestions_complete?, suggestions_complete?)
     |> assign(:planned_complete?, planned_complete?)
     |> assign(:actual_complete?, actual_complete?)
     |> assign(:review_complete?, review_complete?)
@@ -1842,9 +2441,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       to_form(connection_search_data(claim, planned_journey), as: :connection_search)
     )
     |> assign(:completed_steps, completed_steps)
-    |> stream(:suggestions, suggestions, reset: true)
+    |> stream(:route_suggestions, route_suggestions, reset: true)
+    |> stream(:booking_suggestions, booking_suggestions, reset: true)
+    |> stream(:other_suggestions, other_suggestions, reset: true)
+    |> stream(:actual_segments, if(actual_journey, do: actual_journey.segments, else: []),
+      reset: true
+    )
     |> stream(:exports, Enum.reverse(exports), reset: true)
     |> stream(:api_sources, Enum.reverse(api_sources), reset: true)
+    |> stream(:status_history, Enum.reverse(status_history), reset: true)
   end
 
   defp optional_journey(scope, claim_id, kind) do
@@ -1924,23 +2529,50 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end)
   end
 
-  defp build_planned_segment(params) do
+  defp build_planned_segments(params) do
     with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
          {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
          :ok <- validate_order(scheduled_departure, scheduled_arrival) do
-      {:ok,
-       %{
-         origin_name: params["origin_name"],
-         destination_name: params["destination_name"],
-         train_category: params["train_category"],
-         train_number: params["train_number"],
-         scheduled_departure: scheduled_departure,
-         scheduled_arrival: scheduled_arrival,
-         source: "manual",
-         manual: true
-       }}
+      first = %{
+        origin_name: params["origin_name"],
+        destination_name: params["destination_name"],
+        train_category: params["train_category"],
+        train_number: params["train_number"],
+        scheduled_departure: scheduled_departure,
+        scheduled_arrival: scheduled_arrival,
+        source: "manual",
+        manual: true
+      }
+
+      build_transfer_segments(first, params)
     end
   end
+
+  defp build_transfer_segments(first, %{"via_name" => via_name} = params)
+       when is_binary(via_name) and via_name != "" do
+    with {:ok, transfer_arrival} <- parse_datetime(params["transfer_arrival"]),
+         {:ok, transfer_departure} <- parse_datetime(params["transfer_departure"]),
+         :ok <- validate_order(first.scheduled_departure, transfer_arrival),
+         :ok <- validate_order(transfer_arrival, transfer_departure),
+         :ok <- validate_order(transfer_departure, first.scheduled_arrival) do
+      {:ok,
+       [
+         %{first | destination_name: String.trim(via_name), scheduled_arrival: transfer_arrival},
+         %{
+           origin_name: String.trim(via_name),
+           destination_name: first.destination_name,
+           train_category: params["second_category"],
+           train_number: params["second_number"],
+           scheduled_departure: transfer_departure,
+           scheduled_arrival: first.scheduled_arrival,
+           source: "manual",
+           manual: true
+         }
+       ]}
+    end
+  end
+
+  defp build_transfer_segments(first, _params), do: {:ok, [first]}
 
   defp parse_datetime(value) when is_binary(value) do
     normalized = if String.length(value) == 16, do: value <> ":00", else: value
@@ -2056,13 +2688,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       "train_category" => "",
       "train_number" => "",
       "scheduled_departure" => default_departure(claim),
-      "scheduled_arrival" => ""
+      "scheduled_arrival" => "",
+      "via_name" => "",
+      "transfer_arrival" => "",
+      "transfer_departure" => "",
+      "second_category" => "",
+      "second_number" => ""
     }
   end
 
   defp planned_form_data(_claim, journey) do
     first = List.first(journey.segments)
     last = List.last(journey.segments)
+    second = Enum.at(journey.segments, 1)
 
     %{
       "origin_name" => first.origin_name || "",
@@ -2070,7 +2708,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       "train_category" => first.train_category || "",
       "train_number" => first.train_number || "",
       "scheduled_departure" => datetime_local(first.scheduled_departure),
-      "scheduled_arrival" => datetime_local(last.scheduled_arrival)
+      "scheduled_arrival" => datetime_local(last.scheduled_arrival),
+      "via_name" => if(second, do: first.destination_name || "", else: ""),
+      "transfer_arrival" => if(second, do: datetime_local(first.scheduled_arrival), else: ""),
+      "transfer_departure" =>
+        if(second, do: datetime_local(second.scheduled_departure), else: ""),
+      "second_category" => if(second, do: second.train_category || "", else: ""),
+      "second_number" => if(second, do: second.train_number || "", else: "")
     }
   end
 
@@ -2134,6 +2778,31 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     }
   end
 
+  defp suggestion_correction_data(claim) do
+    %{
+      "travel_date" => if(claim.travel_date, do: Date.to_iso8601(claim.travel_date), else: ""),
+      "origin" => claim.origin || "",
+      "destination" => claim.destination || ""
+    }
+  end
+
+  defp suggestion_topic(%{field: field})
+       when field in [
+              :travel_date,
+              :valid_until,
+              :origin,
+              :destination,
+              :scheduled_train,
+              :scheduled_departure,
+              :scheduled_arrival
+            ],
+       do: :route
+
+  defp suggestion_topic(%{field: field}) when field in [:order_number, :fare, :product],
+    do: :booking
+
+  defp suggestion_topic(_suggestion), do: :other
+
   defp default_departure(%{travel_date: %Date{} = date}), do: "#{Date.to_iso8601(date)}T08:00"
   defp default_departure(_claim), do: ""
 
@@ -2181,6 +2850,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp step_by_slug(slug) when is_binary(slug),
     do: Enum.find(@steps, &(&1.slug == slug))
+
+  defp step_by_id(id), do: Enum.find(@steps, &(&1.id == id))
 
   defp resume_step(steps),
     do: Enum.find(steps, &(&1.state != :confirmed)) || List.last(steps)
@@ -2231,6 +2902,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp status_label(:sent), do: "Versendet"
   defp status_label(:completed), do: "Erledigt"
 
+  defp status_history_label(%{from_status: nil, to_status: status}),
+    do: "Als #{status_label(status)} angelegt"
+
+  defp status_history_label(%{from_status: from_status, to_status: to_status}),
+    do: "#{status_label(from_status)} → #{status_label(to_status)}"
+
   defp status_style(:draft), do: "bg-amber-400/15 text-amber-200"
   defp status_style(:ready), do: "bg-sky-400/15 text-sky-200"
   defp status_style(:sent), do: "bg-violet-400/15 text-violet-200"
@@ -2273,6 +2950,17 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp step_badge_icon(:open), do: "hero-minus-circle"
 
   defp candidate_primary_segment(candidate), do: List.first(candidate.segments) || %{}
+
+  defp candidate_transfer_label(candidate) do
+    case max(length(candidate.segments) - 1, 0) do
+      0 -> "Direktverbindung"
+      1 -> "1 Umstieg"
+      count -> "#{count} Umstiege"
+    end
+  end
+
+  defp candidate_source(candidate),
+    do: candidate.source |> to_string() |> String.split(".") |> List.last()
 
   defp candidate_status_label(%{cancelled: true}), do: "Zug fällt aus"
 
@@ -2344,13 +3032,36 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp source_label("departures"), do: "Abfahrten und Abweichungen"
   defp source_label(operation), do: operation
 
-  defp format_datetime(nil), do: "–"
-
   defp format_datetime(%DateTime{} = datetime) do
     datetime
     |> BerlinTime.to_local()
     |> Calendar.strftime("%d.%m.%Y, %H:%M Uhr")
   end
+
+  defp format_datetime(nil), do: "–"
+  defp format_optional_datetime(nil), do: "keine Ist-Zeit"
+  defp format_optional_datetime(datetime), do: format_datetime(datetime)
+
+  defp format_date(nil), do: "Noch offen"
+  defp format_date(%Date{} = date), do: Calendar.strftime(date, "%d.%m.%Y")
+
+  defp journey_outcome_label(:delayed_arrival), do: "Verspätet angekommen"
+  defp journey_outcome_label(:not_started), do: "Reise nicht angetreten"
+  defp journey_outcome_label(:aborted), do: "Reise abgebrochen"
+
+  defp journey_outcome_label(:continued_with_other_transport),
+    do: "Mit anderem Verkehrsmittel weitergefahren"
+
+  defp journey_outcome_label(_outcome), do: "Noch offen"
+
+  defp disruption_label(:delay), do: "Verspätung"
+  defp disruption_label(:cancellation), do: "Zugausfall"
+  defp disruption_label(:missed_connection), do: "Anschlussverlust"
+  defp disruption_label(_cause), do: "Noch offen"
+
+  defp journey_direction_label(:outbound), do: "Hinfahrt"
+  defp journey_direction_label(:return), do: "Rückfahrt"
+  defp journey_direction_label(_direction), do: "Noch offen"
 
   defp format_time(nil), do: "–"
 

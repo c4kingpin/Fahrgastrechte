@@ -244,6 +244,13 @@ defmodule Fahrgastrechte.TicketsTest do
       assert {:error, :not_found} =
                Tickets.set_suggestion_state(first_scope, suggestion.id, :accepted)
 
+      assert {:error, :not_found} =
+               Tickets.set_suggestion_states(
+                 first_scope,
+                 Enum.map(suggestions, & &1.id),
+                 :accepted
+               )
+
       assert {:ok, accepted} =
                Tickets.set_suggestion_state(second_scope, suggestion.id, "accepted")
 
@@ -251,6 +258,15 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert {:error, :invalid_state} =
                Tickets.set_suggestion_state(second_scope, suggestion.id, "invented")
+
+      assert {:ok, rejected} =
+               Tickets.set_suggestion_states(
+                 second_scope,
+                 Enum.map(suggestions, & &1.id),
+                 :rejected
+               )
+
+      assert Enum.all?(rejected, &(&1.state == :rejected))
     end
 
     test "requires current_scope" do
@@ -261,6 +277,9 @@ defmodule Fahrgastrechte.TicketsTest do
       assert {:error, :not_authenticated} = Tickets.analyze_document(nil, document.id)
       assert {:error, :not_authenticated} = Tickets.list_suggestions(nil, document.id)
       assert {:error, :not_authenticated} = Tickets.set_suggestion_state(nil, "id", :accepted)
+
+      assert {:error, :not_authenticated} =
+               Tickets.set_suggestion_states(nil, ["id"], :accepted)
     end
   end
 
