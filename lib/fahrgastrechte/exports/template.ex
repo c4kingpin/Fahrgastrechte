@@ -1,15 +1,7 @@
 defmodule Fahrgastrechte.Exports.Template do
   @moduledoc false
 
-  @required_fields ~w(
-    journey planned_day planned_month planned_year planned_direction
-    planned_departure_station planned_departure_hours planned_departure_minutes
-    planned_destination_station planned_destination_hours planned_destination_minutes
-    arrived_day arrived_month arrived_year arrived_hours arrived_minutes
-    ticket_digital ticket_digital_number compensation compensation_accountholder
-    compensation_iban compensation_bic personal personal_firstname personal_lastname
-    personal_street personal_housenumber personal_postcode personal_city date signature
-  )
+  alias Fahrgastrechte.Exports.FormManifest
 
   @spec current() :: {:ok, map()} | {:error, :template_unavailable | :template_changed}
   def current do
@@ -17,18 +9,22 @@ defmodule Fahrgastrechte.Exports.Template do
     path = Keyword.fetch!(config, :template_path)
     expected_sha256 = Keyword.fetch!(config, :template_sha256)
 
-    with true <- is_binary(path) and File.regular?(path),
+    with {:ok, manifest} <- FormManifest.current(),
+         :ok <- validate_config(manifest, config),
+         true <- is_binary(path) and File.regular?(path),
          {:ok, sha256} <- sha256(path),
          true <- secure_compare(sha256, expected_sha256) do
       {:ok,
-       %{
-         path: path,
-         version: Keyword.fetch!(config, :template_version),
-         source: Keyword.fetch!(config, :template_source),
-         sha256: sha256,
-         required_fields: @required_fields
-       }}
+       manifest
+       |> Map.put(:path, path)
+       |> Map.put(:sha256, sha256)}
     else
+      {:error, reason} when reason in [:template_unavailable, :template_changed] ->
+        {:error, reason}
+
+      {:error, :config_mismatch} ->
+        {:error, :template_changed}
+
       false ->
         if is_binary(path) and File.regular?(path),
           do: {:error, :template_changed},
@@ -36,6 +32,42 @@ defmodule Fahrgastrechte.Exports.Template do
 
       _error ->
         {:error, :template_unavailable}
+    end
+  end
+
+  @spec validate_form_fields(map(), [{String.t(), String.t()}]) ::
+          :ok | {:error, :template_changed}
+  def validate_form_fields(template, fields) when is_map(template) and is_list(fields) do
+    field_map = Map.new(fields)
+    provided = Map.keys(field_map) |> MapSet.new()
+    allowed = MapSet.new(template.required_fields)
+    blank = MapSet.new(template.intentionally_blank)
+
+    radio_values_valid? =
+      Enum.all?(template.radio_values, fn {field, values} ->
+        case Map.fetch(field_map, field) do
+          {:ok, value} -> value in values
+          :error -> false
+        end
+      end)
+
+    if MapSet.subset?(provided, allowed) and MapSet.disjoint?(provided, blank) and
+         radio_values_valid? do
+      :ok
+    else
+      {:error, :template_changed}
+    end
+  end
+
+  defp validate_config(manifest, config) do
+    expected_sha256 = Keyword.fetch!(config, :template_sha256)
+
+    if manifest.version == Keyword.fetch!(config, :template_version) and
+         manifest.source == Keyword.fetch!(config, :template_source) and
+         secure_compare(manifest.sha256, expected_sha256) do
+      :ok
+    else
+      {:error, :config_mismatch}
     end
   end
 
