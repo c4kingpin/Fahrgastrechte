@@ -6,6 +6,12 @@ Ein einzelner Befehl auf dem Proxmox-Host öffnet einen Standard-/Erweitert-Dial
 erstellt einen unprivilegierten Debian-LXC und installiert die Anwendung darin.
 Ein Repository-Checkout auf dem Proxmox-Host ist nicht erforderlich.
 
+Die konkrete TLS-/Firewall-Konfiguration steht unter
+[`zoraxy.md`](zoraxy.md). Backup, Restore, Migration, Rollback, Secrets und
+Ressourcenlimits beschreibt das [`Betriebshandbuch`](operations.md); die
+praktische Freigabe wird mit der
+[`C07-Betriebsabnahme`](acceptance.md) protokolliert.
+
 ## Schnellinstallation
 
 Als `root` in der Shell eines Proxmox-VE-Knotens:
@@ -101,10 +107,15 @@ selbst werden Elixir und PostgreSQL nicht installiert.
 - lokales PostgreSQL mit eigener Datenbank und eigenem Benutzer
 - zufälliges Datenbankpasswort, `SECRET_KEY_BASE` und
   `FIELD_ENCRYPTION_KEY`
+- persistenter Dokumentenspeicher unter `/var/lib/fahrgastrechte/documents`
 - App-Quellcode unter `/opt/fahrgastrechte/source`
 - versionierte Releases unter `/opt/fahrgastrechte/releases`
 - systemd-Dienst `fahrgastrechte.service` unter einem eingeschränkten
   Service-Benutzer
+- täglicher `fahrgastrechte-backup.timer` für gemeinsame, Age-verschlüsselte
+  Backups von PostgreSQL, Dokumenten, Runtime-Secrets und Formulartemplate
+- root-only Kommandos `fahrgastrechte-backup`, `fahrgastrechte-restore` und
+  `fahrgastrechte-rollback`
 
 Secrets liegen nur in
 `/etc/fahrgastrechte/fahrgastrechte.env` (Gruppe `fahrgastrechte`,
@@ -144,10 +155,12 @@ bei Updates beibehalten. Das Script baut zunächst eine neue Release, führt die
 Migrationen aus und schaltet dann den `current`-Symlink um. Schlägt der
 Healthcheck fehl, wird die vorherige App-Release wieder aktiviert. Bereits
 ausgeführte Datenbankmigrationen können dabei nicht automatisch zurückgerollt
-werden.
+werden. Vor jeder Migration wird automatisch ein verschlüsseltes Backup
+erstellt; ein manueller Rollback erzeugt ebenfalls zuerst ein Backup.
 
-Vor einem Produktionsupdate sollte deshalb ein Proxmox-Snapshot oder ein
-geprüftes PostgreSQL-Backup erstellt werden.
+Für Releases ausschließlich einen geprüften Tag oder vollständigen Commit-SHA
+verwenden. Proxmox-Snapshot und extern repliziertes Backup bleiben zusätzliche
+Schutzschichten.
 
 ## Netzwerk und TLS
 
@@ -164,13 +177,22 @@ X-Forwarded-For: <Client-IP>
 Port 4000 sollte über Proxmox-Firewall oder Netzsegmentierung nur für den
 Reverse-Proxy erreichbar sein.
 
+Host-/Forwarded-Header, Firewall und LiveView-WebSocket werden nach
+[`zoraxy.md`](zoraxy.md) konfiguriert und mit
+`scripts/deploy/smoke-test.sh` praktisch geprüft.
+
 ## Betrieb und Diagnose
 
 ```bash
 pct exec 240 -- systemctl status fahrgastrechte
 pct exec 240 -- journalctl -u fahrgastrechte -n 100 --no-pager
-pct exec 240 -- curl -H 'Host: localhost' http://127.0.0.1:4000/
+pct exec 240 -- curl \
+  -H 'Host: fahrgastrechte.example.org' \
+  -H 'X-Forwarded-Proto: https' \
+  http://127.0.0.1:4000/readyz
+pct exec 240 -- fahrgastrechte-backup
 ```
 
-Für Backups kann `pg_dump` im Container verwendet und das Ergebnis auf einen
-vom Proxmox-Backup erfassten Speicher übertragen werden.
+Die verschlüsselten Backup-Dateien müssen regelmäßig auf ein getrenntes System
+repliziert und per isoliertem Restore-Test geprüft werden. Vollständige Abläufe
+und Aufbewahrung stehen im [`Betriebshandbuch`](operations.md).
