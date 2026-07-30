@@ -11,7 +11,7 @@ readonly DEPLOYMENT_FILE="/etc/fahrgastrechte/deployment.env"
 readonly DOCUMENTS_DIR="/var/lib/fahrgastrechte/documents"
 readonly ENV_FILE="/etc/fahrgastrechte/fahrgastrechte.env"
 readonly FORM_TEMPLATE_DIR="/var/lib/fahrgastrechte/form-templates"
-readonly FORM_TEMPLATE_PATH="${FORM_TEMPLATE_DIR}/fahrgastrechte-2025-me-08-25.pdf"
+readonly FORM_TEMPLATE_FILE="${FORM_TEMPLATE_DIR}/fahrgastrechte-2025-me-08-25.pdf"
 readonly FORM_TEMPLATE_SHA256="4a30f9c7f00593bf5bda1b6eaa2d1b6e293357faa48631a1d7e2ade3b77a39a9"
 readonly FORM_TEMPLATE_URL="https://cms.static-bahn.de/wmedia/redaktion/aushaenge/fahrgastrechte/Fahrgastrechte-Formular_deutsch-feb25-2.pdf"
 readonly BACKUP_SERVICE_FILE="/etc/systemd/system/fahrgastrechte-backup.service"
@@ -162,7 +162,7 @@ DB_CLIENT_ID=$(runtime_value DB_CLIENT_ID)
 DOCUMENT_STORAGE_PATH=${DOCUMENTS_DIR}
 FIELD_ENCRYPTION_KEY=${field_encryption_key}
 FIELD_ENCRYPTION_KEY_VERSION=1
-FORM_TEMPLATE_PATH=${FORM_TEMPLATE_PATH}
+FORM_TEMPLATE_PATH=${FORM_TEMPLATE_FILE}
 LANG=C.UTF-8
 PHX_BIND_ADDRESS=0.0.0.0
 PHX_HOST=${PHX_HOST}
@@ -204,7 +204,7 @@ install_form_template() {
 
   chown root:"$APP_NAME" "$temporary_template"
   chmod 0640 "$temporary_template"
-  mv --force "$temporary_template" "$FORM_TEMPLATE_PATH"
+  mv --force "$temporary_template" "$FORM_TEMPLATE_FILE"
   trap - RETURN
 }
 
@@ -413,6 +413,8 @@ APP_REPOSITORY="${APP_REPOSITORY:-$DEFAULT_APP_REPOSITORY}"
   die "INSTALLER_BASE_URL muss eine HTTPS-Adresse sein"
 
 export DEBIAN_FRONTEND=noninteractive
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 log "Installiere bzw. aktualisiere Systempakete"
 apt-get update
