@@ -92,6 +92,9 @@ Kompilierung ohne Warnungen und Tests gegen PostgreSQL.
 Das abgestimmte Produktkonzept und die in getrennte Agenten-Aufträge zerlegte
 Umsetzungsplanung stehen unter
 [`docs/implementation-plan/`](docs/implementation-plan/README.md).
+Der auf den aktuellen Implementierungsstand ausgerichtete Ausbau ist dort als
+[`Wellenplan`](docs/implementation-plan/waves.md) mit reproduzierbarer
+[`Baseline`](docs/implementation-plan/baseline-2026-07-30.md) dokumentiert.
 
 Die Ergebnisse der technischen Voruntersuchung C00 stehen unter
 [`docs/spikes/c00/`](docs/spikes/c00/README.md); verbindliche technische
