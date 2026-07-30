@@ -14,11 +14,11 @@ vereinbarten Grenze: deutsche DB-Flexpreis-Reisen, eine reisende Person,
 | --- | --- |
 | Accounts und Profil | Scope, Reisendenprofil, verschlüsselte Bankdaten und Authentik/OIDC vorhanden |
 | Claims | Antrag, Statushistorie, Filter und optimistisches Locking vorhanden |
-| Documents und Tickets | privater PDF-Speicher, Download, Extraktion und Vorschläge vorhanden |
-| Rail | Provider, Suche, geplante/tatsächliche Reise, manuelle Werte und Snapshots vorhanden; UI fehlt |
-| Exports | versionierte, atomare PDF-Erzeugung vorhanden; Prüf-, Erzeugungs- und Download-UI fehlt |
-| LiveView | Dashboard, Profil und fortsetzbarer Sechs-Schritt-Assistent mit fachlichem Fortschritt vorhanden |
-| Betrieb | Proxmox-Grundlage vorhanden; C07-Arbeit und praktische Produktionsabnahme ausstehend |
+| Documents und Tickets | privater PDF-Speicher, Ersetzen, Analyse, thematische Einzel-/Sammelprüfung und manueller Ersatzweg vorhanden |
+| Rail | tastaturbedienbare Suche, Kandidatenvergleich, Umstiegseditor und tatsächliche Timeline vorhanden |
+| Exports | Prüfseite, versionierte Erzeugung, historische Downloads und Versandcheckliste vorhanden |
+| LiveView | vollständiger fortsetzbarer Sechs-Schritt-Assistent mit fachlichem Fortschritt und Statusverlauf vorhanden |
+| Betrieb | Proxmox-Grundlage vorhanden; praktische Druck- und Produktionsabnahme ausstehend |
 
 ## Welle 0 – Saubere Ausgangslage
 
@@ -96,6 +96,11 @@ Die konkrete Prüfung ist im
   historischen Fall und zwei strikt getrennte Benutzer
 - A4- und DIN-lang-Druckprobe
 - Authentik, Zoraxy, Backup/Restore, Rollback und Smoke-Test praktisch abnehmen
+
+Die Softwareanteile der Wellen 4 bis 6 sowie Theme-Bereinigung, Reduced Motion
+und die automatisierten Referenzfälle aus Welle 7 sind umgesetzt. A4-/DIN-lang-
+Druckprobe und die umgebungsabhängige Betriebsabnahme bleiben bewusst im
+[`Betriebsabnahmeprotokoll`](../deployment/acceptance.md) offen.
 
 ## Abnahmeziel der ersten vollständigen Version
 

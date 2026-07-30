@@ -77,6 +77,35 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_state(_scope, _suggestion_id, _state),
     do: {:error, :not_authenticated}
 
+  @doc "Marks several scoped suggestions with one state in one transaction."
+  @spec set_suggestion_states(Scope.t(), [Ecto.UUID.t()], Suggestion.state() | String.t()) ::
+          {:ok, [Suggestion.t()]} | {:error, Changeset.t() | domain_error()}
+  def set_suggestion_states(
+        %Scope{user: %User{id: user_id}},
+        suggestion_ids,
+        requested_state
+      )
+      when is_list(suggestion_ids) do
+    with {:ok, state} <- parse_state(requested_state),
+         {:ok, parsed_ids} <- cast_ids(suggestion_ids),
+         suggestions <- scoped_suggestions(user_id, parsed_ids),
+         true <- length(suggestions) == length(Enum.uniq(parsed_ids)) do
+      Repo.transaction(fn ->
+        Enum.map(suggestions, fn suggestion ->
+          suggestion
+          |> Suggestion.state_changeset(state)
+          |> Repo.update!()
+        end)
+      end)
+    else
+      false -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def set_suggestion_states(_scope, _suggestion_ids, _state),
+    do: {:error, :not_authenticated}
+
   defp analyze_path(%Document{kind: kind}, _path) when kind not in [:ticket, :invoice],
     do: {:error, :invalid_document_kind}
 
@@ -181,6 +210,31 @@ defmodule Fahrgastrechte.Tickets do
 
       :error ->
         nil
+    end
+  end
+
+  defp scoped_suggestions(user_id, suggestion_ids) do
+    Repo.all(
+      from suggestion in Suggestion,
+        join: document in assoc(suggestion, :document),
+        where:
+          suggestion.id in ^suggestion_ids and document.user_id == ^user_id and
+            document.current == true and is_nil(document.deletion_pending_at),
+        order_by: [asc: suggestion.field, asc: suggestion.id],
+        select: suggestion
+    )
+  end
+
+  defp cast_ids(ids) do
+    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, parsed_ids} ->
+      case Ecto.UUID.cast(id) do
+        {:ok, parsed_id} -> {:cont, {:ok, [parsed_id | parsed_ids]}}
+        :error -> {:halt, {:error, :not_found}}
+      end
+    end)
+    |> case do
+      {:ok, parsed_ids} -> {:ok, Enum.reverse(parsed_ids)}
+      error -> error
     end
   end
 

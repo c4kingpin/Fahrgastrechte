@@ -52,12 +52,26 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
         "train_number" => "100"
       }
     )
+    |> render_change()
+
+    assert has_element?(view, "#origin-stations option[value='Teststadt Hbf']")
+
+    view
+    |> form("#connection-search-form",
+      connection_search: %{
+        "origin" => "Teststadt Hbf",
+        "destination" => "Beispielstadt Hbf",
+        "departure_at" => "2026-04-15T06:00",
+        "train_number" => "100"
+      }
+    )
     |> render_submit()
 
     assert has_element?(view, "#connection-delay-1[data-delay-minutes='32']")
     assert has_element?(view, "#choose-connection-1")
 
     view |> element("#choose-connection-1") |> render_click()
+    assert has_element?(view, "#connection-results article")
 
     assert {:ok, planned} = Rail.get_journey(scope, claim.id, :planned)
     assert {:ok, actual} = Rail.get_journey(scope, claim.id, :actual)
@@ -117,16 +131,56 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
              :eq
 
     assert has_element?(resumed, "#actual-journey-section[data-state='confirmed']")
+    assert has_element?(resumed, "#actual-journey-timeline article")
+  end
+
+  test "persists a complete manual connection with an interchange", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/geplante-reise")
+
+    view
+    |> form("#planned-journey-form",
+      planned: %{
+        "origin_name" => "Berlin Hbf",
+        "destination_name" => "München Hbf",
+        "train_category" => "ICE",
+        "train_number" => "700",
+        "scheduled_departure" => "2026-07-15T06:00",
+        "scheduled_arrival" => "2026-07-15T11:30",
+        "via_name" => "Nürnberg Hbf",
+        "transfer_arrival" => "2026-07-15T09:00",
+        "transfer_departure" => "2026-07-15T09:20",
+        "second_category" => "ICE",
+        "second_number" => "525"
+      }
+    )
+    |> render_submit()
+
+    assert {:ok, journey} = Rail.get_journey(scope, claim.id, :planned)
+    assert length(journey.segments) == 2
+    assert hd(journey.segments).destination_name == "Nürnberg Hbf"
+    assert List.last(journey.segments).origin_name == "Nürnberg Hbf"
+
+    {:ok, resumed, _html} = live(conn, ~p"/antraege/#{claim.id}/geplante-reise")
+    assert has_element?(resumed, "#manual-transfer-editor")
   end
 
   test "creates the PDF and follows ready, sent and completed statuses", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = export_ready_fixture(scope)
     {:ok, documents} = Documents.list_documents(scope, claim.id)
-    ticket = Enum.find(documents, &(&1.kind == :ticket))
-    {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, ticket.id)
-    order_number = Enum.find(suggestions, &(&1.field == :order_number))
-    {:ok, _accepted} = Tickets.set_suggestion_state(scope, order_number.id, :accepted)
+
+    suggestions =
+      Enum.flat_map(documents, fn document ->
+        {:ok, %{suggestions: document_suggestions}} =
+          Tickets.analyze_document(scope, document.id)
+
+        document_suggestions
+      end)
+
+    {:ok, _accepted} =
+      Tickets.set_suggestion_states(scope, Enum.map(suggestions, & &1.id), :accepted)
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#generate-export-button:not([disabled])")
@@ -140,11 +194,14 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert has_element?(view, "#download-export-#{export.id}")
     assert {:ok, ready} = Claims.get_claim(scope, claim.id)
     assert ready.status == :ready
+    assert has_element?(view, "#official-form-review")
 
     view |> element("#mark-claim-sent") |> render_click()
     assert {:ok, sent} = Claims.get_claim(scope, claim.id)
+    assert has_element?(view, "#claim-status-history article")
     assert sent.status == :sent
 
+    assert has_element?(view, "#submission-checklist")
     view |> element("#complete-claim") |> render_click()
     assert {:ok, completed} = Claims.get_claim(scope, claim.id)
     assert completed.status == :completed
