@@ -4,6 +4,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.ExportsFixtures
+  import Fahrgastrechte.RailFixtures
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
@@ -132,6 +133,79 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
 
     assert has_element?(resumed, "#actual-journey-section[data-state='confirmed']")
     assert has_element?(resumed, "#actual-journey-timeline article")
+  end
+
+  test "persists a missed connection and restores its actual journey editor", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+
+    claim =
+      claim_fixture(scope, %{
+        "origin" => "Berlin Hbf",
+        "destination" => "Hamburg Hbf",
+        "disruption_cause" => "delay"
+      })
+
+    journey_fixture(scope, claim, :planned, [
+      segment_attributes(%{
+        actual_departure: nil,
+        actual_arrival: nil,
+        scheduled_departure: ~U[2026-07-15 06:00:00Z],
+        scheduled_arrival: ~U[2026-07-15 09:30:00Z]
+      })
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/tatsaechliche-reise")
+
+    view |> element("#choose-missed-connection") |> render_click()
+
+    assert has_element?(view, "#missed-connection-fields")
+    assert has_element?(view, "#replacement-connection-fields")
+
+    view
+    |> form("#actual-journey-form",
+      actual: %{
+        "origin_name" => "Berlin Hbf",
+        "interchange_name" => "Hannover Hbf",
+        "destination_name" => "Hamburg Hbf",
+        "train_category" => "ICE",
+        "train_number" => "100",
+        "scheduled_departure" => "2026-07-15T08:00",
+        "scheduled_arrival" => "2026-07-15T10:00",
+        "actual_departure" => "2026-07-15T08:10",
+        "actual_arrival" => "2026-07-15T10:30",
+        "missed_category" => "ICE",
+        "missed_number" => "200",
+        "missed_departure" => "2026-07-15T10:15",
+        "missed_arrival" => "2026-07-15T11:30",
+        "replacement_category" => "IC",
+        "replacement_number" => "202",
+        "replacement_departure" => "2026-07-15T10:45",
+        "replacement_arrival" => "2026-07-15T12:10"
+      }
+    )
+    |> render_submit()
+
+    assert {:ok, journey} = Rail.get_journey(scope, claim.id, :actual)
+    assert Enum.map(journey.segments, & &1.train_number) == ["100", "200", "202"]
+
+    assert {:ok, values} = Rail.form_values(scope, claim.id)
+    assert values.missed_connection.train_number == "200"
+    assert values.last_used_train.train_number == "202"
+
+    assert DateTime.compare(values.actual_destination_arrival, ~U[2026-07-15 10:10:00Z]) ==
+             :eq
+
+    {:ok, resumed, _html} = live(conn, ~p"/antraege/#{claim.id}/tatsaechliche-reise")
+
+    assert has_element?(
+             resumed,
+             "#actual-journey-form input[name='actual[missed_number]'][value='200']"
+           )
+
+    assert has_element?(
+             resumed,
+             "#actual-journey-form input[name='actual[replacement_number]'][value='202']"
+           )
   end
 
   test "persists a complete manual connection with an interchange", %{conn: conn} do

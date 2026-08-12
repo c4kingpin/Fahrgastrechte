@@ -71,6 +71,12 @@ Weitere Mutationen:
   verpassten Anschluss, den letzten verwendeten Zug oder die tatsächliche
   Zielankunft. Segment-IDs müssen zur eigenen tatsächlichen Reise gehören.
 
+Der tatsächliche Reiseeditor speichert einen manuellen Anschlussverlust als
+drei geordnete Segmente: verspäteter Zubringer, nicht genutzter planmäßiger
+Anschluss und tatsächlich genutzte Ersatzverbindung. Die Istankunft des
+Zubringers muss nach der Sollabfahrt des Anschlusses liegen. Dadurch kann die
+Domäne den verpassten Anschluss ableiten und die Ersatzankunft exportieren.
+
 Alle Änderungen verwenden die erwartete `claim.lock_version` und rufen
 `Claims.invalidate_output/3` innerhalb derselben Datenbanktransaktion auf. Ein
 aktueller `ready`- oder `sent`-Export fällt dadurch auf `draft` zurück.

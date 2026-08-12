@@ -253,7 +253,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("set_disruption", %{"type" => type}, socket)
-      when type in ["delay", "cancellation"] do
+      when type in ["delay", "cancellation", "missed_connection"] do
     {:noreply, persist_claim(socket, %{"disruption_cause" => type}, false)}
   end
 
@@ -1315,7 +1315,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 <.step_badge state={@actual_state} />
               </div>
 
-              <div id="disruption-choice" class={["mt-6 grid grid-cols-2 gap-3"]}>
+              <div id="disruption-choice" class={["mt-6 grid gap-3 sm:grid-cols-3"]}>
                 <button
                   id="choose-delay"
                   type="button"
@@ -1345,6 +1345,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <.icon name="hero-no-symbol" class="size-6" />
                   <strong class={["mt-3 block text-sm"]}>Zugausfall</strong>
                   <span class={["mt-1 block text-xs opacity-75"]}>Mit Ersatzverbindung erfassen</span>
+                </button>
+                <button
+                  id="choose-missed-connection"
+                  type="button"
+                  phx-click="set_disruption"
+                  phx-value-type="missed_connection"
+                  disabled={!editable?(@claim.status)}
+                  class={[
+                    "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+                    disruption_choice_style(@claim.disruption_cause == :missed_connection)
+                  ]}
+                >
+                  <.icon name="hero-arrows-right-left" class="size-6" />
+                  <strong class={["mt-3 block text-sm"]}>Anschlussverlust</strong>
+                  <span class={["mt-1 block text-xs opacity-75"]}>
+                    Zubringer, Anschluss und Ersatz erfassen
+                  </span>
                 </button>
               </div>
 
@@ -1424,7 +1441,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               >
                 <div class={["grid gap-5 sm:grid-cols-2"]}>
                   <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
-                  <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+                  <.input
+                    :if={@claim.disruption_cause != :missed_connection}
+                    field={@actual_form[:destination_name]}
+                    label="Zielbahnhof"
+                  />
+                  <.input
+                    :if={@claim.disruption_cause == :missed_connection}
+                    field={@actual_form[:interchange_name]}
+                    label="Umstiegsbahnhof"
+                  />
                   <.input field={@actual_form[:train_category]} label="Zuggattung" />
                   <.input field={@actual_form[:train_number]} label="Zugnummer" />
                   <.input
@@ -1435,7 +1461,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <.input
                     field={@actual_form[:scheduled_arrival]}
                     type="datetime-local"
-                    label="Planmäßige Ankunft"
+                    label={
+                      if(@claim.disruption_cause == :missed_connection,
+                        do: "Planmäßige Ankunft am Umstieg",
+                        else: "Planmäßige Ankunft"
+                      )
+                    }
                   />
                   <.input
                     field={@actual_form[:actual_departure]}
@@ -1445,16 +1476,53 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   <.input
                     field={@actual_form[:actual_arrival]}
                     type="datetime-local"
-                    label="Tatsächliche Ankunft am Ziel"
+                    label={
+                      if(@claim.disruption_cause == :missed_connection,
+                        do: "Tatsächliche Ankunft am Umstieg",
+                        else: "Tatsächliche Ankunft am Ziel"
+                      )
+                    }
                   />
                 </div>
 
                 <div
-                  :if={@claim.disruption_cause == :cancellation}
+                  :if={@claim.disruption_cause == :missed_connection}
+                  id="missed-connection-fields"
+                  class={["rounded-2xl border border-rose-200 bg-rose-50 p-4 sm:p-5"]}
+                >
+                  <h3 class={["text-sm font-semibold text-rose-950"]}>Verpasster Anschluss</h3>
+                  <p class={["mt-1 text-xs leading-5 text-rose-800"]}>
+                    Trage den Zug ein, den du wegen der verspäteten Ankunft am Umstieg nicht erreicht hast.
+                  </p>
+                  <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+                    <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+                    <div class="hidden sm:block"></div>
+                    <.input field={@actual_form[:missed_category]} label="Zuggattung Anschluss" />
+                    <.input field={@actual_form[:missed_number]} label="Zugnummer Anschluss" />
+                    <.input
+                      field={@actual_form[:missed_departure]}
+                      type="datetime-local"
+                      label="Planmäßige Abfahrt Anschluss"
+                    />
+                    <.input
+                      field={@actual_form[:missed_arrival]}
+                      type="datetime-local"
+                      label="Planmäßige Ankunft Anschluss"
+                    />
+                  </div>
+                </div>
+
+                <div
+                  :if={@claim.disruption_cause in [:cancellation, :missed_connection]}
                   id="replacement-connection-fields"
                   class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
                 >
-                  <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
+                  <h3 class={["text-sm font-semibold text-amber-950"]}>
+                    {if(@claim.disruption_cause == :missed_connection,
+                      do: "Genutzte Ersatzverbindung",
+                      else: "Ersatzverbindung"
+                    )}
+                  </h3>
                   <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
                     <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
                     <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
@@ -2580,6 +2648,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     case assigns.claim.disruption_cause do
       :delay -> build_delay_segment(params)
       :cancellation -> build_cancellation_segments(params, assigns.planned_journey)
+      :missed_connection -> build_missed_connection_segments(params)
       _other -> {:error, :missing_disruption}
     end
   end
@@ -2647,6 +2716,71 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  defp build_missed_connection_segments(params) do
+    with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
+         {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
+         {:ok, actual_departure} <- parse_optional_datetime(params["actual_departure"]),
+         {:ok, actual_arrival} <- parse_datetime(params["actual_arrival"]),
+         {:ok, missed_departure} <- parse_datetime(params["missed_departure"]),
+         {:ok, missed_arrival} <- parse_datetime(params["missed_arrival"]),
+         {:ok, replacement_departure} <- parse_datetime(params["replacement_departure"]),
+         {:ok, replacement_arrival} <- parse_datetime(params["replacement_arrival"]),
+         :ok <- validate_order(scheduled_departure, scheduled_arrival),
+         :ok <- validate_order(missed_departure, missed_arrival),
+         :ok <- validate_order(replacement_departure, replacement_arrival),
+         :ok <- validate_missed_connection(actual_arrival, missed_departure) do
+      feeder = %{
+        origin_name: params["origin_name"],
+        destination_name: params["interchange_name"],
+        train_category: params["train_category"],
+        train_number: params["train_number"],
+        scheduled_departure: scheduled_departure,
+        scheduled_arrival: scheduled_arrival,
+        actual_departure: actual_departure,
+        actual_arrival: actual_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      missed = %{
+        origin_name: params["interchange_name"],
+        destination_name: params["destination_name"],
+        train_category: params["missed_category"],
+        train_number: params["missed_number"],
+        scheduled_departure: missed_departure,
+        scheduled_arrival: missed_arrival,
+        actual_departure: nil,
+        actual_arrival: nil,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      replacement = %{
+        origin_name: params["interchange_name"],
+        destination_name: params["destination_name"],
+        train_category: params["replacement_category"],
+        train_number: params["replacement_number"],
+        scheduled_departure: replacement_departure,
+        scheduled_arrival: replacement_arrival,
+        actual_departure: replacement_departure,
+        actual_arrival: replacement_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      {:ok, [feeder, missed, replacement]}
+    end
+  end
+
+  defp validate_missed_connection(actual_arrival, missed_departure) do
+    if DateTime.compare(actual_arrival, missed_departure) == :gt,
+      do: :ok,
+      else: {:error, :connection_not_missed}
+  end
+
   defp journey_complete?(nil, _kind), do: false
 
   defp journey_complete?(journey, :planned) do
@@ -2702,14 +2836,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp actual_form_data(claim, planned, nil) do
     planned_data = planned_form_data(claim, planned)
 
-    Map.merge(planned_data, %{
+    planned_data
+    |> Map.merge(%{
       "actual_departure" => "",
       "actual_arrival" => "",
+      "interchange_name" => planned_data["via_name"],
+      "missed_category" => planned_data["second_category"],
+      "missed_number" => planned_data["second_number"],
+      "missed_departure" => planned_data["transfer_departure"],
+      "missed_arrival" => planned_data["scheduled_arrival"],
       "replacement_category" => "",
       "replacement_number" => "",
       "replacement_departure" => "",
       "replacement_arrival" => ""
     })
+    |> maybe_use_feeder_arrival(claim, planned_data)
   end
 
   defp actual_form_data(claim, planned, journey) do
@@ -2728,11 +2869,42 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       "actual_departure",
       datetime_local(first.actual_departure || first.estimated_departure)
     )
-    |> Map.put("actual_arrival", datetime_local(last.actual_arrival || last.estimated_arrival))
-    |> maybe_put_replacement(journey)
+    |> Map.put("actual_arrival", actual_form_arrival(claim, first, last))
+    |> maybe_put_journey_details(claim, journey)
   end
 
-  defp maybe_put_replacement(data, %{segments: [_first, replacement | _rest]}) do
+  defp maybe_use_feeder_arrival(data, %{disruption_cause: :missed_connection}, planned_data),
+    do: Map.put(data, "scheduled_arrival", planned_data["transfer_arrival"])
+
+  defp maybe_use_feeder_arrival(data, _claim, _planned_data), do: data
+
+  defp actual_form_arrival(%{disruption_cause: :missed_connection}, first, _last),
+    do: datetime_local(first.actual_arrival || first.estimated_arrival)
+
+  defp actual_form_arrival(_claim, _first, last),
+    do: datetime_local(last.actual_arrival || last.estimated_arrival)
+
+  defp maybe_put_journey_details(
+         data,
+         %{disruption_cause: :missed_connection},
+         %{segments: [feeder, missed, replacement | _rest]}
+       ) do
+    data
+    |> Map.put("interchange_name", feeder.destination_name || "")
+    |> Map.put("destination_name", missed.destination_name || "")
+    |> Map.put("missed_category", missed.train_category || "")
+    |> Map.put("missed_number", missed.train_number || "")
+    |> Map.put("missed_departure", datetime_local(missed.scheduled_departure))
+    |> Map.put("missed_arrival", datetime_local(missed.scheduled_arrival))
+    |> put_replacement(replacement)
+  end
+
+  defp maybe_put_journey_details(data, _claim, %{segments: [_first, replacement | _rest]}),
+    do: put_replacement(data, replacement)
+
+  defp maybe_put_journey_details(data, _claim, _journey), do: data
+
+  defp put_replacement(data, replacement) do
     data
     |> Map.put("replacement_category", replacement.train_category || "")
     |> Map.put("replacement_number", replacement.train_number || "")
@@ -2745,8 +2917,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       datetime_local(replacement.actual_arrival || replacement.scheduled_arrival)
     )
   end
-
-  defp maybe_put_replacement(data, _journey), do: data
 
   defp connection_search_data(claim, planned) do
     planned_data = planned_form_data(claim, planned)
@@ -3139,6 +3309,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp journey_error_message(:missing_planned),
     do: "Bestätige zuerst die geplante Verbindung."
+
+  defp journey_error_message(:connection_not_missed),
+    do: "Die tatsächliche Ankunft muss nach der Abfahrt des verpassten Anschlusses liegen."
 
   defp journey_error_message(_reason),
     do: "Die Verbindung konnte nicht bestätigt werden. Bitte prüfe die Angaben."
