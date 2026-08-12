@@ -15,6 +15,7 @@ defmodule Fahrgastrechte.Accounts do
   alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
 
   @doc """
@@ -77,24 +78,56 @@ defmodule Fahrgastrechte.Accounts do
   end
 
   @doc """
-  Updates only the current user's profile.
+  Updates only the current user's profile and invalidates dependent outputs.
+
+  Every non-completed claim is invalidated in the same transaction. The claims'
+  freshly loaded lock versions make a concurrent dependent mutation fail the
+  complete profile update instead of leaving an output based on stale data.
   """
   @spec update_profile(Scope.t(), map()) ::
           {:ok, Profile.t()} | {:error, Changeset.t() | atom()}
   def update_profile(%Scope{} = scope, attrs) do
-    with {:ok, profile} <- get_profile(scope) do
-      profile
-      |> Profile.changeset(attrs)
-      |> encrypt_bank_changes()
-      |> Repo.update()
-      |> case do
-        {:ok, updated_profile} -> decrypt_profile(updated_profile)
-        {:error, changeset} -> {:error, changeset}
+    Repo.transaction(fn ->
+      with {:ok, profile} <- get_profile(scope),
+           changeset <- profile |> Profile.changeset(attrs) |> encrypt_bank_changes(),
+           {:ok, updated_profile} <- persist_profile(changeset),
+           :ok <- invalidate_profile_outputs(scope, changeset),
+           {:ok, decrypted_profile} <- decrypt_profile(updated_profile) do
+        decrypted_profile
+      else
+        {:error, reason} -> Repo.rollback(reason)
       end
+    end)
+    |> case do
+      {:ok, profile} -> {:ok, profile}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   def update_profile(_scope, _attrs), do: {:error, :not_authenticated}
+
+  defp persist_profile(%Changeset{valid?: false} = changeset), do: {:error, changeset}
+
+  defp persist_profile(%Changeset{changes: changes} = changeset) when changes == %{},
+    do: {:ok, changeset.data}
+
+  defp persist_profile(changeset), do: Repo.update(changeset)
+
+  defp invalidate_profile_outputs(_scope, %Changeset{changes: changes}) when changes == %{},
+    do: :ok
+
+  defp invalidate_profile_outputs(scope, _changeset) do
+    with {:ok, claims} <- Claims.list_claims(scope) do
+      claims
+      |> Enum.reject(&(&1.status == :completed))
+      |> Enum.reduce_while(:ok, fn claim, :ok ->
+        case Claims.invalidate_output(scope, claim.id, claim.lock_version) do
+          {:ok, _claim} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
 
   @doc """
   Reports whether every field needed for a Fahrgastrechte form is present.

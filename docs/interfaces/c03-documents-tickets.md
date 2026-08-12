@@ -64,15 +64,34 @@ verwendende koordinierte Endpunkt; ein direkter Aufruf von
 ## Tickets
 
 ```elixir
-Tickets.analyze_document(current_scope, document_id)
+Tickets.analyze_document(
+  current_scope,
+  document_id,
+  expected_claim_lock_version
+)
 Tickets.list_suggestions(current_scope, document_id)
-Tickets.set_suggestion_state(current_scope, suggestion_id, state)
+Tickets.set_suggestion_state(
+  current_scope,
+  suggestion_id,
+  state,
+  expected_claim_lock_version
+)
+Tickets.set_suggestion_states(
+  current_scope,
+  suggestion_ids,
+  state,
+  expected_claim_lock_version
+)
 ```
 
-`analyze_document/2` verwendet Popplers `pdftotext -layout -enc UTF-8` in
+`analyze_document/3` verwendet Popplers `pdftotext -layout -enc UTF-8` in
 einem begrenzten, überwachten Prozess. Es findet keine OCR-Ausführung statt.
 Erneute Analyse ersetzt alle früheren Vorschläge; neue Vorschläge beginnen
-immer im Zustand `proposed`.
+immer im Zustand `proposed`. Analyse und Statusänderungen invalidieren die
+Ausgabe des zugehörigen Antrags in derselben Datenbanktransaktion und liefern
+den Antrag mit aktualisierter `lock_version` zurück. Eine veraltete erwartete
+Version ergibt `:stale`; bei einem Fehler bleiben Analyse und Vorschläge
+unverändert.
 
 Jeder Vorschlag enthält:
 

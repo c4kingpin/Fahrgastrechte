@@ -40,9 +40,14 @@ defmodule Fahrgastrechte.ExportsTest do
       claim = export_ready_fixture(scope)
       {:ok, documents} = Documents.list_documents(scope, claim.id)
       ticket = Enum.find(documents, &(&1.kind == :ticket))
-      {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, ticket.id)
+
+      {:ok, %{suggestions: suggestions, claim: claim}} =
+        Tickets.analyze_document(scope, ticket.id, claim.lock_version)
+
       order_number = Enum.find(suggestions, &(&1.field == :order_number))
-      {:ok, _accepted} = Tickets.set_suggestion_state(scope, order_number.id, :accepted)
+
+      {:ok, %{claim: claim}} =
+        Tickets.set_suggestion_state(scope, order_number.id, :accepted, claim.lock_version)
 
       assert {:ok, %{export: export, claim: ready}} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
@@ -242,6 +247,8 @@ defmodule Fahrgastrechte.ExportsTest do
                      "phone_number" => "+49 30 123456"
                    })
                  )
+
+        {:ok, claim} = Claims.get_claim(scope, claim.id)
 
         assert {:ok, %{export: export}} =
                  Exports.generate_export(scope, claim.id, claim.lock_version)

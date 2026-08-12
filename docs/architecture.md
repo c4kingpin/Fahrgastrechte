@@ -59,8 +59,10 @@ Komponenten- und Wellenplan liegt getrennt unter
 Claim-Mutationen verwenden `lock_version`, damit konkurrierende Änderungen
 nicht unbemerkt überschrieben werden. Abhängige Änderungen aus Documents und
 Rail erhöhen diese Version auch bei einem Entwurf atomar mit ihrer fachlichen
-Mutation. Änderungen an exportrelevanten Daten müssen eine aktuelle Ausgabe
-invalidieren. Generierte PDF-Sets werden erst nach vollständiger Validierung
+Mutation. Profiländerungen, Dokumentanalysen und Vorschlagsstatus invalidieren
+abhängige Ausgaben atomar über claimgebundene Kontextoperationen. Alle
+exportrelevanten Mutationen übernehmen dabei die aktualisierte Claim-Sperrversion.
+Generierte PDF-Sets werden erst nach vollständiger Validierung
 gemeinsam veröffentlicht; historische Versionen bleiben unveränderlich
 erhalten.
 

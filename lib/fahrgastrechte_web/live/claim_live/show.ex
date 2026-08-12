@@ -320,13 +320,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   def handle_event("reanalyze_document", %{"id" => document_id}, socket) do
     with {:ok, _document} <- current_claim_document(socket, document_id),
-         {:ok, _analysis} <-
-           Tickets.analyze_document(socket.assigns.current_scope, document_id) do
+         {:ok, %{claim: claim}} <-
+           Tickets.analyze_document(
+             socket.assigns.current_scope,
+             document_id,
+             socket.assigns.claim.lock_version
+           ) do
       {:noreply,
        socket
-       |> refresh_workspace()
+       |> load_workspace(claim)
        |> put_flash(:info, "Das Dokument wurde erneut ausgewertet.")}
     else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Die Auswertung konnte nicht gestartet werden.")}
     end
@@ -2143,7 +2150,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     do: {:noreply, socket}
 
   defp handle_upload_result(socket, [{:ok, %{document: document, claim: claim}}]) do
-    analysis = Tickets.analyze_document(socket.assigns.current_scope, document.id)
+    analysis =
+      Tickets.analyze_document(
+        socket.assigns.current_scope,
+        document.id,
+        claim.lock_version
+      )
 
     socket =
       socket
@@ -2151,8 +2163,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       |> put_flash(:info, "Das Dokument wurde sicher gespeichert und automatisch ausgewertet.")
 
     case analysis do
-      {:ok, _result} ->
-        refresh_workspace(socket)
+      {:ok, %{claim: analyzed_claim}} ->
+        load_workspace(socket, analyzed_claim)
+
+      {:error, :stale} ->
+        handle_stale(socket)
 
       {:error, _reason} ->
         put_flash(
@@ -2193,11 +2208,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       end
 
     with {:ok, claim} <- claim_result,
-         {:ok, _updated} <-
+         {:ok, %{claim: claim}} <-
            Tickets.set_suggestion_states(
              socket.assigns.current_scope,
              Enum.map(suggestions, & &1.id),
-             :accepted
+             :accepted,
+             claim.lock_version
            ) do
       socket
       |> load_workspace(claim)
@@ -2218,12 +2234,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     case Tickets.set_suggestion_states(
            socket.assigns.current_scope,
            Enum.map(suggestions, & &1.id),
-           :rejected
+           :rejected,
+           socket.assigns.claim.lock_version
          ) do
-      {:ok, _updated} ->
+      {:ok, %{claim: claim}} ->
         socket
-        |> refresh_workspace()
+        |> load_workspace(claim)
         |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam verworfen.")
+
+      {:error, :stale} ->
+        handle_stale(socket)
 
       {:error, _reason} ->
         put_flash(socket, :error, "Die Vorschläge konnten nicht aktualisiert werden.")
@@ -2268,8 +2288,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp accept_suggestion(socket, suggestion_id) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
          {:ok, claim} <- maybe_apply_suggestion(socket, suggestion),
-         {:ok, _suggestion} <-
-           Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion.id, :accepted) do
+         {:ok, %{claim: claim}} <-
+           Tickets.set_suggestion_state(
+             socket.assigns.current_scope,
+             suggestion.id,
+             :accepted,
+             claim.lock_version
+           ) do
       socket
       |> load_workspace(claim)
       |> put_flash(:info, suggestion_accept_message(suggestion.field))
@@ -2287,14 +2312,22 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp update_suggestion_state(socket, suggestion_id, state) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
-         {:ok, _suggestion} <-
-           Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion.id, state) do
+         {:ok, %{claim: claim}} <-
+           Tickets.set_suggestion_state(
+             socket.assigns.current_scope,
+             suggestion.id,
+             state,
+             socket.assigns.claim.lock_version
+           ) do
       socket
-      |> refresh_workspace()
+      |> load_workspace(claim)
       |> put_flash(:info, "Der Vorschlag wurde verworfen.")
     else
       nil ->
         put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
+
+      {:error, :stale} ->
+        handle_stale(socket)
 
       {:error, _reason} ->
         put_flash(socket, :error, "Der Vorschlag konnte nicht aktualisiert werden.")

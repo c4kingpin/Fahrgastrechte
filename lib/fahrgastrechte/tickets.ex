@@ -12,6 +12,7 @@ defmodule Fahrgastrechte.Tickets do
   alias Ecto.Multi
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Repo
@@ -20,18 +21,30 @@ defmodule Fahrgastrechte.Tickets do
   @type domain_error ::
           :not_authenticated
           | :not_found
+          | :not_editable
+          | :stale
           | :invalid_document_kind
           | :invalid_state
           | :analysis_failed
 
-  @doc "Analyzes one current ticket or invoice and replaces its previous suggestions."
-  @spec analyze_document(Scope.t(), Ecto.UUID.t()) ::
-          {:ok, %{document: Document.t(), suggestions: [Suggestion.t()]}}
+  @doc "Analyzes one current ticket or invoice and invalidates its claim output."
+  @spec analyze_document(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, %{document: Document.t(), suggestions: [Suggestion.t()], claim: Claims.Claim.t()}}
           | {:error, Changeset.t() | domain_error()}
-  def analyze_document(%Scope{} = scope, document_id) do
+  def analyze_document(%Scope{} = scope, document_id, expected_claim_lock_version) do
     Documents.with_document_path(scope, document_id, fn path, document ->
-      analyze_path(document, path)
+      analyze_path(scope, document, path, expected_claim_lock_version)
     end)
+  end
+
+  def analyze_document(_scope, _document_id, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
+  def analyze_document(%Scope{} = scope, document_id) do
+    with {:ok, document} <- Documents.get_document(scope, document_id),
+         {:ok, claim} <- Claims.get_claim(scope, document.claim_id) do
+      analyze_document(scope, document_id, claim.lock_version)
+    end
   end
 
   def analyze_document(_scope, _document_id), do: {:error, :not_authenticated}
@@ -54,20 +67,49 @@ defmodule Fahrgastrechte.Tickets do
 
   def list_suggestions(_scope, _document_id), do: {:error, :not_authenticated}
 
-  @doc "Marks a scoped suggestion accepted, rejected or proposed without changing its value."
-  @spec set_suggestion_state(Scope.t(), Ecto.UUID.t(), Suggestion.state() | String.t()) ::
-          {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
+  @doc "Changes a suggestion state and invalidates the owning claim atomically."
+  @spec set_suggestion_state(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Suggestion.state() | String.t(),
+          pos_integer()
+        ) ::
+          {:ok, %{suggestion: Suggestion.t(), claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
   def set_suggestion_state(
-        %Scope{user: %User{id: user_id}},
+        %Scope{user: %User{id: user_id}} = scope,
         suggestion_id,
-        requested_state
+        requested_state,
+        expected_claim_lock_version
       )
       when is_binary(suggestion_id) do
     with {:ok, state} <- parse_state(requested_state),
-         %Suggestion{} = suggestion <- scoped_suggestion(user_id, suggestion_id) do
-      suggestion
-      |> Suggestion.state_changeset(state)
-      |> Repo.update()
+         {%Suggestion{} = suggestion, claim_id} <- scoped_suggestion(user_id, suggestion_id) do
+      Repo.transaction(fn ->
+        with {:ok, claim} <-
+               Claims.invalidate_output(scope, claim_id, expected_claim_lock_version),
+             {:ok, updated_suggestion} <-
+               suggestion |> Suggestion.state_changeset(state) |> Repo.update() do
+          %{suggestion: updated_suggestion, claim: claim}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def set_suggestion_state(_scope, _suggestion_id, _state, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
+  def set_suggestion_state(%Scope{user: %User{id: user_id}} = scope, suggestion_id, state) do
+    with {_suggestion, claim_id} <- scoped_suggestion(user_id, suggestion_id),
+         {:ok, claim} <- Claims.get_claim(scope, claim_id),
+         {:ok, %{suggestion: suggestion}} <-
+           set_suggestion_state(scope, suggestion_id, state, claim.lock_version) do
+      {:ok, suggestion}
     else
       nil -> {:error, :not_found}
       {:error, reason} -> {:error, reason}
@@ -77,25 +119,41 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_state(_scope, _suggestion_id, _state),
     do: {:error, :not_authenticated}
 
-  @doc "Marks several scoped suggestions with one state in one transaction."
-  @spec set_suggestion_states(Scope.t(), [Ecto.UUID.t()], Suggestion.state() | String.t()) ::
-          {:ok, [Suggestion.t()]} | {:error, Changeset.t() | domain_error()}
+  @doc "Changes several same-claim suggestion states and invalidates that claim atomically."
+  @spec set_suggestion_states(
+          Scope.t(),
+          [Ecto.UUID.t()],
+          Suggestion.state() | String.t(),
+          pos_integer()
+        ) ::
+          {:ok, %{suggestions: [Suggestion.t()], claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
   def set_suggestion_states(
-        %Scope{user: %User{id: user_id}},
+        %Scope{user: %User{id: user_id}} = scope,
         suggestion_ids,
-        requested_state
+        requested_state,
+        expected_claim_lock_version
       )
       when is_list(suggestion_ids) do
     with {:ok, state} <- parse_state(requested_state),
          {:ok, parsed_ids} <- cast_ids(suggestion_ids),
-         suggestions <- scoped_suggestions(user_id, parsed_ids),
-         true <- length(suggestions) == length(Enum.uniq(parsed_ids)) do
+         suggestions_with_claims <- scoped_suggestions(user_id, parsed_ids),
+         true <- length(suggestions_with_claims) == length(Enum.uniq(parsed_ids)),
+         {:ok, claim_id} <- one_claim_id(suggestions_with_claims) do
       Repo.transaction(fn ->
-        Enum.map(suggestions, fn suggestion ->
-          suggestion
-          |> Suggestion.state_changeset(state)
-          |> Repo.update!()
-        end)
+        with {:ok, claim} <-
+               Claims.invalidate_output(scope, claim_id, expected_claim_lock_version) do
+          suggestions =
+            Enum.map(suggestions_with_claims, fn {suggestion, _claim_id} ->
+              suggestion
+              |> Suggestion.state_changeset(state)
+              |> Repo.update!()
+            end)
+
+          %{suggestions: suggestions, claim: claim}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
       end)
     else
       false -> {:error, :not_found}
@@ -103,17 +161,39 @@ defmodule Fahrgastrechte.Tickets do
     end
   end
 
+  def set_suggestion_states(_scope, _suggestion_ids, _state, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
+  def set_suggestion_states(%Scope{user: %User{id: user_id}} = scope, suggestion_ids, state) do
+    with {:ok, parsed_ids} <- cast_ids(suggestion_ids),
+         suggestions <- scoped_suggestions(user_id, parsed_ids),
+         {:ok, claim_id} <- one_claim_id(suggestions),
+         {:ok, claim} <- Claims.get_claim(scope, claim_id),
+         {:ok, %{suggestions: updated}} <-
+           set_suggestion_states(scope, suggestion_ids, state, claim.lock_version) do
+      {:ok, updated}
+    end
+  end
+
   def set_suggestion_states(_scope, _suggestion_ids, _state),
     do: {:error, :not_authenticated}
 
-  defp analyze_path(%Document{kind: kind}, _path) when kind not in [:ticket, :invoice],
-    do: {:error, :invalid_document_kind}
+  defp analyze_path(_scope, %Document{kind: kind}, _path, _expected_lock_version)
+       when kind not in [:ticket, :invoice],
+       do: {:error, :invalid_document_kind}
 
-  defp analyze_path(%Document{encrypted: true} = document, _path) do
-    persist_analysis(document, :manual_required, "encrypted", [])
+  defp analyze_path(scope, %Document{encrypted: true} = document, _path, expected_lock_version) do
+    persist_analysis(
+      scope,
+      document,
+      :manual_required,
+      "encrypted",
+      [],
+      expected_lock_version
+    )
   end
 
-  defp analyze_path(%Document{} = document, path) do
+  defp analyze_path(scope, %Document{} = document, path, expected_lock_version) do
     extractor = tickets_config(:extractor)
 
     options = [
@@ -126,25 +206,49 @@ defmodule Fahrgastrechte.Tickets do
 
     with {:ok, extraction} <- extractor.extract(path, options),
          {:ok, suggestions} <- extractor.propose(extraction, options) do
-      persist_analysis(document, :completed, nil, suggestions)
+      persist_analysis(scope, document, :completed, nil, suggestions, expected_lock_version)
     else
       {:error, error} when error in [:no_text, :encrypted] ->
-        persist_analysis(document, :manual_required, Atom.to_string(error), [])
+        persist_analysis(
+          scope,
+          document,
+          :manual_required,
+          Atom.to_string(error),
+          [],
+          expected_lock_version
+        )
 
       {:error, error}
       when error in [:invalid_pdf, :resource_limit, :timeout] ->
-        persist_analysis(document, :failed, Atom.to_string(error), [])
+        persist_analysis(
+          scope,
+          document,
+          :failed,
+          Atom.to_string(error),
+          [],
+          expected_lock_version
+        )
 
       {:error, {:backend, _reason}} ->
-        persist_analysis(document, :failed, "backend", [])
+        persist_analysis(scope, document, :failed, "backend", [], expected_lock_version)
     end
   end
 
-  defp persist_analysis(document, status, error, suggestions) do
+  defp persist_analysis(
+         scope,
+         document,
+         status,
+         error,
+         suggestions,
+         expected_claim_lock_version
+       ) do
     analyzed_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
 
     multi =
       Multi.new()
+      |> Multi.run(:claim, fn _repo, _changes ->
+        Claims.invalidate_output(scope, document.claim_id, expected_claim_lock_version)
+      end)
       |> Multi.update(
         :document,
         Document.analysis_changeset(document, %{
@@ -186,7 +290,15 @@ defmodule Fahrgastrechte.Tickets do
           |> Enum.sort_by(fn {{:suggestion, index}, _value} -> index end)
           |> Enum.map(fn {_key, suggestion} -> suggestion end)
 
-        {:ok, %{document: changes.document, suggestions: inserted_suggestions}}
+        {:ok,
+         %{
+           document: changes.document,
+           suggestions: inserted_suggestions,
+           claim: changes.claim
+         }}
+
+      {:error, :claim, reason, _changes} ->
+        {:error, reason}
 
       {:error, _operation, %Changeset{} = changeset, _changes} ->
         {:error, changeset}
@@ -205,7 +317,7 @@ defmodule Fahrgastrechte.Tickets do
             where:
               suggestion.id == ^parsed_id and document.user_id == ^user_id and
                 document.current == true and is_nil(document.deletion_pending_at),
-            select: suggestion
+            select: {suggestion, document.claim_id}
         )
 
       :error ->
@@ -221,8 +333,17 @@ defmodule Fahrgastrechte.Tickets do
           suggestion.id in ^suggestion_ids and document.user_id == ^user_id and
             document.current == true and is_nil(document.deletion_pending_at),
         order_by: [asc: suggestion.field, asc: suggestion.id],
-        select: suggestion
+        select: {suggestion, document.claim_id}
     )
+  end
+
+  defp one_claim_id([]), do: {:error, :not_found}
+
+  defp one_claim_id(suggestions_with_claims) do
+    case suggestions_with_claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq() do
+      [claim_id] -> {:ok, claim_id}
+      _claim_ids -> {:error, :not_found}
+    end
   end
 
   defp cast_ids(ids) do

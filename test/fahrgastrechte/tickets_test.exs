@@ -5,6 +5,7 @@ defmodule Fahrgastrechte.TicketsTest do
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.DocumentsFixtures
 
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
@@ -61,6 +62,64 @@ defmodule Fahrgastrechte.TicketsTest do
       assert Enum.all?(suggestions, &(&1.state == :proposed))
       assert Enum.all?(suggestions, &(&1.source_page == 1))
       assert Enum.all?(suggestions, &(is_binary(&1.source_excerpt) and &1.source_excerpt != ""))
+    end
+
+    test "analysis advances the claim lock and rejects a stale reanalysis" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:ok, %{claim: analyzed_claim, suggestions: suggestions}} =
+               Tickets.analyze_document(scope, document.id, ready.lock_version)
+
+      assert analyzed_claim.status == :draft
+      assert analyzed_claim.generated_at == nil
+
+      assert analyzed_claim.lock_version == ready.lock_version + 1
+      assert suggestions != []
+
+      assert {:error, :stale} =
+               Tickets.analyze_document(scope, document.id, ready.lock_version)
+
+      assert {:ok, persisted} = Tickets.list_suggestions(scope, document.id)
+      assert MapSet.new(persisted, & &1.id) == MapSet.new(suggestions, & &1.id)
+    end
+
+    test "suggestion state changes advance the claim lock atomically" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      {:ok, %{claim: claim, suggestions: suggestions}} =
+        Tickets.analyze_document(scope, document.id, claim.lock_version)
+
+      suggestion = hd(suggestions)
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:ok, %{claim: updated_claim, suggestion: accepted}} =
+               Tickets.set_suggestion_state(
+                 scope,
+                 suggestion.id,
+                 :accepted,
+                 ready.lock_version
+               )
+
+      assert accepted.state == :accepted
+      assert updated_claim.status == :draft
+      assert updated_claim.generated_at == nil
+      assert updated_claim.lock_version == ready.lock_version + 1
+
+      assert {:error, :stale} =
+               Tickets.set_suggestion_state(
+                 scope,
+                 suggestion.id,
+                 :rejected,
+                 ready.lock_version
+               )
+
+      assert {:ok, persisted} = Tickets.list_suggestions(scope, document.id)
+      assert Enum.find(persisted, &(&1.id == suggestion.id)).state == :accepted
     end
 
     test "recognizes a validity period but invents no train from a tariff via" do

@@ -4,9 +4,11 @@ defmodule Fahrgastrechte.AccountsTest do
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Accounts.Scope
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
 
   import Fahrgastrechte.AccountsFixtures
+  import Fahrgastrechte.ClaimsFixtures
 
   describe "register_identity/1" do
     test "creates a user and exactly one profile on first and repeat registration" do
@@ -55,6 +57,29 @@ defmodule Fahrgastrechte.AccountsTest do
       assert {:ok, loaded_second_profile} = Accounts.get_profile(second_scope)
       assert loaded_first_profile.first_name == "Erika"
       assert loaded_second_profile.first_name == "Max"
+    end
+
+    test "invalidates all mutable claims after an export-relevant profile change" do
+      scope = scope_fixture()
+      first_claim = claim_fixture(scope)
+      second_claim = claim_fixture(scope)
+
+      assert {:ok, first_ready} =
+               Claims.transition_claim(scope, first_claim.id, :ready, first_claim.lock_version)
+
+      assert {:ok, second_ready} =
+               Claims.transition_claim(scope, second_claim.id, :ready, second_claim.lock_version)
+
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      assert {:ok, first_invalidated} = Claims.get_claim(scope, first_claim.id)
+      assert {:ok, second_invalidated} = Claims.get_claim(scope, second_claim.id)
+      assert first_invalidated.status == :draft
+      assert second_invalidated.status == :draft
+      assert first_invalidated.generated_at == nil
+      assert second_invalidated.generated_at == nil
+      assert first_invalidated.lock_version == first_ready.lock_version + 1
+      assert second_invalidated.lock_version == second_ready.lock_version + 1
     end
 
     test "rejects missing scope" do
