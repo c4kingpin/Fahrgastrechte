@@ -20,7 +20,7 @@ defmodule Fahrgastrechte.ExportsFixtures do
         original_filename: "invoice.pdf"
       })
 
-    {:ok, %{journey: _planned}} =
+    {:ok, %{journey: _planned, claim: claim}} =
       Rail.confirm_journey(scope, claim.id, :planned, [segment_attributes()], claim.lock_version)
 
     actual =
@@ -29,7 +29,7 @@ defmodule Fahrgastrechte.ExportsFixtures do
         fetched_at: ~U[2026-07-15 09:16:00Z]
       })
 
-    {:ok, %{journey: _actual}} =
+    {:ok, %{journey: _actual, claim: claim}} =
       Rail.confirm_journey(scope, claim.id, :actual, [actual], claim.lock_version)
 
     claim

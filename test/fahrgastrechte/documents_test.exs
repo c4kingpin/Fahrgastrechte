@@ -36,6 +36,16 @@ defmodule Fahrgastrechte.DocumentsTest do
       assert document.sha256 == :crypto.hash(:sha256, File.read!(fixture_path()))
       assert document.storage_key =~ ~r/\A[0-9a-f]{64}\z/
       assert returned_claim.id == claim.id
+      assert returned_claim.lock_version == claim.lock_version + 1
+
+      assert {:error, :stale} =
+               Documents.put_document(
+                 scope,
+                 claim.id,
+                 :invoice,
+                 upload_attributes(),
+                 claim.lock_version
+               )
 
       assert {:ok, %{stream: stream}} = Documents.stream_document(scope, document.id)
       assert stream |> Enum.to_list() |> IO.iodata_to_binary() == File.read!(fixture_path())
@@ -244,7 +254,7 @@ defmodule Fahrgastrechte.DocumentsTest do
     test "a stale claim deletion leaves metadata and physical files untouched" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
-      {document, _claim} = document_fixture(scope, claim)
+      {document, claim} = document_fixture(scope, claim)
 
       assert {:ok, updated_claim} =
                Claims.update_claim(

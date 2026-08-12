@@ -57,12 +57,12 @@ Komponenten- und Wellenplan liegt getrennt unter
 ### Konsistenz
 
 Claim-Mutationen verwenden `lock_version`, damit konkurrierende Änderungen
-nicht unbemerkt überschrieben werden. Die noch ausstehende vollständige Sperre
-abhängiger Änderungen an einem Entwurf steht in der
-[Refactoring-Roadmap](refactoring-roadmap.md). Änderungen an exportrelevanten
-Daten müssen eine aktuelle Ausgabe invalidieren. Generierte PDF-Sets werden erst
-nach vollständiger Validierung gemeinsam veröffentlicht; historische Versionen
-bleiben unveränderlich erhalten.
+nicht unbemerkt überschrieben werden. Abhängige Änderungen aus Documents und
+Rail erhöhen diese Version auch bei einem Entwurf atomar mit ihrer fachlichen
+Mutation. Änderungen an exportrelevanten Daten müssen eine aktuelle Ausgabe
+invalidieren. Generierte PDF-Sets werden erst nach vollständiger Validierung
+gemeinsam veröffentlicht; historische Versionen bleiben unveränderlich
+erhalten.
 
 ### PDF- und Zeitgrenzen
 

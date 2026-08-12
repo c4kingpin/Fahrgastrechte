@@ -1,6 +1,7 @@
 defmodule Fahrgastrechte.RailFixtures do
   @moduledoc false
 
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Rail
 
   def segment_attributes(attrs \\ %{}) do
@@ -25,8 +26,10 @@ defmodule Fahrgastrechte.RailFixtures do
   end
 
   def journey_fixture(scope, claim, kind, segments \\ [segment_attributes()]) do
+    {:ok, current_claim} = Claims.get_claim(scope, claim.id)
+
     {:ok, %{journey: journey}} =
-      Rail.confirm_journey(scope, claim.id, kind, segments, claim.lock_version)
+      Rail.confirm_journey(scope, claim.id, kind, segments, current_claim.lock_version)
 
     journey
   end
