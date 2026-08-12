@@ -147,6 +147,54 @@ defmodule Fahrgastrechte.Rail do
     do: {:error, :not_authenticated}
 
   @doc """
+  Confirms one connection proposal as planned and actual journey atomically.
+
+  The planned journey is derived from the same segments without realtime
+  values. Either both journey variants replace their predecessors or neither
+  does, and the owning claim is invalidated only once.
+  """
+  @spec confirm_connection(Scope.t(), Ecto.UUID.t(), [map()], pos_integer()) ::
+          {:ok,
+           %{
+             planned_journey: Journey.t(),
+             actual_journey: Journey.t(),
+             claim: Claims.Claim.t()
+           }}
+          | {:error, Changeset.t() | domain_error()}
+  def confirm_connection(
+        %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
+        segment_attrs,
+        expected_claim_lock_version
+      )
+      when is_list(segment_attrs) do
+    with :ok <- validate_segments_input(segment_attrs) do
+      planned_segment_attrs = planned_segments(segment_attrs)
+
+      Repo.transaction(fn ->
+        with {:ok, claim} <-
+               Claims.invalidate_output(scope, claim_id, expected_claim_lock_version),
+             {:ok, planned_journey} <-
+               replace_journey(user_id, claim_id, :planned, planned_segment_attrs),
+             {:ok, actual_journey} <-
+               replace_journey(user_id, claim_id, :actual, segment_attrs) do
+          %{
+            planned_journey: planned_journey,
+            actual_journey: actual_journey,
+            claim: claim
+          }
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+      |> normalize_transaction()
+    end
+  end
+
+  def confirm_connection(_scope, _claim_id, _segment_attrs, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
+  @doc """
   Refreshes a confirmed journey while preserving complete manually edited segments.
 
   Provider data may replace automatic segments at the same position. A segment
@@ -437,6 +485,26 @@ defmodule Fahrgastrechte.Rail do
     %Journey{user_id: user_id, claim_id: claim_id}
     |> Journey.create_changeset(%{kind: kind, confirmed_at: now()})
     |> Repo.insert()
+  end
+
+  defp replace_journey(user_id, claim_id, kind, segment_attrs) do
+    with :ok <- delete_existing_journey(user_id, claim_id, kind),
+         {:ok, journey} <- insert_journey(user_id, claim_id, kind),
+         {:ok, segments} <- insert_segments(journey, segment_attrs) do
+      {:ok, %{journey | segments: segments}}
+    end
+  end
+
+  defp planned_segments(segment_attrs) do
+    Enum.map(segment_attrs, fn attrs ->
+      attrs
+      |> normalize_segment_attrs()
+      |> Map.put(:actual_departure, nil)
+      |> Map.put(:actual_arrival, nil)
+      |> Map.put(:estimated_departure, nil)
+      |> Map.put(:estimated_arrival, nil)
+      |> Map.put(:cancelled, false)
+    end)
   end
 
   defp insert_segments(journey, segment_attrs) do

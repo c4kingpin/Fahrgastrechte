@@ -10,16 +10,13 @@ Branch mit Regressionstests.
 
 ## Priorität 0 – Datenkonsistenz und fachliche Korrektheit
 
-1. **Mehrteilige Aktionen zusammenfassen.** Die Übernahme eines
-   Verbindungskandidaten sowie das Anwenden und Bestätigen von Vorschlägen
-   müssen jeweils innerhalb einer fachlichen Transaktion erfolgen.
-2. **Anschlussverlust im Assistenten vervollständigen.** Die Domäne modelliert
+1. **Anschlussverlust im Assistenten vervollständigen.** Die Domäne modelliert
    `missed_connection`, der tatsächliche Reiseeditor besitzt dafür aber noch
    keinen vollständigen Speicherpfad.
-3. **UI- und Exportbereitschaft vereinen.** `Exports.readiness/2` soll die
+2. **UI- und Exportbereitschaft vereinen.** `Exports.readiness/2` soll die
    einzige fachliche Wahrheit sein; die LiveView darf daraus nur
    Schrittzustände und Links ableiten.
-4. **Aktuelle und historische Ausgabe unterscheiden.** Nach einer
+3. **Aktuelle und historische Ausgabe unterscheiden.** Nach einer
    exportrelevanten Änderung müssen ältere Versionen sichtbar als Archiv statt
    als aktuell versandbereit erscheinen.
 

@@ -178,6 +178,75 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_states(_scope, _suggestion_ids, _state),
     do: {:error, :not_authenticated}
 
+  @doc "Applies one proposal to its claim where applicable and accepts it atomically."
+  @spec accept_suggestion(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, %{suggestion: Suggestion.t(), claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
+  def accept_suggestion(scope, claim_id, suggestion_id, expected_claim_lock_version) do
+    case accept_suggestions(scope, claim_id, [suggestion_id], expected_claim_lock_version) do
+      {:ok, %{suggestions: [suggestion], claim: claim}} ->
+        {:ok, %{suggestion: suggestion, claim: claim}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Applies several proposals to their claim and accepts all of them atomically.
+
+  Route fields recognized by the ticket extractor are copied to the claim.
+  All suggestions must belong to current documents of the explicitly supplied
+  claim. The claim update or invalidation and every state change share one
+  transaction and one optimistic-lock step.
+  """
+  @spec accept_suggestions(Scope.t(), Ecto.UUID.t(), [Ecto.UUID.t()], pos_integer()) ::
+          {:ok, %{suggestions: [Suggestion.t()], claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
+  def accept_suggestions(
+        %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
+        suggestion_ids,
+        expected_claim_lock_version
+      )
+      when is_binary(claim_id) and is_list(suggestion_ids) do
+    with {:ok, parsed_claim_id} <- Ecto.UUID.cast(claim_id),
+         {:ok, parsed_ids} <- cast_ids(suggestion_ids),
+         suggestions_with_claims <- scoped_suggestions(user_id, parsed_ids),
+         true <- parsed_ids != [],
+         true <- length(parsed_ids) == length(Enum.uniq(parsed_ids)),
+         true <- length(suggestions_with_claims) == length(parsed_ids),
+         true <-
+           Enum.all?(suggestions_with_claims, fn {_suggestion, owner_claim_id} ->
+             owner_claim_id == parsed_claim_id
+           end) do
+      suggestions = order_suggestions(suggestions_with_claims, parsed_ids)
+      claim_attrs = claim_attrs_for_suggestions(suggestions)
+
+      Repo.transaction(fn ->
+        with {:ok, claim} <-
+               update_claim_for_acceptance(
+                 scope,
+                 parsed_claim_id,
+                 claim_attrs,
+                 expected_claim_lock_version
+               ),
+             {:ok, accepted_suggestions} <- update_suggestions(suggestions, :accepted) do
+          %{suggestions: accepted_suggestions, claim: claim}
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+    else
+      :error -> {:error, :not_found}
+      false -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def accept_suggestions(_scope, _claim_id, _suggestion_ids, _expected_claim_lock_version),
+    do: {:error, :not_authenticated}
+
   defp analyze_path(_scope, %Document{kind: kind}, _path, _expected_lock_version)
        when kind not in [:ticket, :invoice],
        do: {:error, :invalid_document_kind}
@@ -335,6 +404,62 @@ defmodule Fahrgastrechte.Tickets do
         order_by: [asc: suggestion.field, asc: suggestion.id],
         select: {suggestion, document.claim_id}
     )
+  end
+
+  defp order_suggestions(suggestions_with_claims, suggestion_ids) do
+    by_id =
+      Map.new(suggestions_with_claims, fn {suggestion, _claim_id} ->
+        {suggestion.id, suggestion}
+      end)
+
+    Enum.map(suggestion_ids, &Map.fetch!(by_id, &1))
+  end
+
+  defp claim_attrs_for_suggestions(suggestions) do
+    Enum.reduce(suggestions, %{}, fn suggestion, attrs ->
+      Map.merge(attrs, claim_attrs_for_suggestion(suggestion))
+    end)
+  end
+
+  defp claim_attrs_for_suggestion(%Suggestion{field: :travel_date, value: value}),
+    do: present_attr("travel_date", Map.get(value, "date"))
+
+  defp claim_attrs_for_suggestion(%Suggestion{field: :origin, value: value}),
+    do: present_attr("origin", Map.get(value, "text"))
+
+  defp claim_attrs_for_suggestion(%Suggestion{field: :destination, value: value}),
+    do: present_attr("destination", Map.get(value, "text"))
+
+  defp claim_attrs_for_suggestion(%Suggestion{}), do: %{}
+
+  defp present_attr(_key, value) when value in [nil, ""], do: %{}
+  defp present_attr(key, value), do: %{key => value}
+
+  defp update_claim_for_acceptance(scope, claim_id, attrs, expected_lock_version)
+       when map_size(attrs) == 0,
+       do: Claims.invalidate_output(scope, claim_id, expected_lock_version)
+
+  defp update_claim_for_acceptance(scope, claim_id, attrs, expected_lock_version) do
+    with {:ok, claim} <- Claims.update_claim(scope, claim_id, attrs, expected_lock_version) do
+      if claim.lock_version == expected_lock_version do
+        Claims.invalidate_output(scope, claim_id, expected_lock_version)
+      else
+        {:ok, claim}
+      end
+    end
+  end
+
+  defp update_suggestions(suggestions, state) do
+    Enum.reduce_while(suggestions, {:ok, []}, fn suggestion, {:ok, updated} ->
+      case suggestion |> Suggestion.state_changeset(state) |> Repo.update() do
+        {:ok, accepted} -> {:cont, {:ok, [accepted | updated]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, updated} -> {:ok, Enum.reverse(updated)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp one_claim_id([]), do: {:error, :not_found}

@@ -43,6 +43,12 @@ normalisiert; sonst bleibt `time_real` eine Prognose.
 
 ## Bestätigte Reisen
 
+`confirm_connection/4` übernimmt einen Verbindungsvorschlag als geplante und
+tatsächliche Reise in einer einzigen Transaktion. Die geplante Variante wird
+ohne Prognose- und Istwerte aus denselben Segmenten abgeleitet. Beide Varianten
+werden gemeinsam ersetzt und die Claim-`lock_version` wird genau einmal
+fortgeschrieben; bei einem Fehler bleibt auch die bisherige Reise unverändert.
+
 `confirm_journey/5` speichert höchstens eine geplante (`:planned`) und eine
 tatsächliche (`:actual`) Reise pro Antrag. Die geplante Reise ist für jeden
 Export erforderlich; bei `not_started` ist bewusst keine tatsächliche Reise

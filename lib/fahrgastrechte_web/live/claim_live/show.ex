@@ -199,20 +199,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     with candidate when not is_nil(candidate) <- Map.get(socket.assigns.candidate_lookup, index),
          segments when segments != [] <- candidate_segments(candidate, socket.assigns.claim),
          {:ok, %{claim: claim}} <-
-           Rail.confirm_journey(
+           Rail.confirm_connection(
              socket.assigns.current_scope,
              socket.assigns.claim.id,
-             :planned,
-             planned_segments(segments),
-             socket.assigns.claim.lock_version
-           ),
-         {:ok, %{claim: claim}} <-
-           Rail.confirm_journey(
-             socket.assigns.current_scope,
-             socket.assigns.claim.id,
-             :actual,
              segments,
-             claim.lock_version
+             socket.assigns.claim.lock_version
            ) do
       {:noreply,
        socket
@@ -2190,30 +2181,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     do: put_flash(socket, :info, "In diesem Bereich sind keine offenen Vorschläge vorhanden.")
 
   defp accept_suggestion_group(socket, suggestions) do
-    attrs =
-      Enum.reduce(suggestions, %{}, fn suggestion, collected ->
-        Map.merge(collected, claim_attrs_for_suggestion(suggestion))
-      end)
-
-    claim_result =
-      if attrs == %{} do
-        {:ok, socket.assigns.claim}
-      else
-        Claims.update_claim(
-          socket.assigns.current_scope,
-          socket.assigns.claim.id,
-          attrs,
-          socket.assigns.claim.lock_version
-        )
-      end
-
-    with {:ok, claim} <- claim_result,
-         {:ok, %{claim: claim}} <-
-           Tickets.set_suggestion_states(
+    with {:ok, %{claim: claim}} <-
+           Tickets.accept_suggestions(
              socket.assigns.current_scope,
+             socket.assigns.claim.id,
              Enum.map(suggestions, & &1.id),
-             :accepted,
-             claim.lock_version
+             socket.assigns.claim.lock_version
            ) do
       socket
       |> load_workspace(claim)
@@ -2287,13 +2260,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp accept_suggestion(socket, suggestion_id) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
-         {:ok, claim} <- maybe_apply_suggestion(socket, suggestion),
          {:ok, %{claim: claim}} <-
-           Tickets.set_suggestion_state(
+           Tickets.accept_suggestion(
              socket.assigns.current_scope,
+             socket.assigns.claim.id,
              suggestion.id,
-             :accepted,
-             claim.lock_version
+             socket.assigns.claim.lock_version
            ) do
       socket
       |> load_workspace(claim)
@@ -2343,35 +2315,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       _error -> {:error, :not_found}
     end
   end
-
-  defp maybe_apply_suggestion(socket, suggestion) do
-    case claim_attrs_for_suggestion(suggestion) do
-      attrs when attrs == %{} ->
-        {:ok, socket.assigns.claim}
-
-      attrs ->
-        Claims.update_claim(
-          socket.assigns.current_scope,
-          socket.assigns.claim.id,
-          attrs,
-          socket.assigns.claim.lock_version
-        )
-    end
-  end
-
-  defp claim_attrs_for_suggestion(%{field: :travel_date, value: value}),
-    do: present_attr("travel_date", Map.get(value, "date"))
-
-  defp claim_attrs_for_suggestion(%{field: :origin, value: value}),
-    do: present_attr("origin", Map.get(value, "text"))
-
-  defp claim_attrs_for_suggestion(%{field: :destination, value: value}),
-    do: present_attr("destination", Map.get(value, "text"))
-
-  defp claim_attrs_for_suggestion(_suggestion), do: %{}
-
-  defp present_attr(_key, value) when value in [nil, ""], do: %{}
-  defp present_attr(key, value), do: %{key => value}
 
   defp find_suggestion(socket, suggestion_id) do
     Enum.find_value(socket.assigns.documents_by_id, fn {_document_id, document} ->
@@ -2564,17 +2507,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         :destination_name,
         if(index == last_index, do: claim.destination, else: segment.destination_name)
       )
-    end)
-  end
-
-  defp planned_segments(segments) do
-    Enum.map(segments, fn segment ->
-      segment
-      |> Map.put(:actual_departure, nil)
-      |> Map.put(:actual_arrival, nil)
-      |> Map.put(:estimated_departure, nil)
-      |> Map.put(:estimated_arrival, nil)
-      |> Map.put(:cancelled, false)
     end)
   end
 

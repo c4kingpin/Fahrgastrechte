@@ -118,6 +118,53 @@ defmodule Fahrgastrechte.RailTest do
                )
     end
 
+    test "connection confirmation rolls both journey variants back together" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok,
+              %{
+                planned_journey: planned,
+                actual_journey: actual,
+                claim: confirmed_claim
+              }} =
+               Rail.confirm_connection(
+                 scope,
+                 claim.id,
+                 [segment_attributes()],
+                 claim.lock_version
+               )
+
+      assert hd(planned.segments).actual_arrival == nil
+
+      assert DateTime.compare(hd(actual.segments).actual_arrival, ~U[2026-07-15 08:30:00Z]) ==
+               :eq
+
+      assert confirmed_claim.lock_version == claim.lock_version + 1
+
+      invalid_actual =
+        segment_attributes(%{
+          actual_departure: ~U[2026-07-15 09:00:00Z],
+          actual_arrival: ~U[2026-07-15 08:30:00Z]
+        })
+
+      assert {:error, %Ecto.Changeset{}} =
+               Rail.confirm_connection(
+                 scope,
+                 claim.id,
+                 [invalid_actual],
+                 confirmed_claim.lock_version
+               )
+
+      assert {:ok, unchanged_planned} = Rail.get_journey(scope, claim.id, :planned)
+      assert {:ok, unchanged_actual} = Rail.get_journey(scope, claim.id, :actual)
+      assert {:ok, unchanged_claim} = Claims.get_claim(scope, claim.id)
+
+      assert unchanged_planned.id == planned.id
+      assert unchanged_actual.id == actual.id
+      assert unchanged_claim.lock_version == confirmed_claim.lock_version
+    end
+
     test "derives direct-delay values for C05" do
       scope = scope_fixture()
       claim = claim_fixture(scope)

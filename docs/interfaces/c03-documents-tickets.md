@@ -82,6 +82,18 @@ Tickets.set_suggestion_states(
   state,
   expected_claim_lock_version
 )
+Tickets.accept_suggestion(
+  current_scope,
+  claim_id,
+  suggestion_id,
+  expected_claim_lock_version
+)
+Tickets.accept_suggestions(
+  current_scope,
+  claim_id,
+  suggestion_ids,
+  expected_claim_lock_version
+)
 ```
 
 `analyze_document/3` verwendet Popplers `pdftotext -layout -enc UTF-8` in
@@ -92,6 +104,13 @@ Ausgabe des zugehörigen Antrags in derselben Datenbanktransaktion und liefern
 den Antrag mit aktualisierter `lock_version` zurück. Eine veraltete erwartete
 Version ergibt `:stale`; bei einem Fehler bleiben Analyse und Vorschläge
 unverändert.
+
+`accept_suggestion/4` und `accept_suggestions/4` übernehmen erkannte
+Reisedaten in den ausdrücklich angegebenen Antrag und bestätigen die
+zugehörigen Vorschläge in einer einzigen Transaktion. Sämtliche Vorschläge
+müssen zu aktuellen Dokumenten dieses Antrags gehören. Feldübernahme,
+Ausgabeinvalidierung und alle Zustandswechsel verbrauchen gemeinsam genau eine
+Claim-`lock_version`; bei einem Fehler bleibt die gesamte Aktion unverändert.
 
 Jeder Vorschlag enthält:
 

@@ -288,6 +288,50 @@ defmodule Fahrgastrechte.TicketsTest do
     end
   end
 
+  describe "atomic suggestion acceptance" do
+    test "applies route values and accepts their proposals with one claim lock step" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      {:ok, %{suggestions: suggestions, claim: analyzed_claim}} =
+        Tickets.analyze_document(scope, document.id)
+
+      route_suggestions =
+        Enum.filter(suggestions, &(&1.field in [:travel_date, :origin, :destination]))
+
+      order_number = Enum.find(suggestions, &(&1.field == :order_number))
+
+      assert {:ok, %{suggestions: accepted, claim: updated_claim}} =
+               Tickets.accept_suggestions(
+                 scope,
+                 claim.id,
+                 Enum.map(route_suggestions, & &1.id),
+                 analyzed_claim.lock_version
+               )
+
+      assert Enum.all?(accepted, &(&1.state == :accepted))
+      assert updated_claim.travel_date == ~D[2026-04-15]
+      assert updated_claim.origin == "Teststadt Hbf"
+      assert updated_claim.destination == "Beispielstadt Hbf"
+      assert updated_claim.lock_version == analyzed_claim.lock_version + 1
+
+      assert {:error, :stale} =
+               Tickets.accept_suggestion(
+                 scope,
+                 claim.id,
+                 order_number.id,
+                 analyzed_claim.lock_version
+               )
+
+      assert {:ok, current_suggestions} = Tickets.list_suggestions(scope, document.id)
+      assert Enum.find(current_suggestions, &(&1.id == order_number.id)).state == :proposed
+
+      assert {:ok, current_claim} = Claims.get_claim(scope, claim.id)
+      assert current_claim.lock_version == updated_claim.lock_version
+    end
+  end
+
   describe "suggestion scoping" do
     test "user A cannot read, analyze or confirm user B's suggestions" do
       first_scope = scope_fixture()
