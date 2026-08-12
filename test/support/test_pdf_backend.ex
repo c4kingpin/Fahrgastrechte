@@ -23,9 +23,6 @@ defmodule Fahrgastrechte.TestPDFBackend do
   end
 
   @impl true
-  def extract_text(path, _options), do: File.read(path)
-
-  @impl true
   def fill_form(template_path, fields, output_path, _options) do
     notify({:pdf_backend_fields, fields})
 

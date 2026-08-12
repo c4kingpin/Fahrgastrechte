@@ -41,12 +41,6 @@ config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
   secret_key_base: "2Qt2yUoIkwD8rYnhGiMKBVk3U7Gbx2SeKi3ECgPQtdypjDOCUOpIkl3C9MUGdByF",
   server: false
 
-# In test we don't send emails
-config :fahrgastrechte, Fahrgastrechte.Mailer, adapter: Swoosh.Adapters.Test
-
-# Disable swoosh api client as it is only required for production adapters
-config :swoosh, :api_client, false
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 

@@ -10,8 +10,9 @@ defmodule Fahrgastrechte.Rail.Providers.Timetables do
 
   @behaviour Fahrgastrechte.Rail.Provider
 
-  alias Fahrgastrechte.Rail.RateLimiter
+  alias Fahrgastrechte.Rail.BerlinTime
   alias Fahrgastrechte.Rail.Providers.XML
+  alias Fahrgastrechte.Rail.RateLimiter
 
   @default_base_url "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
   @max_window_hours 6
@@ -419,7 +420,10 @@ defmodule Fahrgastrechte.Rail.Providers.Timetables do
          {hour, ""} <- Integer.parse(hour),
          {minute, ""} <- Integer.parse(minute),
          {:ok, naive} <- NaiveDateTime.new(2000 + year, month, day, hour, minute, 0) do
-      berlin_naive_to_utc(naive)
+      case BerlinTime.from_local(naive) do
+        {:ok, datetime} -> datetime
+        {:error, _reason} -> nil
+      end
     else
       _invalid -> nil
     end
@@ -427,42 +431,7 @@ defmodule Fahrgastrechte.Rail.Providers.Timetables do
 
   defp parse_db_time(_value), do: nil
 
-  defp berlin_naive_to_utc(naive) do
-    offset = berlin_offset_for_local(naive)
-    naive |> DateTime.from_naive!("Etc/UTC") |> DateTime.add(-offset, :second)
-  end
-
-  defp utc_to_berlin_naive(datetime) do
-    offset = berlin_offset_for_utc(datetime)
-    datetime |> DateTime.add(offset, :second) |> DateTime.to_naive()
-  end
-
-  defp berlin_offset_for_local(naive) do
-    year = naive.year
-    summer_start = NaiveDateTime.new!(last_sunday(year, 3), ~T[02:00:00])
-    summer_end = NaiveDateTime.new!(last_sunday(year, 10), ~T[03:00:00])
-
-    if NaiveDateTime.compare(naive, summer_start) != :lt and
-         NaiveDateTime.compare(naive, summer_end) == :lt,
-       do: 7_200,
-       else: 3_600
-  end
-
-  defp berlin_offset_for_utc(datetime) do
-    year = datetime.year
-    summer_start = DateTime.new!(last_sunday(year, 3), ~T[01:00:00], "Etc/UTC")
-    summer_end = DateTime.new!(last_sunday(year, 10), ~T[01:00:00], "Etc/UTC")
-
-    if DateTime.compare(datetime, summer_start) != :lt and
-         DateTime.compare(datetime, summer_end) == :lt,
-       do: 7_200,
-       else: 3_600
-  end
-
-  defp last_sunday(year, month) do
-    last_day = Date.end_of_month(Date.new!(year, month, 1))
-    Date.add(last_day, -rem(Date.day_of_week(last_day), 7))
-  end
+  defp utc_to_berlin_naive(datetime), do: BerlinTime.to_local_naive(datetime)
 
   defp split_path(nil), do: []
   defp split_path(path), do: String.split(path, "|", trim: true)

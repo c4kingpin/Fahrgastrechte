@@ -39,17 +39,6 @@ defmodule Fahrgastrechte.Exports.SystemPDFBackend do
   end
 
   @impl true
-  def extract_text(path, options) do
-    timeout = Keyword.fetch!(options, :timeout_ms)
-
-    case command_output(options, :pdftotext, ["-layout", "-enc", "UTF-8", path, "-"], timeout) do
-      {:ok, text} -> {:ok, text}
-      {:error, :timeout} -> {:error, :timeout}
-      {:error, {:command_failed, command}} -> {:error, {:command_failed, command}}
-    end
-  end
-
-  @impl true
   def fill_form(template_path, fields, output_path, options) do
     timeout = Keyword.fetch!(options, :timeout_ms)
     xfdf_path = output_path <> ".xfdf"
@@ -237,7 +226,16 @@ defmodule Fahrgastrechte.Exports.SystemPDFBackend do
   end
 
   defp verify_fields(dump, required_fields) do
-    if Enum.all?(required_fields, &String.contains?(dump, "FieldName: #{&1}")),
+    available_fields =
+      dump
+      |> String.split("\n")
+      |> Enum.flat_map(fn
+        "FieldName: " <> field -> [String.trim(field)]
+        _line -> []
+      end)
+      |> MapSet.new()
+
+    if Enum.all?(required_fields, &MapSet.member?(available_fields, &1)),
       do: :ok,
       else: {:error, :missing_field}
   end
