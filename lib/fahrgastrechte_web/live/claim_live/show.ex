@@ -319,30 +319,32 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("reanalyze_document", %{"id" => document_id}, socket) do
-    case Tickets.analyze_document(socket.assigns.current_scope, document_id) do
-      {:ok, _analysis} ->
-        {:noreply,
-         socket
-         |> refresh_workspace()
-         |> put_flash(:info, "Das Dokument wurde erneut ausgewertet.")}
-
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, _analysis} <-
+           Tickets.analyze_document(socket.assigns.current_scope, document_id) do
+      {:noreply,
+       socket
+       |> refresh_workspace()
+       |> put_flash(:info, "Das Dokument wurde erneut ausgewertet.")}
+    else
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Die Auswertung konnte nicht gestartet werden.")}
     end
   end
 
   def handle_event("delete_document", %{"id" => document_id}, socket) do
-    case Documents.delete_document(
-           socket.assigns.current_scope,
-           document_id,
-           socket.assigns.claim.lock_version
-         ) do
-      {:ok, _claim_or_deleted} ->
-        {:noreply,
-         socket
-         |> refresh_workspace()
-         |> put_flash(:info, "Das Dokument wurde sicher gelöscht.")}
-
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, _claim_or_deleted} <-
+           Documents.delete_document(
+             socket.assigns.current_scope,
+             document_id,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> refresh_workspace()
+       |> put_flash(:info, "Das Dokument wurde sicher gelöscht.")}
+    else
       {:error, :stale} ->
         {:noreply, handle_stale(socket)}
 
@@ -2284,14 +2286,28 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   defp update_suggestion_state(socket, suggestion_id, state) do
-    case Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion_id, state) do
-      {:ok, _suggestion} ->
-        socket
-        |> refresh_workspace()
-        |> put_flash(:info, "Der Vorschlag wurde verworfen.")
+    with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
+         {:ok, _suggestion} <-
+           Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion.id, state) do
+      socket
+      |> refresh_workspace()
+      |> put_flash(:info, "Der Vorschlag wurde verworfen.")
+    else
+      nil ->
+        put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
 
       {:error, _reason} ->
         put_flash(socket, :error, "Der Vorschlag konnte nicht aktualisiert werden.")
+    end
+  end
+
+  defp current_claim_document(socket, document_id) do
+    with {:ok, document} <- Documents.get_document(socket.assigns.current_scope, document_id),
+         true <-
+           document.claim_id == socket.assigns.claim.id and document.kind in @upload_kinds do
+      {:ok, document}
+    else
+      _error -> {:error, :not_found}
     end
   end
 

@@ -34,3 +34,9 @@ fahrgastrechte-*.tar
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
 /assets/node_modules/
+
+# Never commit local secrets or private document-review fixtures.
+/.env
+/.env.*
+!/.env.example
+/test/fixtures/private/

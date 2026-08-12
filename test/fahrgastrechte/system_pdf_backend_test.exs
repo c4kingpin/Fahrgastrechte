@@ -53,6 +53,27 @@ defmodule Fahrgastrechte.SystemPDFBackendTest do
     refute File.exists?(output_path <> ".template.pdf")
   end
 
+  test "matches required form fields exactly instead of by prefix", %{work_dir: work_dir} do
+    fixture = Path.expand("../fixtures/c00/synthetic-ticket-flexpreis.pdf", __DIR__)
+    output_path = Path.join(work_dir, "filled.pdf")
+    fake_pdftk = Path.join(work_dir, "fake-pdftk")
+
+    File.write!(
+      fake_pdftk,
+      "#!/bin/sh\nprintf '%s\\n' '---' 'FieldName: personal_firstname'\n"
+    )
+
+    File.chmod!(fake_pdftk, 0o700)
+
+    options =
+      backend_options()
+      |> Keyword.put(:pdftk, fake_pdftk)
+      |> Keyword.put(:required_fields, ["personal"])
+
+    assert {:error, :missing_field} =
+             SystemPDFBackend.fill_form(fixture, [], output_path, options)
+  end
+
   defp backend_options do
     config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Exports)
 
@@ -64,7 +85,6 @@ defmodule Fahrgastrechte.SystemPDFBackendTest do
       pdfinfo: Keyword.fetch!(config, :pdfinfo_executable),
       pdftk: Keyword.fetch!(config, :pdftk_executable),
       pdftocairo: Keyword.fetch!(config, :pdftocairo_executable),
-      pdftotext: Keyword.fetch!(config, :pdftotext_executable),
       font_path: Keyword.fetch!(config, :font_path),
       required_fields: []
     ]

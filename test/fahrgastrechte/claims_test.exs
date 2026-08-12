@@ -63,6 +63,12 @@ defmodule Fahrgastrechte.ClaimsTest do
       assert {:ok, ^claim} = Claims.get_claim(second_scope, claim.id)
     end
 
+    test "treats a malformed claim id as not found" do
+      scope = scope_fixture()
+
+      assert {:error, :not_found} = Claims.get_claim(scope, "not-a-uuid")
+    end
+
     test "rejects missing scope instead of accepting a user or id" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
@@ -354,6 +360,8 @@ defmodule Fahrgastrechte.ClaimsTest do
 
       number_fragment = String.slice(berlin.claim_number, -4, 4)
       assert {:ok, [^berlin]} = Claims.list_claims(scope, claim_number: number_fragment)
+      assert {:ok, unfiltered} = Claims.list_claims(scope, route: "   ")
+      assert Enum.sort(Enum.map(unfiltered, & &1.id)) == Enum.sort([berlin.id, ready_munich.id])
       assert {:error, {:invalid_filter, :status}} = Claims.list_claims(scope, status: :unknown)
 
       assert {:error, {:invalid_filter, :date_from}} =

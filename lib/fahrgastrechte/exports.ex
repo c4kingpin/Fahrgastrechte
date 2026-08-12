@@ -432,7 +432,6 @@ defmodule Fahrgastrechte.Exports do
       pdfinfo: Keyword.fetch!(config, :pdfinfo_executable),
       pdftk: Keyword.fetch!(config, :pdftk_executable),
       pdftocairo: Keyword.fetch!(config, :pdftocairo_executable),
-      pdftotext: Keyword.fetch!(config, :pdftotext_executable),
       font_path: Keyword.fetch!(config, :font_path),
       required_fields: template.required_fields
     ]
