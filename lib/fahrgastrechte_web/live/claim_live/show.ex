@@ -1,7 +1,6 @@
 defmodule FahrgastrechteWeb.ClaimLive.Show do
   use FahrgastrechteWeb, :live_view
 
-  alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Exports
@@ -2420,29 +2419,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     documents_by_kind = Map.new(documents, &{&1.kind, &1})
     documents_by_id = Map.new(documents, &{&1.id, &1})
-    claim_complete? = claim_complete?(claim)
+    readiness_checks = export_readiness_checks(scope, claim.id)
+    claim_complete? = readiness_checks.claim
     claim_started? = claim_started?(claim)
-    documents_complete? = Enum.all?(@upload_kinds, &Map.has_key?(documents_by_kind, &1))
+    documents_complete? = readiness_checks.documents
     documents_started? = documents != []
-
-    analysis_complete? =
-      documents_complete? &&
-        Enum.all?(upload_documents, &(&1.analysis_status in [:completed, :manual_required]))
-
-    suggestions_complete? =
-      analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
-
-    profile_complete? = Accounts.profile_complete?(scope)
-    planned_complete? = journey_complete?(planned_journey, :planned)
-    actual_complete? = actual_journey_complete?(claim, actual_journey)
+    suggestions_complete? = readiness_checks.suggestions
+    profile_complete? = readiness_checks.profile
+    planned_complete? = readiness_checks.planned
+    actual_complete? = readiness_checks.actual
 
     actual_started? =
       !is_nil(actual_journey) || claim.journey_outcome == :not_started ||
         !is_nil(claim.disruption_cause)
 
-    review_complete? =
-      profile_complete? && claim_complete? && documents_complete? && suggestions_complete? &&
-        planned_complete? && actual_complete?
+    review_complete? = readiness_checks.review
 
     exports_available? = exports != []
 
@@ -2510,6 +2501,27 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> stream(:exports, Enum.reverse(exports), reset: true)
     |> stream(:api_sources, Enum.reverse(api_sources), reset: true)
     |> stream(:status_history, Enum.reverse(status_history), reset: true)
+  end
+
+  defp export_readiness_checks(scope, claim_id) do
+    case Exports.readiness(scope, claim_id) do
+      {:ok, %{checks: checks}} ->
+        checks
+
+      {:error, %{type: :incomplete, checks: checks}} ->
+        checks
+
+      {:error, _reason} ->
+        %{
+          claim: false,
+          profile: false,
+          documents: false,
+          suggestions: false,
+          planned: false,
+          actual: false,
+          review: false
+        }
+    end
   end
 
   defp optional_journey(scope, claim_id, kind) do
@@ -2781,21 +2793,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       else: {:error, :connection_not_missed}
   end
 
-  defp journey_complete?(nil, _kind), do: false
-
-  defp journey_complete?(journey, :planned) do
-    journey.segments != [] &&
-      Enum.all?(journey.segments, &(&1.scheduled_departure && &1.scheduled_arrival))
-  end
-
-  defp actual_journey_complete?(%{journey_outcome: :not_started}, _journey), do: true
-  defp actual_journey_complete?(_claim, nil), do: false
-
-  defp actual_journey_complete?(_claim, journey) do
-    journey.segments != [] &&
-      Enum.any?(journey.segments, &(&1.actual_arrival || &1.estimated_arrival))
-  end
-
   defp planned_form_data(claim, nil) do
     %{
       "origin_name" => claim.origin || "",
@@ -3023,20 +3020,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         claim.disruption_cause
       ],
       &(&1 not in [nil, ""])
-    )
-  end
-
-  defp claim_complete?(claim) do
-    Enum.all?(
-      [
-        claim.travel_date,
-        claim.origin,
-        claim.destination,
-        claim.journey_outcome,
-        claim.disruption_cause,
-        claim.journey_direction
-      ],
-      &(!is_nil(&1))
     )
   end
 

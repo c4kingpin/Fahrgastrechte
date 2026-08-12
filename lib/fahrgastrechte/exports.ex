@@ -60,14 +60,16 @@ defmodule Fahrgastrechte.Exports do
   @doc "Returns all structured fach data errors needed by a later review page."
   @spec readiness(Scope.t(), Ecto.UUID.t()) :: {:ok, map()} | {:error, domain_error()}
   def readiness(%Scope{} = scope, claim_id) do
-    with {:ok, _claim} <- Claims.get_claim(scope, claim_id) do
-      [
+    with {:ok, claim} <- Claims.get_claim(scope, claim_id) do
+      results = [
         claim: Claims.export_readiness(scope, claim_id),
         profile: complete_profile(scope),
         rail: Rail.form_values(scope, claim_id),
-        documents: required_documents(scope, claim_id)
+        documents: required_documents(scope, claim_id),
+        suggestions: reviewed_suggestions(scope, claim_id)
       ]
-      |> collect_readiness(scope)
+
+      collect_readiness(results, scope, readiness_checks(results, claim))
     end
   end
 
@@ -132,7 +134,7 @@ defmodule Fahrgastrechte.Exports do
     end
   end
 
-  defp collect_readiness(results, scope) do
+  defp collect_readiness(results, scope, checks) do
     case Enum.reduce_while(results, {%{}, []}, fn
            {key, {:ok, value}}, {values, errors} ->
              {:cont, {Map.put(values, key, value), errors}}
@@ -147,14 +149,51 @@ defmodule Fahrgastrechte.Exports do
         {:error, reason}
 
       {_values, errors} when errors != [] ->
-        {:error, %{type: :incomplete, errors: errors}}
+        {:error, %{type: :incomplete, errors: errors, checks: checks}}
 
       {values, []} ->
         with {:ok, ticket_values} <- accepted_ticket_values(scope, values.documents.ticket) do
-          {:ok, Map.put(values, :ticket_values, ticket_values)}
+          {:ok, values |> Map.put(:ticket_values, ticket_values) |> Map.put(:checks, checks)}
         end
     end
   end
+
+  defp readiness_checks(results, claim) do
+    rail_errors = incomplete_errors(results[:rail])
+
+    checks = %{
+      claim: check_complete?(results[:claim]),
+      profile: check_complete?(results[:profile]),
+      documents: check_complete?(results[:documents]),
+      suggestions: check_complete?(results[:documents]) && check_complete?(results[:suggestions]),
+      planned:
+        check_complete?(results[:rail]) ||
+          Enum.all?(rail_errors, fn error ->
+            error.field not in [:planned_segments, :scheduled_departure, :scheduled_arrival]
+          end),
+      actual: actual_readiness?(claim.journey_outcome, results[:rail], rail_errors)
+    }
+
+    Map.put(checks, :review, checks |> Map.values() |> Enum.all?())
+  end
+
+  defp actual_readiness?(:not_started, _rail_result, _rail_errors), do: true
+
+  defp actual_readiness?(outcome, rail_result, rail_errors)
+       when outcome in [:delayed_arrival, :aborted, :continued_with_other_transport] do
+    check_complete?(rail_result) ||
+      Enum.all?(rail_errors, fn error ->
+        error.field in [:planned_segments, :scheduled_departure, :scheduled_arrival]
+      end)
+  end
+
+  defp actual_readiness?(_outcome, _rail_result, _rail_errors), do: false
+
+  defp check_complete?({:ok, _value}), do: true
+  defp check_complete?(_result), do: false
+
+  defp incomplete_errors({:error, %{type: :incomplete, errors: errors}}), do: errors
+  defp incomplete_errors(_result), do: []
 
   defp editable_claim(%{status: :draft, lock_version: version}, version), do: :ok
 
@@ -198,6 +237,41 @@ defmodule Fahrgastrechte.Exports do
     do: [%{source: :documents, field: kind, code: :required} | errors]
 
   defp required_document_error(errors, _document, _kind), do: errors
+
+  defp reviewed_suggestions(scope, claim_id) do
+    with {:ok, documents} <- Documents.list_documents(scope, claim_id) do
+      documents
+      |> Enum.filter(&(&1.kind in [:ticket, :invoice]))
+      |> Enum.reduce_while({:ok, []}, fn document, {:ok, reviewed} ->
+        cond do
+          document.analysis_status not in [:completed, :manual_required] ->
+            {:halt, incomplete_suggestions(document.kind, :analysis_required)}
+
+          document.analysis_status == :manual_required ->
+            {:cont, {:ok, reviewed}}
+
+          true ->
+            case Tickets.list_suggestions(scope, document.id) do
+              {:ok, suggestions} -> {:cont, {:ok, suggestions ++ reviewed}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+        end
+      end)
+      |> case do
+        {:ok, suggestions} ->
+          if Enum.any?(suggestions, &(&1.state == :proposed)),
+            do: incomplete_suggestions(:suggestions, :review_required),
+            else: {:ok, suggestions}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  defp incomplete_suggestions(field, code) do
+    {:error, %{type: :incomplete, errors: [%{source: :tickets, field: field, code: code}]}}
+  end
 
   defp accepted_ticket_values(scope, ticket) do
     with {:ok, suggestions} <- Tickets.list_suggestions(scope, ticket.id) do

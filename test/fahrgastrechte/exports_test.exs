@@ -49,6 +49,14 @@ defmodule Fahrgastrechte.ExportsTest do
       {:ok, %{claim: claim}} =
         Tickets.set_suggestion_state(scope, order_number.id, :accepted, claim.lock_version)
 
+      remaining_ids =
+        suggestions
+        |> Enum.reject(&(&1.id == order_number.id))
+        |> Enum.map(& &1.id)
+
+      {:ok, %{claim: claim}} =
+        Tickets.set_suggestion_states(scope, remaining_ids, :rejected, claim.lock_version)
+
       assert {:ok, %{export: export, claim: ready}} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
 
@@ -106,13 +114,16 @@ defmodule Fahrgastrechte.ExportsTest do
           "disruption_cause" => "cancellation"
         })
 
-      {_ticket, claim} = document_fixture(scope, claim)
+      {ticket, claim} = document_fixture(scope, claim)
 
-      {_invoice, claim} =
+      {invoice, claim} =
         document_fixture(scope, claim, :invoice, %{
           path: fixture_path("synthetic-invoice.pdf"),
           original_filename: "invoice.pdf"
         })
+
+      claim = review_document_fixture(scope, ticket, claim)
+      claim = review_document_fixture(scope, invoice, claim)
 
       {:ok, %{claim: claim}} =
         Rail.confirm_journey(
@@ -167,9 +178,12 @@ defmodule Fahrgastrechte.ExportsTest do
       scope = scope_fixture()
       claim = claim_fixture(scope)
 
-      assert {:error, %{type: :incomplete, errors: errors}} =
+      assert {:error, %{type: :incomplete, errors: errors, checks: checks}} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
 
+      assert checks.claim
+      refute checks.actual
+      refute checks.review
       assert %{source: :profile, field: :salutation, code: :required} in errors
       assert %{source: :rail, field: :planned_segments, code: :required} in errors
       assert %{source: :documents, field: :ticket, code: :required} in errors
@@ -177,6 +191,30 @@ defmodule Fahrgastrechte.ExportsTest do
       assert {:ok, unchanged} = Claims.get_claim(scope, claim.id)
       assert unchanged.status == :draft
       assert unchanged.generated_at == nil
+      assert Repo.aggregate(ExportVersion, :count) == 0
+    end
+
+    test "open ticket proposals block readiness and direct export generation" do
+      scope = scope_fixture()
+      claim = export_ready_fixture(scope)
+      {:ok, documents} = Documents.list_documents(scope, claim.id)
+      ticket = Enum.find(documents, &(&1.kind == :ticket))
+
+      assert {:ok, %{suggestions: suggestions, claim: claim}} =
+               Tickets.analyze_document(scope, ticket.id, claim.lock_version)
+
+      assert suggestions != []
+
+      assert {:error, %{type: :incomplete, errors: errors, checks: checks}} =
+               Exports.readiness(scope, claim.id)
+
+      assert %{source: :tickets, field: :suggestions, code: :review_required} in errors
+      refute checks.suggestions
+      refute checks.review
+
+      assert {:error, %{type: :incomplete, checks: ^checks}} =
+               Exports.generate_export(scope, claim.id, claim.lock_version)
+
       assert Repo.aggregate(ExportVersion, :count) == 0
     end
 

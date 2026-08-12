@@ -40,6 +40,7 @@ defmodule FahrgastrechteWeb.ClaimLive.AssistantTest do
 
     assert {:ok, empty_view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(empty_view, "#claim-data-section:not([hidden])[data-state=open]")
+    refute has_element?(empty_view, "#claim-step-tatsaechliche-reise[data-state=confirmed]")
 
     assert {:ok, partial} =
              Claims.update_claim(scope, claim.id, %{"origin" => "Berlin Hbf"}, claim.lock_version)

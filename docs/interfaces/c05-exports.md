@@ -8,9 +8,17 @@ berechtigt nie zum Zugriff.
 ## Bereitschaft und Erzeugung
 
 `readiness(scope, claim_id)` liefert entweder alle geprüften fachlichen
-Voraussetzungen oder eine aggregierte Fehlerliste aus Claim, Profil, Rail und
-Dokumenten. Die spätere Prüfseite kann damit alle offenen Punkte in einem Lauf
-anzeigen.
+Voraussetzungen oder eine aggregierte Fehlerliste aus Claim, Profil, Rail,
+Dokumenten und Ticketvorschlägen. Beide Antworten enthalten unter `checks` die
+booleschen Zustände `claim`, `profile`, `documents`, `suggestions`, `planned`,
+`actual` und `review`. `actual` berücksichtigt dabei das gewählte
+Reiseergebnis; bei `not_started` ist keine tatsächliche Reise erforderlich.
+
+Die LiveView leitet ihre erledigten Assistentenschritte und die Freigabe des
+Exportbuttons ausschließlich aus diesen Checks ab. Vorhandene Daten bestimmen
+dort nur noch, ob ein unerledigter Schritt offen oder bereits begonnen ist.
+Damit kann ein direkter Aufruf von `generate_export/3` keinen Zustand
+exportieren, den die Oberfläche als unvollständig bewertet.
 
 `generate_export(scope, claim_id, expected_claim_lock_version)` liest die
 Voraussetzungen ausschließlich über die öffentlichen Schnittstellen von
@@ -20,7 +28,10 @@ Accounts, Claims, Documents und Rail. Erforderlich sind:
 - ein vollständiges Reisendenprofil einschließlich IBAN und BIC,
 - eine bestätigte geplante Reise und die vom Reiseergebnis abhängigen
   tatsächlichen Werte von C04,
-- je ein aktuelles Ticket und eine aktuelle Rechnung sowie
+- je ein aktuelles Ticket und eine aktuelle Rechnung,
+- eine abgeschlossene Analyse beider Upload-Dokumente; `manual_required` gilt
+  als bewusster manueller Ersatzweg,
+- keine ungeprüften Ticketvorschläge im Zustand `proposed` sowie
 - das konfigurierte, unveränderte Formulartemplate.
 
 Fehlende Fachdaten werden strukturiert mit Quelle, Feld und Fehlercode

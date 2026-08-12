@@ -240,6 +240,27 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert has_element?(resumed, "#manual-transfer-editor")
   end
 
+  test "uses export readiness checks for assistant steps and generation", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = export_ready_fixture(scope)
+    {:ok, documents} = Documents.list_documents(scope, claim.id)
+    ticket = Enum.find(documents, &(&1.kind == :ticket))
+
+    assert {:ok, %{claim: claim}} =
+             Tickets.analyze_document(scope, ticket.id, claim.lock_version)
+
+    assert {:error, %{checks: checks}} = Exports.readiness(scope, claim.id)
+    refute checks.suggestions
+    refute checks.review
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/pruefung")
+
+    assert has_element?(view, "#claim-step-vorschlaege[data-state=incomplete]")
+    assert has_element?(view, "#export-blocked")
+    assert has_element?(view, "#generate-export-button[disabled]")
+    assert has_element?(view, "#review-checklist a[href$='/vorschlaege']")
+  end
+
   test "creates the PDF and follows ready, sent and completed statuses", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = export_ready_fixture(scope)
