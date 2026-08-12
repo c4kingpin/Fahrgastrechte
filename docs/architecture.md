@@ -63,8 +63,10 @@ Mutation. Profiländerungen, Dokumentanalysen und Vorschlagsstatus invalidieren
 abhängige Ausgaben atomar über claimgebundene Kontextoperationen. Alle
 exportrelevanten Mutationen übernehmen dabei die aktualisierte Claim-Sperrversion.
 Generierte PDF-Sets werden erst nach vollständiger Validierung
-gemeinsam veröffentlicht; historische Versionen bleiben unveränderlich
-erhalten.
+gemeinsam veröffentlicht. Nur die neueste Version einer weiterhin gültigen
+Ausgabe gilt als aktuell versandbereit. Nach einer exportrelevanten Änderung
+werden alle bisherigen Versionen als unveränderliches, weiterhin ladbares
+Archiv ausgewiesen.
 
 ### PDF- und Zeitgrenzen
 

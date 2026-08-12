@@ -10,9 +10,7 @@ Branch mit Regressionstests.
 
 ## Priorität 0 – Datenkonsistenz und fachliche Korrektheit
 
-1. **Aktuelle und historische Ausgabe unterscheiden.** Nach einer
-   exportrelevanten Änderung müssen ältere Versionen sichtbar als Archiv statt
-   als aktuell versandbereit erscheinen.
+Keine offenen Punkte.
 
 ## Priorität 1 – Sicherheits- und Laufzeitgrenzen
 

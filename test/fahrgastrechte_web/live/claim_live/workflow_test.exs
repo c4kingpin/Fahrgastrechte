@@ -318,6 +318,56 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert_redirect(view, ~p"/antraege/#{claim.id}")
   end
 
+  test "marks invalidated output as archive until a new export exists", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = export_ready_fixture(scope)
+
+    assert {:ok, %{export: first, claim: ready}} =
+             Exports.generate_export(scope, claim.id, claim.lock_version)
+
+    assert {:ok, _draft} =
+             Claims.update_claim(
+               scope,
+               claim.id,
+               %{"destination" => "Bremen Hbf"},
+               ready.lock_version
+             )
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/pruefung")
+
+    assert has_element?(
+             view,
+             "#claim-exports article[data-export-id='#{first.id}'][data-current=false]"
+           )
+
+    assert has_element?(view, "#download-export-#{first.id}", "Archiv-PDF laden")
+    refute has_element?(view, "#submission-checklist")
+    assert has_element?(view, "#claim-step-pruefung[data-state=incomplete]")
+    assert has_element?(view, "#generate-export-button:not([disabled])")
+
+    view |> element("#generate-export-button") |> render_click()
+
+    assert {:ok, [archived, current]} = Exports.list_exports(scope, claim.id)
+    refute archived.current
+    assert current.current
+
+    assert has_element?(
+             view,
+             "#claim-exports article[data-export-id='#{first.id}'][data-current=false]"
+           )
+
+    assert has_element?(
+             view,
+             "#claim-exports article[data-export-id='#{current.id}'][data-current=true]"
+           )
+
+    assert has_element?(view, "#submission-checklist")
+    assert {:ok, current_claim} = Claims.get_claim(scope, claim.id)
+
+    assert {:ok, _deleted} =
+             Documents.delete_claim(scope, claim.id, current_claim.lock_version)
+  end
+
   defp authenticated_conn(conn) do
     user = user_fixture()
     scope = Scope.for_user(user)

@@ -336,6 +336,7 @@ defmodule Fahrgastrechte.ExportsTest do
       assert {:ok, %{export: first, claim: ready}} =
                Exports.generate_export(owner_scope, claim.id, claim.lock_version)
 
+      assert first.current
       cleanup_export(first)
 
       assert {:ok, draft} =
@@ -348,13 +349,25 @@ defmodule Fahrgastrechte.ExportsTest do
 
       assert draft.status == :draft
 
+      assert {:ok, [archived_first]} = Exports.list_exports(owner_scope, claim.id)
+      assert archived_first.id == first.id
+      refute archived_first.current
+
+      assert {:ok, loaded_first} = Exports.get_export(owner_scope, first.id)
+      refute loaded_first.current
+
       assert {:ok, %{export: second}} =
                Exports.generate_export(owner_scope, claim.id, draft.lock_version)
 
+      assert second.current
       cleanup_export(second)
 
       assert second.version == 2
-      assert {:ok, [^first, ^second]} = Exports.list_exports(owner_scope, claim.id)
+      assert {:ok, [listed_first, listed_second]} = Exports.list_exports(owner_scope, claim.id)
+      assert listed_first.id == first.id
+      assert listed_second.id == second.id
+      refute listed_first.current
+      assert listed_second.current
 
       assert {:ok, historical_bundle} =
                Documents.get_document(owner_scope, first.bundle_document_id)

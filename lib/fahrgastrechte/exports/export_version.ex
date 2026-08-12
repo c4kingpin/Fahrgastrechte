@@ -15,6 +15,7 @@ defmodule Fahrgastrechte.Exports.ExportVersion do
     field :template_source, :string
     field :template_sha256, :binary, redact: true
     field :model_sha256, :binary, redact: true
+    field :current, :boolean, virtual: true, default: false
 
     belongs_to :claim, Claim, type: :binary_id
     belongs_to :user, User

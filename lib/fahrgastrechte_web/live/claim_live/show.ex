@@ -1707,32 +1707,55 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 <article
                   :for={{dom_id, export} <- @streams.exports}
                   id={dom_id}
+                  data-export-id={export.id}
+                  data-current={to_string(export.current)}
                   class={[
-                    "flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    "flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between",
+                    if(export.current,
+                      do: "border-emerald-200 bg-emerald-50",
+                      else: "border-slate-200 bg-slate-50"
+                    )
                   ]}
                 >
                   <div>
-                    <p class={["text-sm font-semibold text-emerald-950"]}>
-                      Ausgabe {export.version} · druckfertig
+                    <p class={[
+                      "text-sm font-semibold",
+                      if(export.current, do: "text-emerald-950", else: "text-slate-800")
+                    ]}>
+                      Ausgabe {export.version} · {if(export.current,
+                        do: "aktuelle Ausgabe",
+                        else: "Archiv"
+                      )}
                     </p>
-                    <p class={["mt-1 text-xs text-emerald-800"]}>
+                    <p class={[
+                      "mt-1 text-xs",
+                      if(export.current, do: "text-emerald-800", else: "text-slate-600")
+                    ]}>
                       Erstellt {format_datetime(export.inserted_at)}
+                    </p>
+                    <p :if={!export.current} class="mt-1 text-xs font-medium text-slate-700">
+                      Durch spätere Änderungen nicht mehr aktuell.
                     </p>
                   </div>
                   <a
                     id={"download-export-#{export.id}"}
                     href={~p"/dokumente/#{export.bundle_document_id}/download"}
                     class={[
-                      "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                      "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition",
+                      if(export.current,
+                        do: "bg-emerald-700 hover:bg-emerald-800",
+                        else: "bg-slate-700 hover:bg-slate-800"
+                      )
                     ]}
                   >
-                    <.icon name="hero-arrow-down-tray" class="size-5" /> Gesamt-PDF laden
+                    <.icon name="hero-arrow-down-tray" class="size-5" />
+                    {if(export.current, do: "Aktuelles Gesamt-PDF laden", else: "Archiv-PDF laden")}
                   </a>
                 </article>
               </div>
 
               <section
-                :if={@exports_available?}
+                :if={@current_export_available?}
                 id="submission-checklist"
                 class="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4 sm:p-5"
               >
@@ -2435,7 +2458,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     review_complete? = readiness_checks.review
 
-    exports_available? = exports != []
+    current_export_available? = Enum.any?(exports, & &1.current)
 
     review_started? =
       Enum.any?(
@@ -2449,7 +2472,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       suggestions: step_state(suggestions_complete?, documents_started?),
       planned: step_state(planned_complete?, !is_nil(planned_journey)),
       actual: step_state(actual_complete?, actual_started?),
-      review: step_state(exports_available?, review_complete? || review_started?)
+      review: step_state(current_export_available?, review_complete? || review_started?)
     }
 
     steps = Enum.map(@steps, &Map.put(&1, :state, Map.fetch!(step_states, &1.id)))
@@ -2476,7 +2499,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:planned_complete?, planned_complete?)
     |> assign(:actual_complete?, actual_complete?)
     |> assign(:review_complete?, review_complete?)
-    |> assign(:exports_available?, exports_available?)
+    |> assign(:current_export_available?, current_export_available?)
     |> assign(:step_states, step_states)
     |> assign(:steps, steps)
     |> assign(:planned_state, step_states.planned)

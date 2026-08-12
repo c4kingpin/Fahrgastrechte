@@ -79,13 +79,15 @@ defmodule Fahrgastrechte.Exports do
   @spec list_exports(Scope.t(), Ecto.UUID.t()) ::
           {:ok, [ExportVersion.t()]} | {:error, domain_error()}
   def list_exports(%Scope{user: %User{id: user_id}} = scope, claim_id) do
-    with {:ok, _claim} <- Claims.get_claim(scope, claim_id) do
-      {:ok,
-       Repo.all(
-         from export in ExportVersion,
-           where: export.claim_id == ^claim_id and export.user_id == ^user_id,
-           order_by: [asc: export.version]
-       )}
+    with {:ok, claim} <- Claims.get_claim(scope, claim_id) do
+      exports =
+        Repo.all(
+          from export in ExportVersion,
+            where: export.claim_id == ^claim_id and export.user_id == ^user_id,
+            order_by: [asc: export.version]
+        )
+
+      {:ok, mark_current_export(exports, claim)}
     end
   end
 
@@ -94,13 +96,15 @@ defmodule Fahrgastrechte.Exports do
   @doc "Loads one output version only for its owner."
   @spec get_export(Scope.t(), Ecto.UUID.t()) ::
           {:ok, ExportVersion.t()} | {:error, domain_error()}
-  def get_export(%Scope{user: %User{id: user_id}}, export_id) when is_binary(export_id) do
+  def get_export(%Scope{user: %User{id: user_id}} = scope, export_id) when is_binary(export_id) do
     with {:ok, id} <- Ecto.UUID.cast(export_id),
          %ExportVersion{} = export <-
            Repo.one(
              from export in ExportVersion, where: export.id == ^id and export.user_id == ^user_id
-           ) do
-      {:ok, export}
+           ),
+         {:ok, claim} <- Claims.get_claim(scope, export.claim_id) do
+      current_version = latest_export_version(export.claim_id)
+      {:ok, %{export | current: current_output?(claim) && export.version == current_version}}
     else
       _error -> {:error, :not_found}
     end
@@ -108,6 +112,27 @@ defmodule Fahrgastrechte.Exports do
 
   def get_export(%Scope{}, _export_id), do: {:error, :not_found}
   def get_export(_scope, _export_id), do: {:error, :not_authenticated}
+
+  defp mark_current_export([], _claim), do: []
+
+  defp mark_current_export(exports, claim) do
+    current_version = if current_output?(claim), do: List.last(exports).version
+    Enum.map(exports, &%{&1 | current: &1.version == current_version})
+  end
+
+  defp current_output?(%{status: status, generated_at: generated_at})
+       when status in [:ready, :sent, :completed] and not is_nil(generated_at),
+       do: true
+
+  defp current_output?(_claim), do: false
+
+  defp latest_export_version(claim_id) do
+    Repo.one(
+      from export in ExportVersion,
+        where: export.claim_id == ^claim_id,
+        select: max(export.version)
+    )
+  end
 
   @doc "Returns the authorized download stream for a historical or current bundle."
   def stream_bundle(%Scope{} = scope, export_id) do
@@ -380,7 +405,7 @@ defmodule Fahrgastrechte.Exports do
            |> Repo.insert(),
          {:ok, ready_claim} <-
            Claims.transition_claim(scope, model.claim.id, :ready, model.claim.lock_version) do
-      {:ok, %{export: export, claim: ready_claim}}
+      {:ok, %{export: %{export | current: true}, claim: ready_claim}}
     end
   end
 

@@ -64,14 +64,22 @@ Jede Version hält Template-Version, Template-Quelle, Template-Prüfsumme und
 eine Prüfsumme des unveränderlichen Exportmodells fest. Sensible Modellwerte
 werden nicht zusätzlich im Klartext gespeichert. Frühere generierte Dokumente
 bleiben für historische Downloads erhalten; Änderungen an Antrag, Dokumenten
-oder Reisen invalidieren nur die aktuelle Ausgabe über C02.
+oder Reisen invalidieren nur die aktuelle Ausgabe über C02. Dabei wird keine
+historische Exportversion verändert.
 
 ## Lesen und Herunterladen
 
-- list_exports(scope, claim_id) listet die eigenen Versionen aufsteigend.
-- get_export(scope, export_id) lädt eine eigene Version.
+- list_exports(scope, claim_id) listet die eigenen Versionen aufsteigend und
+  markiert ihren abgeleiteten aktuellen Zustand.
+- get_export(scope, export_id) lädt eine eigene Version mit demselben
+  Zustandsmarker.
 - stream_bundle(scope, export_id) liefert nach erneuter Scope-Prüfung den
   privaten Dokumentstream einer beliebigen eigenen Version.
+
+Der virtuelle Marker current ist nur für die neueste Version gesetzt, solange
+der Antrag eine gültige erzeugte Ausgabe besitzt. Nach einer exportrelevanten
+Änderung sind alle vorhandenen Versionen Archiv; erst die nächste erfolgreiche
+Erzeugung macht deren neue Version wieder zur aktuellen Ausgabe.
 
 Fremde IDs liefern stets not_found.
 
