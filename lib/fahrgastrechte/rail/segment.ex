@@ -68,11 +68,7 @@ defmodule Fahrgastrechte.Rail.Segment do
       :manual
     ])
     |> validate_number(:position, greater_than: 0)
-    |> validate_length(:origin_name, max: 200)
-    |> validate_length(:destination_name, max: 200)
-    |> validate_length(:train_category, max: 40)
-    |> validate_length(:train_number, max: 40)
-    |> validate_length(:source, max: 200)
+    |> validate_fields()
     |> validate_time_order()
     |> unique_constraint([:journey_id, :position])
   end
@@ -89,6 +85,7 @@ defmodule Fahrgastrechte.Rail.Segment do
     |> cast(attrs, @editable_fields)
     |> normalize_strings()
     |> validate_required([:origin_name, :destination_name, :source, :fetched_at, :manual])
+    |> validate_fields()
     |> validate_time_order()
   end
 
@@ -109,6 +106,15 @@ defmodule Fahrgastrechte.Rail.Segment do
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp validate_fields(changeset) do
+    changeset
+    |> validate_length(:origin_name, max: 200)
+    |> validate_length(:destination_name, max: 200)
+    |> validate_length(:train_category, max: 40)
+    |> validate_length(:train_number, max: 40)
+    |> validate_length(:source, max: 200)
+  end
 
   defp validate_time_order(changeset) do
     changeset

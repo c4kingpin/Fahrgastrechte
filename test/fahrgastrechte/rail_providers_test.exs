@@ -67,6 +67,38 @@ defmodule Fahrgastrechte.RailProvidersTest do
       assert length(snapshots) == 2
     end
 
+    test "uses the shared Berlin civil-time conversion in winter" do
+      plan_xml =
+        @fixtures
+        |> Path.join("timetables-plan.xml")
+        |> File.read!()
+        |> String.replace("260415", "260115")
+
+      cancellation_xml =
+        @fixtures
+        |> Path.join("timetables-cancellation.xml")
+        |> File.read!()
+        |> String.replace("260415", "260115")
+
+      request_fun = fn options ->
+        body = if String.contains?(options[:url], "/plan/"), do: plan_xml, else: cancellation_xml
+        {:ok, %{status: 200, body: body, headers: %{}}}
+      end
+
+      assert {:ok, [journey], _snapshots} =
+               Timetables.departures(
+                 %{provider: Timetables, value: "9999999"},
+                 ~U[2026-01-15 07:00:00Z],
+                 ~U[2026-01-15 08:00:00Z],
+                 client_id: "synthetic-client",
+                 api_key: "synthetic-key",
+                 limiter: false,
+                 request_fun: request_fun
+               )
+
+      assert hd(journey.events).scheduled_at == ~U[2026-01-15 07:04:00Z]
+    end
+
     test "normalizes timeout, rate limit and unavailable credentials" do
       assert {:error, {:upstream, :not_configured}} = Timetables.search_stations("Berlin", [])
 

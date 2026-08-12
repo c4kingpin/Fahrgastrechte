@@ -3,6 +3,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
+  import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 2]
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
@@ -139,6 +140,32 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     assert {:error, {:redirect, %{to: "/antraege"}}} =
              live(conn, ~p"/antraege/#{foreign_claim.id}")
+  end
+
+  test "rejects a manipulated document id from another owned claim", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    open_claim = claim_fixture(scope)
+    other_claim = claim_fixture(scope)
+    {other_document, _other_claim} = document_fixture(scope, other_claim)
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{open_claim.id}/dokumente")
+
+    render_click(view, "delete_document", %{"id" => other_document.id})
+    render_click(view, "reanalyze_document", %{"id" => other_document.id})
+
+    assert {:ok, unchanged} = Documents.get_document(scope, other_document.id)
+    assert unchanged.claim_id == other_claim.id
+    assert unchanged.analysis_status == :not_started
+
+    assert {:ok, %{suggestions: [suggestion | _suggestions]}} =
+             Tickets.analyze_document(scope, other_document.id)
+
+    render_click(view, "set_suggestion_state", %{
+      "id" => suggestion.id,
+      "state" => "rejected"
+    })
+
+    assert {:ok, unchanged_suggestions} = Tickets.list_suggestions(scope, other_document.id)
+    assert Enum.find(unchanged_suggestions, &(&1.id == suggestion.id)).state == :proposed
   end
 
   test "deletes the claim and all owned resources from the workspace", %{conn: conn} do

@@ -1,6 +1,6 @@
 defmodule Fahrgastrechte.Exports.PDFBackend do
   @moduledoc """
-  Contract for the isolated PDF worker used by documents and exports.
+  Contract for the isolated PDF worker used to create exports.
 
   Implementations must write outputs atomically, enforce the supplied limits
   and avoid logging document contents or field values.
@@ -26,10 +26,6 @@ defmodule Fahrgastrechte.Exports.PDFBackend do
   @doc "Validates structure, size and page limits without modifying the input."
   @callback validate(pdf_path :: String.t(), options :: keyword()) ::
               {:ok, pdf_info()} | {:error, backend_error()}
-
-  @doc "Extracts UTF-8 text from a validated PDF."
-  @callback extract_text(pdf_path :: String.t(), options :: keyword()) ::
-              {:ok, String.t()} | {:error, backend_error()}
 
   @doc "Fills known AcroForm fields before the separate normalization step."
   @callback fill_form(

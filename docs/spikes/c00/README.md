@@ -1,5 +1,9 @@
 # C00 – technische Spikes
 
+> **Dokumentstatus:** abgeschlossene, reproduzierbare Voruntersuchung; keine
+> Produktionsanleitung. Verbindliche Ergebnisse stehen in den
+> [Architecture Decision Records](../../decisions/README.md).
+
 Stand: 2026-07-27
 
 C00 liefert Entscheidungen und reproduzierbare Versuche, keine

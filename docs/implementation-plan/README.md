@@ -1,5 +1,10 @@
 # Umsetzungsplan Fahrgastrechte
 
+> **Dokumentstatus:** historische Planungs- und Abnahmereferenz. Der aktuelle
+> Systemvertrag steht in der [technischen Übersicht](../architecture.md), den
+> [Kontextschnittstellen](../interfaces/README.md) und der
+> [Refactoring-Roadmap](../refactoring-roadmap.md).
+
 ## Aktueller Stand
 
 Stand: 30. Juli 2026
