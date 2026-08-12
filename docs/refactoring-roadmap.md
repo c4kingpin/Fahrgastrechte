@@ -10,23 +10,20 @@ Branch mit Regressionstests.
 
 ## Priorität 0 – Datenkonsistenz und fachliche Korrektheit
 
-1. **Abhängige Änderungen atomar sperren.** `Claims.invalidate_output/3`
-   erhöht bei Entwürfen aktuell nicht die `lock_version`. Dokument- und
-   Reiseänderungen müssen auch im Entwurf eine konkurrierende Änderung erkennen.
-2. **Exportabhängigkeiten vollständig invalidieren.** Profiländerungen,
+1. **Exportabhängigkeiten vollständig invalidieren.** Profiländerungen,
    Dokument-Neuanalysen und Statusänderungen von Ticketvorschlägen können
    exportrelevante Werte verändern. Dafür braucht es claimgebundene
    Kontextoperationen mit Locking und Ausgabeinvalidierung.
-3. **Mehrteilige Aktionen zusammenfassen.** Die Übernahme eines
+2. **Mehrteilige Aktionen zusammenfassen.** Die Übernahme eines
    Verbindungskandidaten sowie das Anwenden und Bestätigen von Vorschlägen
    müssen jeweils innerhalb einer fachlichen Transaktion erfolgen.
-4. **Anschlussverlust im Assistenten vervollständigen.** Die Domäne modelliert
+3. **Anschlussverlust im Assistenten vervollständigen.** Die Domäne modelliert
    `missed_connection`, der tatsächliche Reiseeditor besitzt dafür aber noch
    keinen vollständigen Speicherpfad.
-5. **UI- und Exportbereitschaft vereinen.** `Exports.readiness/2` soll die
+4. **UI- und Exportbereitschaft vereinen.** `Exports.readiness/2` soll die
    einzige fachliche Wahrheit sein; die LiveView darf daraus nur
    Schrittzustände und Links ableiten.
-6. **Aktuelle und historische Ausgabe unterscheiden.** Nach einer
+5. **Aktuelle und historische Ausgabe unterscheiden.** Nach einer
    exportrelevanten Änderung müssen ältere Versionen sichtbar als Archiv statt
    als aktuell versandbereit erscheinen.
 
