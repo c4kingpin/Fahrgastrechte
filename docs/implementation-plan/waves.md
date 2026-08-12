@@ -1,5 +1,8 @@
 # Ausbauplan nach Wellen
 
+> **Dokumentstatus:** historischer Ausbauplan. Noch offene technische Arbeiten
+> werden in der [Refactoring-Roadmap](../refactoring-roadmap.md) priorisiert.
+
 Stand: 30. Juli 2026
 
 Dieser Plan setzt auf dem in C00 bis C06 entstandenen Fach- und

@@ -1,5 +1,22 @@
 # Betriebshandbuch
 
+## Befehlsübersicht
+
+| Aufgabe | Unterstützter Befehl |
+| --- | --- |
+| Erstinstallation im vorhandenen LXC | `install/fahrgastrechte-install.sh` als `root` |
+| Vorbedingungen prüfen | `install/fahrgastrechte-install.sh --check` |
+| Aktualisieren | `update [TAG-ODER-COMMIT]` |
+| Dienst prüfen | `systemctl status fahrgastrechte` |
+| Readiness prüfen | `curl --fail http://127.0.0.1:4000/readyz` |
+| Backup erzeugen | `fahrgastrechte-backup` |
+| Backup wiederherstellen | `fahrgastrechte-restore DATEI --confirm` |
+| App-Release zurückrollen | `fahrgastrechte-rollback [RELEASE]` |
+
+Installation und Aktualisierung sind in
+[`proxmox-lxc.md`](proxmox-lxc.md) vollständig beschrieben. Die folgenden
+Abschnitte sind das Runbook für eine bereits installierte Instanz.
+
 ## Laufzeit und Persistenz
 
 Der Installer richtet folgende dauerhaft getrennte Pfade ein:

@@ -66,7 +66,6 @@ config :fahrgastrechte, Fahrgastrechte.Exports,
   pdfinfo_executable: "pdfinfo",
   pdftk_executable: "pdftk",
   pdftocairo_executable: "pdftocairo",
-  pdftotext_executable: "pdftotext",
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 # Configure the endpoint
@@ -84,15 +83,6 @@ config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
 config :phoenix_live_view,
   # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.
   root_tag_attribute: "phx-r"
-
-# Configure the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
-config :fahrgastrechte, Fahrgastrechte.Mailer, adapter: Swoosh.Adapters.Local
 
 # Configure esbuild (the version is required)
 config :esbuild,

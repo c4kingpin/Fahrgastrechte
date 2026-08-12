@@ -19,7 +19,6 @@ defmodule Fahrgastrechte.C00BehavioursTest do
   test "pdf backend contract covers the complete transformation boundary" do
     assert callbacks(Fahrgastrechte.Exports.PDFBackend) ==
              MapSet.new([
-               {:extract_text, 2},
                {:fill_form, 4},
                {:merge, 3},
                {:normalize, 3},

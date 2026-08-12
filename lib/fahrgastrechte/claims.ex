@@ -56,12 +56,15 @@ defmodule Fahrgastrechte.Claims do
   @doc "Loads one claim only when it belongs to the current user."
   @spec get_claim(Scope.t(), Ecto.UUID.t()) :: {:ok, Claim.t()} | {:error, domain_error()}
   def get_claim(%Scope{user: %User{id: user_id}}, claim_id) when is_binary(claim_id) do
-    case Repo.one(
-           from claim in Claim,
-             where: claim.id == ^claim_id and claim.user_id == ^user_id
-         ) do
-      nil -> {:error, :not_found}
-      claim -> {:ok, claim}
+    with {:ok, parsed_id} <- Ecto.UUID.cast(claim_id),
+         %Claim{} = claim <-
+           Repo.one(
+             from claim in Claim,
+               where: claim.id == ^parsed_id and claim.user_id == ^user_id
+           ) do
+      {:ok, claim}
+    else
+      _error -> {:error, :not_found}
     end
   end
 
@@ -476,19 +479,25 @@ defmodule Fahrgastrechte.Claims do
   defp filter_text(query, _field, value) when value in [nil, ""], do: {:ok, query}
 
   defp filter_text(query, field, value) when is_binary(value) do
-    pattern = "%#{escape_like(String.trim(value))}%"
+    case String.trim(value) do
+      "" ->
+        {:ok, query}
 
-    query =
-      case field do
-        :route ->
-          from claim in query,
-            where: ilike(claim.origin, ^pattern) or ilike(claim.destination, ^pattern)
+      value ->
+        pattern = "%#{escape_like(value)}%"
 
-        :claim_number ->
-          from claim in query, where: ilike(claim.claim_number, ^pattern)
-      end
+        query =
+          case field do
+            :route ->
+              from claim in query,
+                where: ilike(claim.origin, ^pattern) or ilike(claim.destination, ^pattern)
 
-    {:ok, query}
+            :claim_number ->
+              from claim in query, where: ilike(claim.claim_number, ^pattern)
+          end
+
+        {:ok, query}
+    end
   end
 
   defp filter_text(_query, field, _value), do: {:error, {:invalid_filter, field}}

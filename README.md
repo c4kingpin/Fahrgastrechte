@@ -1,8 +1,23 @@
 # Fahrgastrechte
 
-Webanwendung zur Unterstützung bei Ansprüchen aus Fahrgastrechten. Das Repository
-enthält die startbereite technische Basis; die Fachfunktionen werden darauf
-schrittweise aufgebaut.
+Private Webanwendung zum Erstellen und Verwalten von Fahrgastrechte-Anträgen für
+deutsche DB-Flexpreis-Reisen. Der geführte Ablauf übernimmt Daten aus Ticket und
+Rechnung, dokumentiert geplante und tatsächliche Reise, erzeugt ein
+druckfertiges Gesamt-PDF und verfolgt den Bearbeitungsstatus.
+
+## Funktionsumfang
+
+- Anmeldung über Authentik/OIDC mit strikt benutzerbezogenen Daten
+- Reisendenprofil mit verschlüsselt gespeicherter IBAN und BIC
+- sechs fortsetzbare Schritte von Falldaten und PDF-Upload bis zur Prüfung
+- nachvollziehbare Datenvorschläge mit manueller Prüfung und Korrektur
+- geplante und tatsächliche Reise mit Verspätungs- und Ausfallerfassung
+- versionierte Ausgabe aus Deckblatt, offiziellem Formular, Ticket und Rechnung
+- Statusverlauf von Entwurf über Versand bis zum Abschluss
+
+Bewusst außerhalb der ersten Produktstufe liegen unter anderem
+Anspruchsberechnung, Zusatzkosten, OCR, mehrere Reisende und eine direkte
+digitale Übermittlung an die Deutsche Bahn.
 
 ## Technischer Stack
 
@@ -87,7 +102,21 @@ mix precommit         # vollständige Prüfung vor einem Commit
 GitHub Actions prüft bei Pull Requests und Änderungen an `main` Formatierung,
 Kompilierung ohne Warnungen und Tests gegen PostgreSQL.
 
-## Umsetzungsplan
+## Dokumentation
+
+| Thema | Einstieg |
+| --- | --- |
+| Vollständige Navigation und Dokumentstatus | [Dokumentationsindex](docs/README.md) |
+| Architektur, Fachgrenzen und Produktumfang | [Technische Übersicht](docs/architecture.md) |
+| Claims, Dokumente, Rail und Exports | [Kontextschnittstellen](docs/interfaces/README.md) |
+| Authentik/OIDC und Feldverschlüsselung | [Authentik-Integration](docs/integrations/authentik.md) |
+| Installation im Debian-LXC | [Deployment-Einstieg](docs/deployment/proxmox-lxc.md) |
+| Backup, Restore, Updates und Diagnose | [Betriebshandbuch](docs/deployment/operations.md) |
+| Getroffene Architekturentscheidungen | [Architecture Decision Records](docs/decisions/README.md) |
+| Erkannte technische Schulden und Reihenfolge | [Refactoring-Roadmap](docs/refactoring-roadmap.md) |
+| Historischer Ausbau- und Abnahmeplan | [Umsetzungsplan](docs/implementation-plan/README.md) |
+
+### Planung und technische Voruntersuchungen
 
 Das abgestimmte Produktkonzept und die in getrennte Agenten-Aufträge zerlegte
 Umsetzungsplanung stehen unter
@@ -134,7 +163,7 @@ Danach lässt sich die Instanz im Container mit optionalem Git-Ref aktualisieren
 update v0.2.0
 ```
 
-## Nützliche Dokumentation
+## Externe Referenzen
 
 - [Phoenix Guides](https://hexdocs.pm/phoenix/overview.html)
 - [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view/)

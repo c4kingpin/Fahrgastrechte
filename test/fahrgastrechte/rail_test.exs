@@ -388,6 +388,23 @@ defmodule Fahrgastrechte.RailTest do
   end
 
   describe "manual priority, lifecycle and scoping" do
+    test "validates field lengths for manual segment updates" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      journey = journey_fixture(scope, claim, :actual)
+      segment = hd(journey.segments)
+
+      assert {:error, changeset} =
+               Rail.update_segment(
+                 scope,
+                 segment.id,
+                 %{origin_name: String.duplicate("x", 201)},
+                 claim.lock_version
+               )
+
+      assert "should be at most 200 character(s)" in errors_on(changeset).origin_name
+    end
+
     test "refresh never overwrites a manually edited segment" do
       scope = scope_fixture()
       claim = claim_fixture(scope)

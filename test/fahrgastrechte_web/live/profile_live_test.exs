@@ -29,7 +29,9 @@ defmodule FahrgastrechteWeb.ProfileLiveTest do
   test "authenticated LiveView receives current_scope and renders stable form ids", %{conn: conn} do
     user = user_fixture()
     conn = conn |> init_test_session(%{}) |> UserAuth.log_in_user(user)
+    page_conn = get(conn, ~p"/profil")
 
+    assert get_resp_header(page_conn, "cache-control") == ["private, no-store"]
     assert {:ok, view, _html} = live(conn, ~p"/profil")
     assert has_element?(view, "#profile-page")
     assert has_element?(view, "#profile-form")
@@ -50,6 +52,8 @@ defmodule FahrgastrechteWeb.ProfileLiveTest do
     |> render_change()
 
     assert has_element?(view, "#profile-iban[aria-invalid=\"true\"]")
+    assert has_element?(view, "#profile-iban[aria-describedby=profile-iban-errors]")
+    assert has_element?(view, "#profile-iban-errors")
 
     view
     |> form("#profile-form", profile: valid_profile_attributes())
