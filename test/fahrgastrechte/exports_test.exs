@@ -109,7 +109,7 @@ defmodule Fahrgastrechte.ExportsTest do
           original_filename: "invoice.pdf"
         })
 
-      {:ok, _result} =
+      {:ok, %{claim: claim}} =
         Rail.confirm_journey(
           scope,
           claim.id,
@@ -138,7 +138,7 @@ defmodule Fahrgastrechte.ExportsTest do
           source: "manual"
         })
 
-      {:ok, _result} =
+      {:ok, %{claim: claim}} =
         Rail.confirm_journey(
           scope,
           claim.id,

@@ -169,8 +169,9 @@ defmodule Fahrgastrechte.Claims do
   @doc """
   Explicitly invalidates a current output after a dependent context changes.
 
-  This is a no-op for drafts. Ready and sent claims return to draft and lose all
-  output/send timestamps in the same status-history transaction.
+  Drafts keep their status but still advance the optimistic lock. Ready and sent
+  claims return to draft and lose all output/send timestamps in the same
+  status-history transaction.
   """
   @spec invalidate_output(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
           {:ok, Claim.t()} | {:error, Changeset.t() | domain_error()}
@@ -179,7 +180,10 @@ defmodule Fahrgastrechte.Claims do
          :ok <- verify_lock_version(claim, expected_lock_version) do
       case claim.status do
         :draft ->
-          {:ok, claim}
+          claim
+          |> Changeset.change()
+          |> Changeset.force_change(:lock_version, claim.lock_version)
+          |> persist_update()
 
         status when status in [:ready, :sent] ->
           persist_transition(

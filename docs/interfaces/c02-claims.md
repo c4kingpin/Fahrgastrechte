@@ -72,7 +72,10 @@ Eine fachliche Änderung an einem `ready`-Antrag setzt ihn in derselben
 Datenbanktransaktion auf `draft`, löscht `generated_at` und schreibt einen
 Historieneintrag. Ändert ein anderer Kontext ausgaberelevante Daten, verwendet
 er `invalidate_output/3`. Bei `sent` ist dieser explizite Aufruf erforderlich;
-ein normales Antragsupdate wird mit `{:error, :not_editable}` abgelehnt.
+ein normales Antragsupdate wird mit `{:error, :not_editable}` abgelehnt. Auch
+bei einem `draft`-Antrag erhöht `invalidate_output/3` die `lock_version`, ohne
+Status oder Historie zu ändern. Damit reserviert jede erfolgreiche abhängige
+Mutation genau die vom Aufrufer gelesene Version.
 
 C05 kann seine Ausgabeversion und den Statusübergang in einer äußeren
 `Repo.transaction/1` zusammenfassen. Die interne Transaktion des Claims-Kontexts

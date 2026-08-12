@@ -84,7 +84,7 @@ defmodule Fahrgastrechte.RailTest do
       scope = scope_fixture()
       claim = claim_fixture(scope)
 
-      assert {:ok, %{journey: journey}} =
+      assert {:ok, %{journey: journey, claim: updated_claim}} =
                Rail.confirm_journey(
                  scope,
                  claim.id,
@@ -106,6 +106,16 @@ defmodule Fahrgastrechte.RailTest do
       assert segment.manual
       assert segment.source == "manual"
       assert segment.fetched_at
+      assert updated_claim.lock_version == claim.lock_version + 1
+
+      assert {:error, :stale} =
+               Rail.confirm_journey(
+                 scope,
+                 claim.id,
+                 :actual,
+                 [segment_attributes()],
+                 claim.lock_version
+               )
     end
 
     test "derives direct-delay values for C05" do
@@ -233,8 +243,9 @@ defmodule Fahrgastrechte.RailTest do
         ])
 
       second = Enum.at(actual.segments, 1)
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
 
-      assert {:ok, %{journey: overridden}} =
+      assert {:ok, %{journey: overridden, claim: claim}} =
                Rail.set_summary_overrides(
                  scope,
                  claim.id,
@@ -338,6 +349,7 @@ defmodule Fahrgastrechte.RailTest do
                Rail.form_values(scope, claim.id)
 
       assert error.field == :actual_destination_arrival
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
 
       assert {:ok, _result} =
                Rail.set_summary_overrides(
@@ -393,6 +405,7 @@ defmodule Fahrgastrechte.RailTest do
       claim = claim_fixture(scope)
       journey = journey_fixture(scope, claim, :actual)
       segment = hd(journey.segments)
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
 
       assert {:error, changeset} =
                Rail.update_segment(
@@ -410,8 +423,9 @@ defmodule Fahrgastrechte.RailTest do
       claim = claim_fixture(scope)
       actual = journey_fixture(scope, claim, :actual)
       segment = hd(actual.segments)
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
 
-      assert {:ok, %{segment: manual}} =
+      assert {:ok, %{segment: manual, claim: claim}} =
                Rail.update_segment(
                  scope,
                  segment.id,
@@ -422,7 +436,7 @@ defmodule Fahrgastrechte.RailTest do
       assert manual.manual
       assert manual.source == "manual"
 
-      assert {:ok, %{journey: overridden}} =
+      assert {:ok, %{journey: overridden, claim: claim}} =
                Rail.set_summary_overrides(
                  scope,
                  claim.id,
@@ -461,6 +475,7 @@ defmodule Fahrgastrechte.RailTest do
       claim = claim_fixture(scope)
       actual = journey_fixture(scope, claim, :actual)
       segment = hd(actual.segments)
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
       {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
 
       assert {:error, :stale} =

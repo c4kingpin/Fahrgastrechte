@@ -105,6 +105,20 @@ defmodule Fahrgastrechte.ClaimsTest do
       assert loaded.destination == "Hamburg Hbf"
     end
 
+    test "dependent draft changes advance the lock and reject a stale mutation" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, invalidated} =
+               Claims.invalidate_output(scope, claim.id, claim.lock_version)
+
+      assert invalidated.status == :draft
+      assert invalidated.lock_version == claim.lock_version + 1
+
+      assert {:error, :stale} =
+               Claims.invalidate_output(scope, claim.id, claim.lock_version)
+    end
+
     test "changing a ready claim atomically invalidates its output" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
