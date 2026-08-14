@@ -122,7 +122,7 @@ wait_for_http() {
   local attempt
 
   for ((attempt = 1; attempt <= 30; attempt++)); do
-    if curl --fail --silent --show-error \
+    if curl --fail --silent \
       --header "Host: ${PHX_HOST}" \
       --header 'X-Forwarded-Proto: https' \
       http://127.0.0.1:4000/readyz >/dev/null; then
