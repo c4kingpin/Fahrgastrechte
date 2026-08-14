@@ -12,6 +12,13 @@ Voraussetzungen oder eine aggregierte Fehlerliste aus Claim, Profil, Rail und
 Dokumenten. Die spätere Prüfseite kann damit alle offenen Punkte in einem Lauf
 anzeigen.
 
+Die Profilprüfung lädt und entschlüsselt das Profil genau einmal. Fehlende
+Pflichtfelder fließen als fachliche `incomplete`-Fehler ein;
+Entschlüsselungsfehler wie `:invalid_ciphertext` werden dagegen unverändert
+als Betriebs- beziehungsweise Integritätsfehler weitergegeben. C06 startet
+`generate_export/3` mit `start_async/3`, sodass Rendering und PDF-Werkzeuge
+den LiveView-Prozess nicht blockieren.
+
 `generate_export(scope, claim_id, expected_claim_lock_version)` liest die
 Voraussetzungen ausschließlich über die öffentlichen Schnittstellen von
 Accounts, Claims, Documents und Rail. Erforderlich sind:

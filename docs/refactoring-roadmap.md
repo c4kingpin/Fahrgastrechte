@@ -29,6 +29,10 @@ Branch mit Regressionstests.
 
 ## Priorität 1 – Sicherheits- und Laufzeitgrenzen
 
+Status: am 14. August 2026 umgesetzt. Die Kontextgrenzen, der verbundene
+Sitzungsablauf, die asynchronen LiveView-Arbeiten, die Rail-Bereinigung und die
+explizite Profilfehlerbehandlung besitzen jeweils Regressionstests.
+
 1. Claimgebundene Dokument- und Vorschlagsmutationen zusätzlich in den
    Kontext-APIs erzwingen. Die Webschicht weist manipulierte IDs bereits ab;
    die Domänengrenze soll denselben Vertrag unabhängig vom Aufrufer garantieren.

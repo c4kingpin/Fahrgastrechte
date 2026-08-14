@@ -28,6 +28,11 @@ defmodule Fahrgastrechte.Rail do
     :last_used_segment_id,
     :actual_destination_arrival
   ]
+  @segment_override_fields [
+    :first_disrupted_segment_id,
+    :missed_connection_segment_id,
+    :last_used_segment_id
+  ]
   @override_string_keys Map.new(@override_fields, &{Atom.to_string(&1), &1})
 
   @type domain_error ::
@@ -176,6 +181,7 @@ defmodule Fahrgastrechte.Rail do
       Repo.transaction(fn ->
         with {:ok, claim} <-
                Claims.invalidate_output(scope, claim_id, expected_claim_lock_version),
+             {:ok, current} <- clear_replaced_segment_overrides(current),
              :ok <- delete_automatic_segments(current.id),
              {:ok, _segments} <- insert_segments_at_positions(current, automatic_attrs),
              {:ok, refreshed} <-
@@ -463,6 +469,30 @@ defmodule Fahrgastrechte.Rail do
     |> case do
       {:ok, segments} -> {:ok, Enum.reverse(segments)}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp clear_replaced_segment_overrides(journey) do
+    automatic_ids =
+      journey.segments
+      |> Enum.reject(& &1.manual)
+      |> MapSet.new(& &1.id)
+
+    attrs =
+      Enum.reduce(@segment_override_fields, %{}, fn field, overrides ->
+        value = Map.fetch!(journey, field)
+
+        if MapSet.member?(automatic_ids, value),
+          do: Map.put(overrides, field, nil),
+          else: overrides
+      end)
+
+    case attrs do
+      attrs when attrs == %{} ->
+        {:ok, journey}
+
+      attrs ->
+        journey |> Journey.override_changeset(attrs) |> Repo.update()
     end
   end
 

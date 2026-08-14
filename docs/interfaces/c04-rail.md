@@ -59,8 +59,10 @@ die Reihenfolge; fremde Positionswerte werden ignoriert. Ein Segment enthält:
 Weitere Mutationen:
 
 - `update_segment/4` markiert jede Benutzeränderung als manuell.
-- `refresh_journey/5` ersetzt nur automatische Segmente. Manuelle Segmente und
-  gesetzte Summary-Overrides bleiben atomar erhalten.
+- `refresh_journey/5` ersetzt nur automatische Segmente. Manuelle Segmente
+  bleiben atomar erhalten. Summary-Overrides auf manuelle Segmente bleiben
+  bestehen; Overrides auf ersetzte automatische Segment-IDs werden in derselben
+  Transaktion gelöscht, damit keine verwaisten Referenzen fortbestehen.
 - `set_summary_overrides/4` überschreibt den ersten gestörten Zug, den
   verpassten Anschluss, den letzten verwendeten Zug oder die tatsächliche
   Zielankunft. Segment-IDs müssen zur eigenen tatsächlichen Reise gehören.

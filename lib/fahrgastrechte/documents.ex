@@ -139,6 +139,27 @@ defmodule Fahrgastrechte.Documents do
   def get_document(%Scope{}, _document_id), do: {:error, :not_found}
   def get_document(_scope, _document_id), do: {:error, :not_authenticated}
 
+  defp get_current_claim_document(
+         %Scope{user: %User{id: user_id}} = scope,
+         claim_id,
+         document_id
+       ) do
+    with {:ok, _claim} <- Claims.get_claim(scope, claim_id),
+         {:ok, parsed_id} <- Ecto.UUID.cast(document_id),
+         %Document{} = document <-
+           Repo.one(
+             from document in Document,
+               where:
+                 document.id == ^parsed_id and document.claim_id == ^claim_id and
+                   document.user_id == ^user_id and document.current == true and
+                   is_nil(document.deletion_pending_at)
+           ) do
+      {:ok, document}
+    else
+      _error -> {:error, :not_found}
+    end
+  end
+
   @doc "Lists the current user's active documents for one scoped claim."
   @spec list_documents(Scope.t(), Ecto.UUID.t()) ::
           {:ok, [Document.t()]} | {:error, domain_error()}
@@ -174,17 +195,22 @@ defmodule Fahrgastrechte.Documents do
   def stream_document(_scope, _document_id), do: {:error, :not_authenticated}
 
   @doc false
-  @spec with_document_path(Scope.t(), Ecto.UUID.t(), (Path.t(), Document.t() -> result)) ::
+  @spec with_document_path(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          (Path.t(), Document.t() -> result)
+        ) ::
           result | {:error, domain_error()}
         when result: term()
-  def with_document_path(%Scope{} = scope, document_id, callback)
+  def with_document_path(%Scope{} = scope, claim_id, document_id, callback)
       when is_function(callback, 2) do
-    with {:ok, document} <- get_document(scope, document_id) do
+    with {:ok, document} <- get_current_claim_document(scope, claim_id, document_id) do
       LocalStorage.with_path(document.storage_key, &callback.(&1, document))
     end
   end
 
-  def with_document_path(_scope, _document_id, _callback),
+  def with_document_path(_scope, _claim_id, _document_id, _callback),
     do: {:error, :not_authenticated}
 
   @doc """
@@ -193,28 +219,34 @@ defmodule Fahrgastrechte.Documents do
   A pending marker makes a failed physical deletion retryable without exposing
   the half-deleted document to lists or downloads.
   """
-  @spec delete_document(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
+  @spec delete_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) ::
           {:ok, Claims.Claim.t() | :already_deleted}
           | {:error, Changeset.t() | domain_error()}
   def delete_document(
         %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
         document_id,
         expected_lock_version
       )
       when is_binary(document_id) do
-    case get_any_scoped_document(user_id, document_id) do
-      nil ->
-        {:ok, :already_deleted}
+    with {:ok, _claim} <- Claims.get_claim(scope, claim_id) do
+      case get_any_scoped_document(user_id, document_id) do
+        nil ->
+          {:ok, :already_deleted}
 
-      %Document{deletion_pending_at: pending_at} = document when not is_nil(pending_at) ->
-        finalize_document_deletion(document, :already_deleted)
+        %Document{claim_id: document_claim_id} when document_claim_id != claim_id ->
+          {:error, :not_found}
 
-      %Document{} = document ->
-        mark_and_delete_document(scope, document, expected_lock_version)
+        %Document{deletion_pending_at: pending_at} = document when not is_nil(pending_at) ->
+          finalize_document_deletion(document, :already_deleted)
+
+        %Document{} = document ->
+          mark_and_delete_document(scope, document, expected_lock_version)
+      end
     end
   end
 
-  def delete_document(_scope, _document_id, _expected_lock_version),
+  def delete_document(_scope, _claim_id, _document_id, _expected_lock_version),
     do: {:error, :not_authenticated}
 
   @doc """
