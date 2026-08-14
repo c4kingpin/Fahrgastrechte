@@ -222,14 +222,14 @@ defmodule Fahrgastrechte.DocumentsTest do
       {document, claim} = document_fixture(scope, claim)
 
       assert {:ok, returned_claim} =
-               Documents.delete_document(scope, document.id, claim.lock_version)
+               Documents.delete_document(scope, claim.id, document.id, claim.lock_version)
 
       assert returned_claim.id == claim.id
       refute LocalStorage.exists?(document.storage_key)
       assert Repo.get(Document, document.id) == nil
 
       assert {:ok, :already_deleted} =
-               Documents.delete_document(scope, document.id, claim.lock_version)
+               Documents.delete_document(scope, claim.id, document.id, claim.lock_version)
     end
 
     test "coordinates claim deletion after removing every physical document" do
@@ -282,10 +282,32 @@ defmodule Fahrgastrechte.DocumentsTest do
       assert {:error, :not_found} = Documents.stream_document(first_scope, document.id)
       assert {:error, :not_found} = Documents.list_documents(first_scope, second_claim.id)
 
-      assert {:ok, :already_deleted} =
-               Documents.delete_document(first_scope, document.id, second_claim.lock_version)
+      assert {:error, :not_found} =
+               Documents.delete_document(
+                 first_scope,
+                 second_claim.id,
+                 document.id,
+                 second_claim.lock_version
+               )
 
       assert {:ok, ^document} = Documents.get_document(second_scope, document.id)
+    end
+
+    test "rejects a document mutation bound to another owned claim" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      other_claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      assert {:error, :not_found} =
+               Documents.delete_document(
+                 scope,
+                 other_claim.id,
+                 document.id,
+                 other_claim.lock_version
+               )
+
+      assert {:ok, ^document} = Documents.get_document(scope, document.id)
     end
 
     test "stored originals remain readable without process-local state" do
@@ -309,7 +331,9 @@ defmodule Fahrgastrechte.DocumentsTest do
       assert {:error, :not_authenticated} = Documents.get_document(nil, document.id)
       assert {:error, :not_authenticated} = Documents.list_documents(nil, claim.id)
       assert {:error, :not_authenticated} = Documents.stream_document(nil, document.id)
-      assert {:error, :not_authenticated} = Documents.delete_document(nil, document.id, 1)
+
+      assert {:error, :not_authenticated} =
+               Documents.delete_document(nil, claim.id, document.id, 1)
     end
   end
 

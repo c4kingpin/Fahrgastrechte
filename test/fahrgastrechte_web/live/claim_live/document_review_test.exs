@@ -98,6 +98,7 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
       ])
 
     render_upload(upload, name)
+    render_async(view)
   end
 
   defp authenticated_conn(conn) do

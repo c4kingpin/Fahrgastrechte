@@ -8,6 +8,7 @@ defmodule Fahrgastrechte.ExportsTest do
   import Fahrgastrechte.RailFixtures
 
   alias Fahrgastrechte.Accounts
+  alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.LocalStorage
@@ -40,9 +41,9 @@ defmodule Fahrgastrechte.ExportsTest do
       claim = export_ready_fixture(scope)
       {:ok, documents} = Documents.list_documents(scope, claim.id)
       ticket = Enum.find(documents, &(&1.kind == :ticket))
-      {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, ticket.id)
+      {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, claim.id, ticket.id)
       order_number = Enum.find(suggestions, &(&1.field == :order_number))
-      {:ok, _accepted} = Tickets.set_suggestion_state(scope, order_number.id, :accepted)
+      {:ok, _accepted} = Tickets.set_suggestion_state(scope, claim.id, order_number.id, :accepted)
 
       assert {:ok, %{export: export, claim: ready}} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
@@ -72,7 +73,7 @@ defmodule Fahrgastrechte.ExportsTest do
       assert bundle.id == export.bundle_document_id
 
       assert :ok =
-               Documents.with_document_path(scope, bundle.id, fn path, _document ->
+               Documents.with_document_path(scope, claim.id, bundle.id, fn path, _document ->
                  {info, 0} = System.cmd("pdfinfo", [path], stderr_to_stdout: true)
                  assert info =~ "Pages:           4"
 
@@ -259,6 +260,19 @@ defmodule Fahrgastrechte.ExportsTest do
         refute Map.has_key?(fields, "personal_phone")
         refute Map.has_key?(fields, "personal_country")
       end
+    end
+
+    test "propagates profile decryption failures during readiness" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      assert {:ok, profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      profile
+      |> Ecto.Changeset.change(iban_ciphertext: profile.iban_ciphertext <> <<0>>)
+      |> Repo.update!()
+
+      assert {:error, :invalid_ciphertext} = Exports.readiness(scope, claim.id)
+      assert %Profile{} = Repo.get!(Profile, profile.id)
     end
   end
 

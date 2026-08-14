@@ -62,7 +62,16 @@ defmodule FahrgastrechteWeb.ProfileLiveTest do
     assert has_element?(view, "#profile-completeness")
     assert {:ok, profile} = Accounts.get_profile(Scope.for_user(user))
     assert profile.first_name == "Erika"
-    assert Accounts.profile_complete?(Scope.for_user(user))
+    assert Accounts.profile_complete?(profile)
+  end
+
+  test "expires an already connected LiveView session", %{conn: conn} do
+    user = user_fixture()
+    expires_at = System.system_time(:second) + 2
+    conn = conn |> init_test_session(%{}) |> UserAuth.log_in_user(user, expires_at: expires_at)
+
+    assert {:ok, view, _html} = live(conn, ~p"/profil")
+    assert_redirect(view, ~p"/", 3_000)
   end
 
   test "development identity fallback is explicit and repeatable", %{conn: conn} do
