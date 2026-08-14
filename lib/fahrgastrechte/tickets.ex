@@ -12,6 +12,7 @@ defmodule Fahrgastrechte.Tickets do
   alias Ecto.Multi
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Rail
@@ -55,6 +56,30 @@ defmodule Fahrgastrechte.Tickets do
   end
 
   def list_suggestions(_scope, _document_id), do: {:error, :not_authenticated}
+
+  @doc "Lists suggestions for all current ticket inputs of one scoped claim."
+  @spec list_claim_suggestions(Scope.t(), Ecto.UUID.t()) ::
+          {:ok, [Suggestion.t()]} | {:error, domain_error()}
+  def list_claim_suggestions(%Scope{user: %User{id: user_id}} = scope, claim_id) do
+    with {:ok, claim} <- Claims.get_claim(scope, claim_id) do
+      suggestions =
+        Repo.all(
+          from suggestion in Suggestion,
+            join: document in Document,
+            on: document.id == suggestion.document_id,
+            where:
+              document.claim_id == ^claim.id and document.user_id == ^user_id and
+                document.current == true and is_nil(document.deletion_pending_at) and
+                document.kind in [:ticket, :invoice],
+            order_by: [asc: document.kind, asc: suggestion.field, asc: suggestion.id]
+        )
+
+      {:ok, suggestions}
+    end
+  end
+
+  def list_claim_suggestions(%Scope{}, _claim_id), do: {:error, :not_found}
+  def list_claim_suggestions(_scope, _claim_id), do: {:error, :not_authenticated}
 
   @doc "Marks a scoped suggestion accepted, rejected or proposed without changing its value."
   @spec set_suggestion_state(

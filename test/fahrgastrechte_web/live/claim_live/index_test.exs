@@ -61,6 +61,32 @@ defmodule FahrgastrechteWeb.ClaimLive.IndexTest do
     assert has_element?(view, "#claims-#{cologne.id}")
   end
 
+  test "keeps scoped dashboard totals independent from list filters", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    foreign_scope = scope_fixture()
+
+    berlin = claim_fixture(scope, %{"origin" => "Berlin Hbf", "destination" => "Hamburg Hbf"})
+    cologne = claim_fixture(scope, %{"origin" => "Köln Hbf", "destination" => "Bonn Hbf"})
+    _foreign = claim_fixture(foreign_scope)
+
+    assert {:ok, view, _html} = live(conn, ~p"/antraege")
+    assert has_element?(view, "#claim-stat-total", "2")
+    assert has_element?(view, "#claim-stat-open", "2")
+    assert has_element?(view, "#claim-stat-completed", "0")
+
+    view
+    |> form("#claim-filter-form",
+      filters: %{"route" => "Berlin", "claim_number" => "", "status" => "all"}
+    )
+    |> render_change()
+
+    assert has_element?(view, "#claims-#{berlin.id}")
+    refute has_element?(view, "#claims-#{cologne.id}")
+    assert has_element?(view, "#claim-stat-total", "2")
+    assert has_element?(view, "#claim-stat-open", "2")
+    assert has_element?(view, "#claim-stat-completed", "0")
+  end
+
   test "never lists another user's claims", %{conn: conn} do
     {conn, own_scope} = authenticated_conn(conn)
     foreign_scope = scope_fixture()

@@ -1,6 +1,6 @@
 # Refactoring-Roadmap
 
-Stand: 12. August 2026
+Stand: 15. August 2026
 
 Die gesamte Lösung wurde entlang von Domäne, Webschicht, Tests, Konfiguration,
 Deployment und Dokumentation geprüft. Diese Roadmap hält die bewusst noch
@@ -47,18 +47,23 @@ explizite Profilfehlerbehandlung besitzen jeweils Regressionstests.
 
 ## Priorität 2 – Struktur und Wartbarkeit
 
-Der größte Hotspot ist
-`FahrgastrechteWeb.ClaimLive.Show`. Die Zielstruktur kommt ohne
-LiveComponents aus:
+Status: am 15. August 2026 umgesetzt. Der bisherige Hotspot
+`FahrgastrechteWeb.ClaimLive.Show` ist ohne LiveComponents in klar getrennte
+Verantwortlichkeiten zerlegt:
 
 - `ClaimLive.Show`: Mount, Navigation und Event-Dispatch
-- reine Function Components für Dokumente, Vorschläge, Reise und Prüfung
-- ein fachliches Orchestrierungsmodul für atomare Aktionen und Readiness
-- ein kleines Präsentationsmodul für Labels und Zeitformatierung
+- reine Function Components in `ClaimLive.Components` für Falldaten,
+  Dokumente, Vorschläge, Reise und Prüfung
+- `ClaimWorkspace` als fachliche Anwendungsgrenze für atomare Aktionen und
+  Readiness
+- `ClaimLive.Presentation` für Labels, Zustände sowie Zeit- und
+  Größenformatierung
 
-Beim Zerlegen werden die wiederholten Workspace-Abfragen durch ein geprüftes
-Read Model ersetzt. Dashboard-Zählungen sollen aggregierte Datenbankabfragen
-verwenden, statt vollständige Antragslisten nur zum Zählen zu laden.
+`ClaimWorkspace.ReadModel` liefert einen vollständig gescopten, indizierten
+Snapshot für einen Render-Zyklus. Die Dashboard-Zählungen werden mit
+`Claims.dashboard_counts/1` in der Datenbank aggregiert, statt vollständige
+Antragslisten nur zum Zählen zu laden. Regressionstests decken Scope,
+Read-Model-Vollständigkeit und Rollback mehrteiliger Vorschlagsübernahmen ab.
 
 ## Priorität 3 – UX und Dokumentation
 

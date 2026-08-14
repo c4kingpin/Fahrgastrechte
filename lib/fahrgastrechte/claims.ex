@@ -110,6 +110,30 @@ defmodule Fahrgastrechte.Claims do
   def list_claims(%Scope{}, _filters), do: {:ok, []}
   def list_claims(_scope, _filters), do: {:error, :not_authenticated}
 
+  @doc "Returns scoped dashboard totals without loading complete claim rows."
+  @spec dashboard_counts(Scope.t()) ::
+          {:ok,
+           %{total: non_neg_integer(), open: non_neg_integer(), completed: non_neg_integer()}}
+          | {:error, domain_error()}
+  def dashboard_counts(%Scope{user: %User{id: user_id}}) do
+    counts_by_status =
+      Repo.all(
+        from claim in Claim,
+          where: claim.user_id == ^user_id,
+          group_by: claim.status,
+          select: {claim.status, count(claim.id)}
+      )
+      |> Map.new()
+
+    total = counts_by_status |> Map.values() |> Enum.sum()
+    completed = Map.get(counts_by_status, :completed, 0)
+
+    {:ok, %{total: total, open: total - completed, completed: completed}}
+  end
+
+  def dashboard_counts(%Scope{}), do: {:ok, %{total: 0, open: 0, completed: 0}}
+  def dashboard_counts(_scope), do: {:error, :not_authenticated}
+
   @doc """
   Updates editable claim data using optimistic locking.
 
