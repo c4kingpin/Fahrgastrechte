@@ -40,6 +40,13 @@ Ein ausgewählter Signaturschlüssel ist verbindlich. Ohne ihn kann Authentik
 Tokens symmetrisch mit dem Client-Secret signieren; die Anwendung akzeptiert
 bewusst nur die über JWKS prüfbare RSA-Signatur.
 
+Liefert Authentik ein verschlüsseltes, fünfsegmentiges ID-Token (JWE), verwendet
+die Anwendung den im selben authentifizierten Codeaustausch ausgegebenen
+Access-Token ausschließlich für einen Abruf am standardisierten
+`userinfo_endpoint`. Dieser Endpunkt muss HTTPS und exakt denselben Origin wie
+der konfigurierte Issuer verwenden. Der Access-Token wird weder gespeichert
+noch an den Browser ausgegeben.
+
 `AUTHENTIK_ISSUER` muss exakt dem `issuer` des Discovery-Dokuments entsprechen,
 im empfohlenen providerbezogenen Modus beispielsweise:
 
@@ -73,10 +80,13 @@ Prüfungen:
 2. Der Callback gehört über konstantzeitlich verglichenes `state` zum höchstens
    zehn Minuten alten Login-Versuch und kann nur einmal verwendet werden.
 3. Der Code wird mit dem gebundenen PKCE-Verifier ausgetauscht.
-4. Der JWT-Header erlaubt nur `RS256`, einen eindeutigen `kid` und einen
-   passenden RSA-Signaturschlüssel aus dem JWKS.
+4. Ein signiertes ID-Token erlaubt nur `RS256`, einen eindeutigen `kid` und
+   einen passenden RSA-Signaturschlüssel aus dem JWKS. Bei einem verschlüsselten
+   ID-Token wird die Identität stattdessen über den gleichursprünglichen
+   UserInfo-Endpunkt des Providers bezogen.
 5. Signatur, `iss`, `aud`, gegebenenfalls `azp`, `exp`, `iat`, `nonce` und ein
-   nicht leeres `sub` werden geprüft.
+   nicht leeres `sub` werden bei signierten Tokens geprüft; UserInfo-Antworten
+   müssen mindestens ein nicht leeres `sub` enthalten.
 6. Access- und Refresh-Tokens werden nicht gespeichert. Das ID-Token bleibt
    nur als Logout-Hinweis in der verschlüsselten Browser-Session.
 
