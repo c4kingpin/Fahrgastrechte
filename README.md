@@ -9,7 +9,7 @@ druckfertiges Gesamt-PDF und verfolgt den Bearbeitungsstatus.
 
 - Anmeldung über Authentik/OIDC mit strikt benutzerbezogenen Daten
 - Reisendenprofil mit verschlüsselt gespeicherter IBAN und BIC
-- sechs fortsetzbare Schritte von Falldaten und PDF-Upload bis zur Prüfung
+- sechs fortsetzbare Schritte vom PDF-Upload über die Übernahme erkannter Falldaten bis zur Prüfung
 - nachvollziehbare Datenvorschläge mit manueller Prüfung und Korrektur
 - geplante und tatsächliche Reise mit Verspätungs- und Ausfallerfassung
 - versionierte Ausgabe aus Deckblatt, offiziellem Formular, Ticket und Rechnung

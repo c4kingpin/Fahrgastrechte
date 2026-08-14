@@ -12,13 +12,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   @upload_kinds [:ticket, :invoice]
   @steps [
     %{
-      id: :claim,
-      slug: "falldaten",
-      label: "Falldaten",
-      heading_id: "claim-data-heading",
-      icon: "hero-clipboard-document-list"
-    },
-    %{
       id: :documents,
       slug: "dokumente",
       label: "Ticket & Rechnung",
@@ -31,6 +24,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       label: "Angaben prüfen",
       heading_id: "ticket-suggestions-heading",
       icon: "hero-sparkles"
+    },
+    %{
+      id: :claim,
+      slug: "falldaten",
+      label: "Falldaten",
+      heading_id: "claim-data-heading",
+      icon: "hero-clipboard-document-list"
     },
     %{
       id: :planned,
@@ -654,7 +654,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
                 <div>
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
-                    Schritt 1
+                    Schritt {step_number(:claim)}
                   </p>
                   <h2
                     id="claim-data-heading"
@@ -666,7 +666,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                     Falldaten
                   </h2>
                   <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
-                    Änderungen werden automatisch gespeichert. Bestätigte Ticketwerte können direkt übernommen werden.
+                    Bestätigte Werte aus Ticket und Rechnung sind bereits übernommen. Ergänze nur noch die Angaben zum Störungsfall; Änderungen werden automatisch gespeichert.
                   </p>
                 </div>
                 <span
@@ -788,7 +788,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
             >
               <div>
                 <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
-                  Schritt 2
+                  Schritt {step_number(:documents)}
                 </p>
                 <h2
                   id="claim-documents-heading"
@@ -800,7 +800,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   Ticket & Rechnung
                 </h2>
                 <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
-                  Nur PDF, maximal {@max_file_size_label}. Dateien werden privat gespeichert und nie öffentlich verlinkt.
+                  Lade zuerst Ticket und Rechnung hoch. Beide PDFs werden automatisch ausgewertet, privat gespeichert und nie öffentlich verlinkt. Maximal {@max_file_size_label} je Datei.
                 </p>
               </div>
 
@@ -1040,7 +1040,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 /></span>
                 <div>
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-sky-700"]}>
-                    Schritt 3
+                    Schritt {step_number(:suggestions)}
                   </p>
                   <h2
                     id="ticket-suggestions-heading"
@@ -1172,7 +1172,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
                 <div>
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
-                    Schritt 4
+                    Schritt {step_number(:planned)}
                   </p>
                   <h2
                     id="planned-journey-heading"
@@ -1402,7 +1402,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
                 <div>
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
-                    Schritt 5
+                    Schritt {step_number(:actual)}
                   </p>
                   <h2
                     id="actual-journey-heading"
@@ -1598,7 +1598,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
                 <div>
                   <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"]}>
-                    Schritt 6
+                    Schritt {step_number(:review)}
                   </p>
                   <h2
                     id="claim-review-heading"
@@ -1633,11 +1633,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   navigate={true}
                 />
                 <.review_check
-                  label="Falldaten"
-                  done?={@claim_complete?}
-                  href={step_path(@claim, step_by_id(:claim))}
-                />
-                <.review_check
                   label="Ticket & Rechnung"
                   done?={@documents_complete?}
                   href={step_path(@claim, step_by_id(:documents))}
@@ -1646,6 +1641,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   label="Erkannte Angaben"
                   done?={@suggestions_complete?}
                   href={step_path(@claim, step_by_id(:suggestions))}
+                />
+                <.review_check
+                  label="Falldaten"
+                  done?={@claim_complete?}
+                  href={step_path(@claim, step_by_id(:claim))}
                 />
                 <.review_check
                   label="Geplante Verbindung"
@@ -3006,6 +3006,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp step_index(step),
     do: Enum.find_index(@steps, &(&1.id == step.id))
+
+  defp step_number(id),
+    do: id |> step_by_id() |> step_index() |> Kernel.+(1)
 
   defp step_path(claim, step),
     do: ~p"/antraege/#{claim.id}/#{step.slug}"
