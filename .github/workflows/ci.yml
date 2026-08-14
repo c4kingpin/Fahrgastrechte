@@ -57,6 +57,9 @@ jobs:
       - name: Abhängigkeiten installieren
         run: mix deps.get --only test
 
+      - name: Abhängigkeiten auf Sicherheitslücken prüfen
+        run: mix hex.audit
+
       - name: PDF-Werkzeuge installieren
         run: sudo apt-get update && sudo apt-get install --yes pdftk-java poppler-utils qpdf
         
