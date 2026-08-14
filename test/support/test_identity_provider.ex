@@ -41,6 +41,12 @@ defmodule Fahrgastrechte.TestIdentityProvider do
      }}
   end
 
+  def validate_callback(
+        %{"code" => "provider-error", "state" => "test-state"},
+        %{"state" => "test-state"}
+      ),
+      do: {:error, :provider_http_error}
+
   def validate_callback(_params, _session_state), do: {:error, :invalid_state}
 
   @impl true
