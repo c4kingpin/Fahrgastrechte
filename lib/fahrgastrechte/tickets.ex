@@ -14,7 +14,9 @@ defmodule Fahrgastrechte.Tickets do
   alias Fahrgastrechte.Accounts.User
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.Document
+  alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Repo
+  alias Fahrgastrechte.Tickets.StationNormalizer
   alias Fahrgastrechte.Tickets.Suggestion
 
   @type domain_error ::
@@ -30,7 +32,7 @@ defmodule Fahrgastrechte.Tickets do
           | {:error, Changeset.t() | domain_error()}
   def analyze_document(%Scope{} = scope, claim_id, document_id) do
     Documents.with_document_path(scope, claim_id, document_id, fn path, document ->
-      analyze_path(document, path)
+      analyze_path(scope, claim_id, document, path)
     end)
   end
 
@@ -118,14 +120,15 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state),
     do: {:error, :not_authenticated}
 
-  defp analyze_path(%Document{kind: kind}, _path) when kind not in [:ticket, :invoice],
-    do: {:error, :invalid_document_kind}
+  defp analyze_path(_scope, _claim_id, %Document{kind: kind}, _path)
+       when kind not in [:ticket, :invoice],
+       do: {:error, :invalid_document_kind}
 
-  defp analyze_path(%Document{encrypted: true} = document, _path) do
+  defp analyze_path(_scope, _claim_id, %Document{encrypted: true} = document, _path) do
     persist_analysis(document, :manual_required, "encrypted", [])
   end
 
-  defp analyze_path(%Document{} = document, path) do
+  defp analyze_path(scope, claim_id, %Document{} = document, path) do
     extractor = tickets_config(:extractor)
 
     options = [
@@ -137,7 +140,8 @@ defmodule Fahrgastrechte.Tickets do
     ]
 
     with {:ok, extraction} <- extractor.extract(path, options),
-         {:ok, suggestions} <- extractor.propose(extraction, options) do
+         {:ok, extracted_suggestions} <- extractor.propose(extraction, options) do
+      suggestions = normalize_stations(scope, claim_id, extracted_suggestions)
       persist_analysis(document, :completed, nil, suggestions)
     else
       {:error, error} when error in [:no_text, :encrypted] ->
@@ -150,6 +154,12 @@ defmodule Fahrgastrechte.Tickets do
       {:error, {:backend, _reason}} ->
         persist_analysis(document, :failed, "backend", [])
     end
+  end
+
+  defp normalize_stations(scope, claim_id, suggestions) do
+    StationNormalizer.normalize(suggestions, fn query ->
+      Rail.search_stations(scope, claim_id, query)
+    end)
   end
 
   defp persist_analysis(document, status, error, suggestions) do

@@ -8,14 +8,18 @@ defmodule Fahrgastrechte.TicketsTest do
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
+  alias Fahrgastrechte.TestStationProvider
+  alias Fahrgastrechte.TestTicketRouteExtractor
   alias Fahrgastrechte.Tickets
   alias Fahrgastrechte.Tickets.PopplerExtractor
 
   setup do
     previous_config = Application.fetch_env!(:fahrgastrechte, Tickets)
+    previous_rail_config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Rail)
 
     on_exit(fn ->
       Application.put_env(:fahrgastrechte, Tickets, previous_config)
+      Application.put_env(:fahrgastrechte, Fahrgastrechte.Rail, previous_rail_config)
     end)
 
     :ok
@@ -159,6 +163,24 @@ defmodule Fahrgastrechte.TicketsTest do
       assert by_field.fare.value == %{"amount" => "84.70", "currency" => "EUR"}
       refute Map.has_key?(by_field, :scheduled_train)
       refute Map.has_key?(by_field, :travel_date)
+    end
+
+    test "replaces ticket route labels with canonical station names from the rail provider" do
+      set_extractor(TestTicketRouteExtractor)
+      set_rail_provider(TestStationProvider)
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id)
+
+      by_field = Map.new(suggestions, &{&1.field, &1})
+      assert by_field.origin.value == %{"text" => "Hannover Hbf"}
+
+      assert by_field.destination.value == %{
+               "text" => "Frankfurt(M) Flughafen Fernbf"
+             }
     end
 
     test "reanalysis replaces prior suggestions as unconfirmed proposals" do
@@ -332,5 +354,15 @@ defmodule Fahrgastrechte.TicketsTest do
   defp set_extractor(module) do
     config = Application.fetch_env!(:fahrgastrechte, Tickets)
     Application.put_env(:fahrgastrechte, Tickets, Keyword.put(config, :extractor, module))
+  end
+
+  defp set_rail_provider(module) do
+    config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Rail)
+
+    Application.put_env(
+      :fahrgastrechte,
+      Fahrgastrechte.Rail,
+      Keyword.put(config, :provider, module)
+    )
   end
 end
