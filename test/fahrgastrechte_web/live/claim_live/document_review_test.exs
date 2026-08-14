@@ -11,10 +11,12 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.UserAuth
 
-  test "groups and accepts recognized route values together", %{conn: conn} do
+  test "reads ticket and invoice data before prefilling the case data step", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope, %{"travel_date" => nil, "origin" => nil, "destination" => nil})
-    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/vorschlaege")
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(view, "#claim-documents-section:not([hidden])")
 
     upload_pdf(
       view,
@@ -24,19 +26,37 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
       "synthetic-ticket-flexpreis.pdf"
     )
 
+    upload_pdf(
+      view,
+      "#invoice-upload-form",
+      :invoice,
+      "rechnung.pdf",
+      "synthetic-invoice.pdf"
+    )
+
+    view |> element("#claim-step-forward") |> render_click()
+
+    assert_patch(view, ~p"/antraege/#{claim.id}/vorschlaege")
+    assert has_element?(view, "#ticket-suggestions-section:not([hidden])")
+
     assert has_element?(view, "#route-suggestions article")
     assert has_element?(view, "#booking-suggestions article")
     assert has_element?(view, "#suggestion-correction-form")
 
-    view |> element("#accept-route-suggestions") |> render_click()
+    view |> element("#accept-all-suggestions") |> render_click()
 
     assert {:ok, updated_claim} = Claims.get_claim(scope, claim.id)
     assert updated_claim.travel_date == ~D[2026-04-15]
     assert updated_claim.origin == "Teststadt Hbf"
     assert updated_claim.destination == "Beispielstadt Hbf"
 
-    assert {:ok, [document]} = Documents.list_documents(scope, claim.id)
-    assert {:ok, suggestions} = Tickets.list_suggestions(scope, document.id)
+    assert {:ok, documents} = Documents.list_documents(scope, claim.id)
+
+    suggestions =
+      Enum.flat_map(documents, fn document ->
+        {:ok, document_suggestions} = Tickets.list_suggestions(scope, document.id)
+        document_suggestions
+      end)
 
     route_fields = [
       :travel_date,
@@ -51,6 +71,17 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
     assert suggestions
            |> Enum.filter(&(&1.field in route_fields))
            |> Enum.all?(&(&1.state == :accepted))
+
+    assert Enum.any?(suggestions, &(&1.field == :order_number and &1.state == :accepted))
+    assert Enum.any?(suggestions, &(&1.field == :fare and &1.state == :accepted))
+
+    view |> element("#claim-step-forward") |> render_click()
+
+    assert_patch(view, ~p"/antraege/#{claim.id}/falldaten")
+    assert has_element?(view, "#claim-data-section:not([hidden])")
+    assert has_element?(view, "#claim-travel-date[value='2026-04-15']")
+    assert has_element?(view, "#claim-origin[value='Teststadt Hbf']")
+    assert has_element?(view, "#claim-destination[value='Beispielstadt Hbf']")
   end
 
   test "replaces a stored PDF without exposing an intermediate missing state", %{conn: conn} do
