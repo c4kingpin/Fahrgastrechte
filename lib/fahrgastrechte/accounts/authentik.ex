@@ -70,7 +70,8 @@ defmodule Fahrgastrechte.Accounts.Authentik do
          {:ok, discovery} <- fetch_discovery(config),
          {:ok, token_response} <- exchange_code(code, session_state, discovery, config),
          {:ok, id_token} <- required_binary(token_response, "id_token", :missing_id_token),
-         {:ok, claims} <- validate_id_token(id_token, session_state, discovery, config),
+         {:ok, claims} <-
+           validate_id_token(id_token, token_response, session_state, discovery, config),
          {:ok, identity} <- identity_from_claims(claims) do
       {:ok,
        %AuthenticatedSession{
@@ -190,6 +191,10 @@ defmodule Fahrgastrechte.Accounts.Authentik do
           not valid_provider_endpoint?(document["end_session_endpoint"], config) ->
         {:error, :invalid_discovery_endpoint}
 
+      is_binary(document["userinfo_endpoint"]) and
+          not valid_provider_endpoint?(document["userinfo_endpoint"], config) ->
+        {:error, :invalid_discovery_endpoint}
+
       "S256" not in List.wrap(document["code_challenge_methods_supported"]) ->
         {:error, :pkce_not_supported}
 
@@ -250,11 +255,47 @@ defmodule Fahrgastrechte.Accounts.Authentik do
     request_json(:post, discovery["token_endpoint"], options, config)
   end
 
-  defp validate_id_token(id_token, _session_state, _discovery, _config)
+  defp validate_id_token(id_token, _token_response, _session_state, _discovery, _config)
        when byte_size(id_token) > @max_id_token_bytes,
        do: {:error, :id_token_too_large}
 
-  defp validate_id_token(id_token, session_state, discovery, config) do
+  defp validate_id_token(id_token, token_response, session_state, discovery, config) do
+    case String.split(id_token, ".", parts: 6) do
+      [_header, _claims, _signature] ->
+        validate_signed_id_token(id_token, session_state, discovery, config)
+
+      [_header, _encrypted_key, _iv, _ciphertext, _tag] ->
+        fetch_userinfo_claims(token_response, discovery, config)
+
+      _other ->
+        {:error, :invalid_id_token_format}
+    end
+  end
+
+  defp fetch_userinfo_claims(token_response, discovery, config) do
+    with {:ok, endpoint} <-
+           required_binary(discovery, "userinfo_endpoint", :userinfo_not_supported),
+         {:ok, access_token} <-
+           required_binary(token_response, "access_token", :missing_access_token),
+         :ok <- validate_bearer_token_type(token_response),
+         {:ok, claims} <-
+           request_json(:get, endpoint, [auth: {:bearer, access_token}], config),
+         :ok <- non_empty_claim(claims, "sub", :invalid_token_subject) do
+      {:ok, Map.put(claims, "iss", config.issuer)}
+    end
+  end
+
+  defp validate_bearer_token_type(%{"token_type" => token_type})
+       when is_binary(token_type) do
+    if String.downcase(token_type) == "bearer",
+      do: :ok,
+      else: {:error, :invalid_access_token_type}
+  end
+
+  defp validate_bearer_token_type(_token_response),
+    do: {:error, :invalid_access_token_type}
+
+  defp validate_signed_id_token(id_token, session_state, discovery, config) do
     try do
       with {:ok, header} <- token_header(id_token),
            {:ok, algorithm} <- allowed_algorithm(header, config),
@@ -265,16 +306,16 @@ defmodule Fahrgastrechte.Accounts.Authentik do
         {:ok, claims}
       end
     rescue
-      _exception -> {:error, :invalid_id_token}
+      _exception -> {:error, :id_token_validation_exception}
     catch
-      _kind, _reason -> {:error, :invalid_id_token}
+      _kind, _reason -> {:error, :id_token_validation_exception}
     end
   end
 
   defp token_header(id_token) do
     case id_token |> JOSE.JWT.peek_protected() |> JOSE.JWS.to_map() do
       {_metadata, header} when is_map(header) -> {:ok, header}
-      _other -> {:error, :invalid_id_token}
+      _other -> {:error, :invalid_id_token_header}
     end
   end
 

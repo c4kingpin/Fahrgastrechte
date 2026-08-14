@@ -1,6 +1,8 @@
 defmodule FahrgastrechteWeb.AuthController do
   use FahrgastrechteWeb, :controller
 
+  require Logger
+
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Accounts.AuthenticatedSession
   alias FahrgastrechteWeb.UserAuth
@@ -48,6 +50,8 @@ defmodule FahrgastrechteWeb.AuthController do
         complete_login(conn, authenticated_session)
 
       {:error, reason} ->
+        log_callback_failure(reason)
+
         conn
         |> put_flash(:error, callback_error_message(reason))
         |> redirect(to: ~p"/")
@@ -104,6 +108,11 @@ defmodule FahrgastrechteWeb.AuthController do
 
   defp callback_error_message(_reason),
     do: "Die Anmeldung konnte nicht sicher bestätigt werden. Bitte versuche es erneut."
+
+  defp log_callback_failure(reason) do
+    error_code = if is_atom(reason), do: Atom.to_string(reason), else: "unknown"
+    Logger.warning("OIDC callback rejected: #{error_code}")
+  end
 
   defp identity_provider do
     Application.get_env(

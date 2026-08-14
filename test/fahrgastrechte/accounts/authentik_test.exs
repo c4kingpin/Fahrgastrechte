@@ -139,6 +139,31 @@ defmodule Fahrgastrechte.Accounts.AuthentikTest do
              Authentik.validate_callback(valid_callback(), valid_flow())
   end
 
+  test "resolves an encrypted ID token through the same-origin UserInfo endpoint", %{
+    signing_key: signing_key
+  } do
+    stub_name = {__MODULE__, :encrypted_id_token}
+    put_provider_config(plug: {Req.Test, stub_name})
+    stub_provider(stub_name, signing_key, "header.encrypted-key.iv.ciphertext.tag")
+
+    assert {:ok, authenticated_session} =
+             Authentik.validate_callback(valid_callback(), valid_flow())
+
+    assert authenticated_session.identity.issuer == @issuer
+    assert authenticated_session.identity.subject == "authentik-subject"
+    assert authenticated_session.identity.email == "person@example.invalid"
+    assert authenticated_session.identity.display_name == "Erika Beispiel"
+  end
+
+  test "rejects malformed ID tokens with a specific diagnostic", %{signing_key: signing_key} do
+    stub_name = {__MODULE__, :malformed_id_token}
+    put_provider_config(plug: {Req.Test, stub_name})
+    stub_provider(stub_name, signing_key, "not-a-compact-token")
+
+    assert {:error, :invalid_id_token_format} =
+             Authentik.validate_callback(valid_callback(), valid_flow())
+  end
+
   test "rejects discovery documents from another issuer" do
     stub_name = {__MODULE__, :issuer_mismatch}
     put_provider_config(plug: {Req.Test, stub_name})
@@ -149,6 +174,20 @@ defmodule Fahrgastrechte.Accounts.AuthentikTest do
     end)
 
     assert {:error, :issuer_mismatch} = Authentik.authorization_request(@callback_uri)
+  end
+
+  test "rejects a UserInfo endpoint on another origin" do
+    stub_name = {__MODULE__, :external_userinfo}
+    put_provider_config(plug: {Req.Test, stub_name})
+
+    Req.Test.stub(stub_name, fn conn ->
+      document =
+        Map.put(discovery_document(), "userinfo_endpoint", "https://attacker.example/userinfo")
+
+      Req.Test.json(conn, document)
+    end)
+
+    assert {:error, :invalid_discovery_endpoint} = Authentik.authorization_request(@callback_uri)
   end
 
   test "builds RP-initiated logout from the validated discovery endpoint" do
@@ -188,10 +227,18 @@ defmodule Fahrgastrechte.Accounts.AuthentikTest do
         "/application/o/token/" ->
           conn
           |> token_callback.()
-          |> Req.Test.json(%{"id_token" => token, "token_type" => "Bearer"})
+          |> Req.Test.json(%{
+            "access_token" => "test-access-token",
+            "id_token" => token,
+            "token_type" => "Bearer"
+          })
 
         "/application/o/fahrgastrechte/jwks/" ->
           Req.Test.json(conn, %{"keys" => [public_jwk(signing_key)]})
+
+        "/application/o/userinfo/" ->
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer test-access-token"]
+          Req.Test.json(conn, Map.take(valid_claims(), ~w(email name sub)))
 
         other_path ->
           flunk("unexpected provider request to #{other_path}")
@@ -254,7 +301,8 @@ defmodule Fahrgastrechte.Accounts.AuthentikTest do
       "id_token_signing_alg_values_supported" => ["RS256"],
       "issuer" => @issuer,
       "jwks_uri" => "https://identity.example.invalid/application/o/fahrgastrechte/jwks/",
-      "token_endpoint" => "https://identity.example.invalid/application/o/token/"
+      "token_endpoint" => "https://identity.example.invalid/application/o/token/",
+      "userinfo_endpoint" => "https://identity.example.invalid/application/o/userinfo/"
     }
   end
 
