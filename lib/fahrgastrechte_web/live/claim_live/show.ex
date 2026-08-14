@@ -931,7 +931,170 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     """
   end
 
+  attr :id, :string, required: true
+  attr :topic, :string, required: true
+  attr :label, :string, required: true
+  attr :items, :any, required: true
+  attr :documents_by_id, :map, required: true
+  attr :editable?, :boolean, required: true
+
+  def suggestion_group(assigns) do
+    ~H"""
+    <section id={@id} class="rounded-2xl border border-slate-200 bg-white p-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h3 class="text-sm font-semibold text-slate-950">{@label}</h3>
+        <div class="flex flex-wrap gap-2">
+          <button
+            id={"accept-#{@topic}-suggestions"}
+            type="button"
+            phx-click="set_suggestion_group_state"
+            phx-value-topic={@topic}
+            phx-value-state="accepted"
+            disabled={!@editable?}
+            class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-40"
+          >
+            <.icon name="hero-check" class="size-4" /> Gruppe übernehmen
+          </button>
+          <button
+            id={"reject-#{@topic}-suggestions"}
+            type="button"
+            phx-click="set_suggestion_group_state"
+            phx-value-topic={@topic}
+            phx-value-state="rejected"
+            disabled={!@editable?}
+            class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+          >
+            <.icon name="hero-x-mark" class="size-4" /> Gruppe verwerfen
+          </button>
+        </div>
+      </div>
+      <div id={"#{@id}-items"} phx-update="stream" class="mt-3 grid gap-3">
+        <p
+          id={"#{@id}-empty"}
+          class="hidden rounded-xl bg-slate-50 p-3 text-xs text-slate-500 only:block"
+        >
+          Keine erkannten Werte in diesem Bereich.
+        </p>
+        <article
+          :for={{dom_id, suggestion} <- @items}
+          id={dom_id}
+          class={[
+            "rounded-xl border p-4 transition",
+            suggestion_card_style(suggestion.state)
+          ]}
+        >
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                  {suggestion_field_label(suggestion.field)}
+                </span>
+                <span class="rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm">
+                  {confidence_label(suggestion.confidence)}
+                </span>
+              </div>
+              <p class="mt-2 text-sm font-semibold text-slate-950">{suggestion_value(suggestion)}</p>
+              <p class="mt-2 text-xs leading-5 text-slate-500">
+                {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
+              </p>
+            </div>
+            <div class="flex shrink-0 flex-wrap gap-2">
+              <%= if suggestion.state == :proposed do %>
+                <button
+                  id={"accept-suggestion-#{suggestion.id}"}
+                  type="button"
+                  phx-click="set_suggestion_state"
+                  phx-value-id={suggestion.id}
+                  phx-value-state="accepted"
+                  disabled={!@editable?}
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-800 disabled:opacity-40"
+                >
+                  <.icon name="hero-check" class="size-4" /> {accept_label(suggestion.field)}
+                </button>
+                <button
+                  id={"reject-suggestion-#{suggestion.id}"}
+                  type="button"
+                  phx-click="set_suggestion_state"
+                  phx-value-id={suggestion.id}
+                  phx-value-state="rejected"
+                  disabled={!@editable?}
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 disabled:opacity-40"
+                >
+                  <.icon name="hero-x-mark" class="size-4" /> Verwerfen
+                </button>
+              <% else %>
+                <span class={[
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold",
+                  suggestion_state_style(suggestion.state)
+                ]}>
+                  <.icon
+                    name={if(suggestion.state == :accepted, do: "hero-check", else: "hero-x-mark")}
+                    class="size-4"
+                  />
+                  {if(suggestion.state == :accepted, do: "Bestätigt", else: "Verworfen")}
+                </span>
+              <% end %>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+    """
+  end
+
+  attr :state, :atom, required: true
+
+  def step_badge(assigns) do
+    ~H"""
+    <span class={[
+      "inline-flex w-fit shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold",
+      step_badge_style(@state)
+    ]}>
+      <.icon name={step_badge_icon(@state)} class="size-4" /> {step_badge_label(@state)}
+    </span>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :done?, :boolean, required: true
+  attr :href, :string, required: true
+  attr :navigate, :boolean, default: false
+
+  def review_check(assigns) do
+    ~H"""
+    <div class={[
+      "flex items-center gap-3 rounded-xl border px-3.5 py-3",
+      if(@done?, do: "border-emerald-200 bg-emerald-50", else: "border-amber-200 bg-amber-50")
+    ]}>
+      <span class={[
+        "flex size-7 shrink-0 items-center justify-center rounded-full",
+        if(@done?, do: "bg-emerald-600 text-white", else: "bg-amber-100 text-amber-800")
+      ]}>
+        <.icon name={if(@done?, do: "hero-check", else: "hero-exclamation-triangle")} class="size-4" />
+      </span>
+      <span class={["text-sm font-semibold text-slate-800"]}>{@label}</span>
+      <span :if={@done?} class="ml-auto text-xs font-semibold text-emerald-700">Bestätigt</span>
+      <.link
+        :if={!@done? && !@navigate}
+        patch={@href}
+        class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
+      >
+        Öffnen
+      </.link>
+      <.link
+        :if={!@done? && @navigate}
+        navigate={@href}
+        class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
+      >
+        Öffnen
+      </.link>
+    </div>
+    """
+  end
+
   defp persist_claim(socket, params, show_flash?) do
+    params = normalize_claim_dates(params)
+
     case Claims.update_claim(
            socket.assigns.current_scope,
            socket.assigns.claim.id,
@@ -1196,9 +1359,415 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       if(workspace.actual_journey, do: workspace.actual_journey.segments, else: []),
       reset: true
     )
-    |> stream(:exports, Enum.reverse(workspace.exports), reset: true)
-    |> stream(:api_sources, Enum.reverse(workspace.api_sources), reset: true)
-    |> stream(:status_history, Enum.reverse(workspace.status_history), reset: true)
+    |> stream(:exports, Enum.reverse(exports), reset: true)
+    |> stream(:api_sources, Enum.reverse(api_sources), reset: true)
+    |> stream(:status_history, Enum.reverse(status_history), reset: true)
+  end
+
+  defp optional_journey(scope, claim_id, kind) do
+    case Rail.get_journey(scope, claim_id, kind) do
+      {:ok, journey} -> journey
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp find_connections(scope, claim, params) do
+    with {:ok, departure_at} <- parse_datetime(params["departure_at"]),
+         {:ok, [origin | _]} <- Rail.search_stations(scope, claim.id, params["origin"] || ""),
+         {:ok, [destination | _]} <-
+           Rail.search_stations(scope, claim.id, params["destination"] || "") do
+      query = %{origin: origin.id, destination: destination.id, departure_at: departure_at}
+
+      case Rail.search_connections(scope, claim.id, query) do
+        {:ok, candidates} ->
+          {:ok, filter_candidates(candidates, params)}
+
+        {:error, :unsupported} ->
+          until = DateTime.add(departure_at, 6, :hour)
+
+          case Rail.departures(scope, claim.id, origin.id, departure_at, until) do
+            {:ok, candidates} -> {:ok, filter_candidates(candidates, params)}
+            {:error, reason} -> {:error, reason}
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, []} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp filter_candidates(candidates, params) do
+    train_number = params["train_number"] |> to_string() |> String.trim()
+
+    if train_number == "" do
+      candidates
+    else
+      Enum.filter(candidates, fn candidate ->
+        Enum.any?(candidate.segments, &(&1.train_number == train_number))
+      end)
+    end
+  end
+
+  defp candidate_segments(candidate, claim) do
+    last_index = length(candidate.segments) - 1
+
+    candidate.segments
+    |> Enum.with_index()
+    |> Enum.map(fn {segment, index} ->
+      segment
+      |> Map.new()
+      |> Map.put(:origin_name, if(index == 0, do: claim.origin, else: segment.origin_name))
+      |> Map.put(
+        :destination_name,
+        if(index == last_index, do: claim.destination, else: segment.destination_name)
+      )
+    end)
+  end
+
+  defp planned_segments(segments) do
+    Enum.map(segments, fn segment ->
+      segment
+      |> Map.put(:actual_departure, nil)
+      |> Map.put(:actual_arrival, nil)
+      |> Map.put(:estimated_departure, nil)
+      |> Map.put(:estimated_arrival, nil)
+      |> Map.put(:cancelled, false)
+    end)
+  end
+
+  defp build_planned_segments(params) do
+    with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
+         {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
+         :ok <- validate_order(scheduled_departure, scheduled_arrival) do
+      first = %{
+        origin_name: params["origin_name"],
+        destination_name: params["destination_name"],
+        train_category: params["train_category"],
+        train_number: params["train_number"],
+        scheduled_departure: scheduled_departure,
+        scheduled_arrival: scheduled_arrival,
+        source: "manual",
+        manual: true
+      }
+
+      build_transfer_segments(first, params)
+    end
+  end
+
+  defp build_transfer_segments(first, %{"via_name" => via_name} = params)
+       when is_binary(via_name) and via_name != "" do
+    with {:ok, transfer_arrival} <- parse_datetime(params["transfer_arrival"]),
+         {:ok, transfer_departure} <- parse_datetime(params["transfer_departure"]),
+         :ok <- validate_order(first.scheduled_departure, transfer_arrival),
+         :ok <- validate_order(transfer_arrival, transfer_departure),
+         :ok <- validate_order(transfer_departure, first.scheduled_arrival) do
+      {:ok,
+       [
+         %{first | destination_name: String.trim(via_name), scheduled_arrival: transfer_arrival},
+         %{
+           origin_name: String.trim(via_name),
+           destination_name: first.destination_name,
+           train_category: params["second_category"],
+           train_number: params["second_number"],
+           scheduled_departure: transfer_departure,
+           scheduled_arrival: first.scheduled_arrival,
+           source: "manual",
+           manual: true
+         }
+       ]}
+    end
+  end
+
+  defp build_transfer_segments(first, _params), do: {:ok, [first]}
+
+  defp parse_datetime(value) when is_binary(value) do
+    with {:ok, naive} <- parse_local_naive_datetime(value),
+         {:ok, utc} <- BerlinTime.from_local(naive) do
+      {:ok, utc}
+    else
+      _error -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_datetime(_value), do: {:error, :invalid_datetime}
+  defp parse_optional_datetime(value) when value in [nil, ""], do: {:ok, nil}
+  defp parse_optional_datetime(value), do: parse_datetime(value)
+
+  defp parse_local_naive_datetime(value) do
+    normalized = if String.length(value) == 16, do: value <> ":00", else: value
+
+    case NaiveDateTime.from_iso8601(normalized) do
+      {:ok, datetime} -> {:ok, datetime}
+      {:error, _reason} -> parse_german_datetime(value)
+    end
+  end
+
+  defp parse_german_datetime(value) do
+    case Regex.run(
+           ~r/^\s*(\d{2})\.(\d{2})\.(\d{4}),?\s+(\d{2}):(\d{2})\s*$/,
+           value,
+           capture: :all_but_first
+         ) do
+      [day, month, year, hour, minute] ->
+        with {:ok, date} <- Date.new(integer!(year), integer!(month), integer!(day)),
+             {:ok, time} <- Time.new(integer!(hour), integer!(minute), 0) do
+          NaiveDateTime.new(date, time)
+        end
+
+      _no_match ->
+        {:error, :invalid_format}
+    end
+  end
+
+  defp normalize_claim_dates(%{"travel_date" => value} = params) do
+    case parse_german_date(value) do
+      {:ok, date} -> Map.put(params, "travel_date", Date.to_iso8601(date))
+      {:error, _reason} -> params
+    end
+  end
+
+  defp normalize_claim_dates(params), do: params
+
+  defp parse_german_date(value) when is_binary(value) do
+    case Regex.run(~r/^\s*(\d{2})\.(\d{2})\.(\d{4})\s*$/, value, capture: :all_but_first) do
+      [day, month, year] -> Date.new(integer!(year), integer!(month), integer!(day))
+      _no_match -> Date.from_iso8601(value)
+    end
+  end
+
+  defp parse_german_date(_value), do: {:error, :invalid_format}
+
+  defp integer!(value) do
+    {integer, ""} = Integer.parse(value)
+    integer
+  end
+
+  defp validate_order(from, until) do
+    if DateTime.compare(until, from) == :lt,
+      do: {:error, :invalid_time_order},
+      else: :ok
+  end
+
+  defp build_actual_segments(params, assigns) do
+    case assigns.claim.disruption_cause do
+      :delay -> build_delay_segment(params)
+      :cancellation -> build_cancellation_segments(params, assigns.planned_journey)
+      _other -> {:error, :missing_disruption}
+    end
+  end
+
+  defp build_delay_segment(params) do
+    with {:ok, scheduled_departure} <- parse_datetime(params["scheduled_departure"]),
+         {:ok, scheduled_arrival} <- parse_datetime(params["scheduled_arrival"]),
+         {:ok, actual_departure} <- parse_optional_datetime(params["actual_departure"]),
+         {:ok, actual_arrival} <- parse_datetime(params["actual_arrival"]),
+         :ok <- validate_order(scheduled_departure, scheduled_arrival) do
+      {:ok,
+       [
+         %{
+           origin_name: params["origin_name"],
+           destination_name: params["destination_name"],
+           train_category: params["train_category"],
+           train_number: params["train_number"],
+           scheduled_departure: scheduled_departure,
+           scheduled_arrival: scheduled_arrival,
+           actual_departure: actual_departure,
+           actual_arrival: actual_arrival,
+           cancelled: false,
+           source: "manual",
+           manual: true
+         }
+       ]}
+    end
+  end
+
+  defp build_cancellation_segments(_params, nil), do: {:error, :missing_planned}
+
+  defp build_cancellation_segments(params, planned_journey) do
+    planned = List.first(planned_journey.segments)
+
+    with {:ok, replacement_departure} <- parse_datetime(params["replacement_departure"]),
+         {:ok, replacement_arrival} <- parse_datetime(params["replacement_arrival"]),
+         :ok <- validate_order(replacement_departure, replacement_arrival) do
+      cancelled =
+        planned
+        |> Map.from_struct()
+        |> Map.drop([:__meta__, :id, :journey, :journey_id, :inserted_at, :updated_at, :position])
+        |> Map.put(:actual_departure, nil)
+        |> Map.put(:actual_arrival, nil)
+        |> Map.put(:estimated_departure, nil)
+        |> Map.put(:estimated_arrival, nil)
+        |> Map.put(:cancelled, true)
+        |> Map.put(:source, "manual")
+        |> Map.put(:manual, true)
+
+      replacement = %{
+        origin_name: params["origin_name"],
+        destination_name: params["destination_name"],
+        train_category: params["replacement_category"],
+        train_number: params["replacement_number"],
+        scheduled_departure: replacement_departure,
+        scheduled_arrival: replacement_arrival,
+        actual_departure: replacement_departure,
+        actual_arrival: replacement_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      {:ok, [cancelled, replacement]}
+    end
+  end
+
+  defp journey_complete?(nil, _kind), do: false
+
+  defp journey_complete?(journey, :planned) do
+    journey.segments != [] &&
+      Enum.all?(journey.segments, &(&1.scheduled_departure && &1.scheduled_arrival))
+  end
+
+  defp actual_journey_complete?(%{journey_outcome: :not_started}, _journey), do: true
+  defp actual_journey_complete?(_claim, nil), do: false
+
+  defp actual_journey_complete?(_claim, journey) do
+    journey.segments != [] &&
+      Enum.any?(journey.segments, &(&1.actual_arrival || &1.estimated_arrival))
+  end
+
+  defp planned_form_data(claim, nil) do
+    %{
+      "origin_name" => claim.origin || "",
+      "destination_name" => claim.destination || "",
+      "train_category" => "",
+      "train_number" => "",
+      "scheduled_departure" => default_departure(claim),
+      "scheduled_arrival" => "",
+      "via_name" => "",
+      "transfer_arrival" => "",
+      "transfer_departure" => "",
+      "second_category" => "",
+      "second_number" => ""
+    }
+  end
+
+  defp planned_form_data(_claim, journey) do
+    first = List.first(journey.segments)
+    last = List.last(journey.segments)
+    second = Enum.at(journey.segments, 1)
+
+    %{
+      "origin_name" => first.origin_name || "",
+      "destination_name" => last.destination_name || "",
+      "train_category" => first.train_category || "",
+      "train_number" => first.train_number || "",
+      "scheduled_departure" => datetime_local(first.scheduled_departure),
+      "scheduled_arrival" => datetime_local(last.scheduled_arrival),
+      "via_name" => if(second, do: first.destination_name || "", else: ""),
+      "transfer_arrival" => if(second, do: datetime_local(first.scheduled_arrival), else: ""),
+      "transfer_departure" =>
+        if(second, do: datetime_local(second.scheduled_departure), else: ""),
+      "second_category" => if(second, do: second.train_category || "", else: ""),
+      "second_number" => if(second, do: second.train_number || "", else: "")
+    }
+  end
+
+  defp actual_form_data(claim, planned, nil) do
+    planned_data = planned_form_data(claim, planned)
+
+    Map.merge(planned_data, %{
+      "actual_departure" => "",
+      "actual_arrival" => "",
+      "replacement_category" => "",
+      "replacement_number" => "",
+      "replacement_departure" => "",
+      "replacement_arrival" => ""
+    })
+  end
+
+  defp actual_form_data(claim, planned, journey) do
+    first = List.first(journey.segments)
+    last = List.last(journey.segments)
+
+    claim
+    |> actual_form_data(planned, nil)
+    |> Map.put("origin_name", first.origin_name || claim.origin || "")
+    |> Map.put("destination_name", last.destination_name || claim.destination || "")
+    |> Map.put("train_category", first.train_category || "")
+    |> Map.put("train_number", first.train_number || "")
+    |> Map.put("scheduled_departure", datetime_local(first.scheduled_departure))
+    |> Map.put("scheduled_arrival", datetime_local(first.scheduled_arrival))
+    |> Map.put(
+      "actual_departure",
+      datetime_local(first.actual_departure || first.estimated_departure)
+    )
+    |> Map.put("actual_arrival", datetime_local(last.actual_arrival || last.estimated_arrival))
+    |> maybe_put_replacement(journey)
+  end
+
+  defp maybe_put_replacement(data, %{segments: [_first, replacement | _rest]}) do
+    data
+    |> Map.put("replacement_category", replacement.train_category || "")
+    |> Map.put("replacement_number", replacement.train_number || "")
+    |> Map.put(
+      "replacement_departure",
+      datetime_local(replacement.actual_departure || replacement.scheduled_departure)
+    )
+    |> Map.put(
+      "replacement_arrival",
+      datetime_local(replacement.actual_arrival || replacement.scheduled_arrival)
+    )
+  end
+
+  defp maybe_put_replacement(data, _journey), do: data
+
+  defp connection_search_data(claim, planned) do
+    planned_data = planned_form_data(claim, planned)
+
+    %{
+      "origin" => claim.origin || "",
+      "destination" => claim.destination || "",
+      "departure_at" => planned_data["scheduled_departure"],
+      "train_number" => planned_data["train_number"]
+    }
+  end
+
+  defp suggestion_correction_data(claim) do
+    %{
+      "travel_date" => if(claim.travel_date, do: Date.to_iso8601(claim.travel_date), else: ""),
+      "origin" => claim.origin || "",
+      "destination" => claim.destination || ""
+    }
+  end
+
+  defp suggestion_topic(%{field: field})
+       when field in [
+              :travel_date,
+              :valid_until,
+              :origin,
+              :destination,
+              :scheduled_train,
+              :scheduled_departure,
+              :scheduled_arrival
+            ],
+       do: :route
+
+  defp suggestion_topic(%{field: field}) when field in [:order_number, :fare, :product],
+    do: :booking
+
+  defp suggestion_topic(_suggestion), do: :other
+
+  defp default_departure(%{travel_date: %Date{} = date}), do: "#{Date.to_iso8601(date)}T08:00"
+  defp default_departure(_claim), do: ""
+
+  defp datetime_local(nil), do: ""
+
+  defp datetime_local(%DateTime{} = datetime) do
+    datetime
+    |> BerlinTime.to_local_naive()
+    |> Calendar.strftime("%Y-%m-%dT%H:%M")
   end
 
   defp refresh_workspace(socket) do

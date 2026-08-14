@@ -99,8 +99,8 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
         "destination_name" => "Hamburg Hbf",
         "train_category" => "ICE",
         "train_number" => "100",
-        "scheduled_departure" => "2026-07-15T06:00",
-        "scheduled_arrival" => "2026-07-15T08:00"
+        "scheduled_departure" => "15.07.2026, 06:00",
+        "scheduled_arrival" => "15.07.2026, 08:00"
       }
     )
     |> render_submit()
@@ -119,10 +119,10 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
         "destination_name" => "Hamburg Hbf",
         "train_category" => "ICE",
         "train_number" => "100",
-        "scheduled_departure" => "2026-07-15T06:00",
-        "scheduled_arrival" => "2026-07-15T08:00",
-        "actual_departure" => "2026-07-15T06:20",
-        "actual_arrival" => "2026-07-15T09:15"
+        "scheduled_departure" => "15.07.2026, 06:00",
+        "scheduled_arrival" => "15.07.2026, 08:00",
+        "actual_departure" => "15.07.2026, 06:20",
+        "actual_arrival" => "15.07.2026, 09:15"
       }
     )
     |> render_submit()
