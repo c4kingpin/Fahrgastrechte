@@ -14,7 +14,7 @@ defmodule FahrgastrechteWeb.Layouts do
 
   attr :current_section, :atom,
     default: nil,
-    values: [nil, :home, :claims, :profile],
+    values: [nil, :home, :claims, :profile, :sources],
     doc: "the active top-level navigation section"
 
   slot :inner_block, required: true
@@ -84,6 +84,14 @@ defmodule FahrgastrechteWeb.Layouts do
                   class={nav_link_class(@current_section == :profile)}
                 >
                   <.icon name="hero-user-circle" class="size-4" /> Profil
+                </.link>
+                <.link
+                  id="sources-nav-link"
+                  navigate={~p"/datenquellen"}
+                  aria-current={if(@current_section == :sources, do: "page", else: nil)}
+                  class={nav_link_class(@current_section == :sources)}
+                >
+                  <.icon name="hero-circle-stack" class="size-4" /> Datenquellen
                 </.link>
               </div>
 
@@ -164,7 +172,7 @@ defmodule FahrgastrechteWeb.Layouts do
         id="mobile-navigation"
         aria-label="Mobile Hauptnavigation"
         class={[
-          "fixed inset-x-3 bottom-3 z-50 grid grid-cols-3 rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_50px_-20px_rgba(15,23,42,0.55)] backdrop-blur-xl md:hidden"
+          "fixed inset-x-3 bottom-3 z-50 grid grid-cols-4 rounded-2xl border border-slate-200/80 bg-white/95 p-1.5 shadow-[0_18px_50px_-20px_rgba(15,23,42,0.55)] backdrop-blur-xl md:hidden"
         ]}
       >
         <.link
@@ -193,6 +201,15 @@ defmodule FahrgastrechteWeb.Layouts do
         >
           <.icon name="hero-user-circle" class="size-5" />
           <span>Profil</span>
+        </.link>
+        <.link
+          id="mobile-sources-nav-link"
+          navigate={~p"/datenquellen"}
+          aria-current={if(@current_section == :sources, do: "page", else: nil)}
+          class={mobile_nav_link_class(@current_section == :sources)}
+        >
+          <.icon name="hero-circle-stack" class="size-5" />
+          <span>Daten</span>
         </.link>
       </nav>
     </div>

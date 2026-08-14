@@ -22,7 +22,8 @@ defmodule Fahrgastrechte.C00BehavioursTest do
                {:fill_form, 4},
                {:merge, 3},
                {:normalize, 3},
-               {:validate, 2}
+               {:validate, 2},
+               {:validate_template, 3}
              ])
   end
 

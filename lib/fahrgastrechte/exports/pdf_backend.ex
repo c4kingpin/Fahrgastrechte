@@ -27,6 +27,13 @@ defmodule Fahrgastrechte.Exports.PDFBackend do
   @callback validate(pdf_path :: String.t(), options :: keyword()) ::
               {:ok, pdf_info()} | {:error, backend_error()}
 
+  @doc "Validates that a PDF exposes every field and radio value required by the form contract."
+  @callback validate_template(
+              template_path :: String.t(),
+              form_contract :: map(),
+              options :: keyword()
+            ) :: :ok | {:error, backend_error()}
+
   @doc "Fills known AcroForm fields before the separate normalization step."
   @callback fill_form(
               template_path :: String.t(),

@@ -13,6 +13,7 @@ druckfertiges Gesamt-PDF und verfolgt den Bearbeitungsstatus.
 - nachvollziehbare Datenvorschläge mit manueller Prüfung und Korrektur
 - geplante und tatsächliche Reise mit Verspätungs- und Ausfallerfassung
 - versionierte Ausgabe aus Deckblatt, offiziellem Formular, Ticket und Rechnung
+- geprüfte Aktualisierung von Formular und Bahn-Vorhersage-CSV im Browser
 - Statusverlauf von Entwurf über Versand bis zum Abschluss
 
 Bewusst außerhalb der ersten Produktstufe liegen unter anderem
@@ -108,7 +109,7 @@ Kompilierung ohne Warnungen und Tests gegen PostgreSQL.
 | --- | --- |
 | Vollständige Navigation und Dokumentstatus | [Dokumentationsindex](docs/README.md) |
 | Architektur, Fachgrenzen und Produktumfang | [Technische Übersicht](docs/architecture.md) |
-| Claims, Dokumente, Rail und Exports | [Kontextschnittstellen](docs/interfaces/README.md) |
+| Claims, Dokumente, Rail, Referenzdaten und Exports | [Kontextschnittstellen](docs/interfaces/README.md) |
 | Authentik/OIDC und Feldverschlüsselung | [Authentik-Integration](docs/integrations/authentik.md) |
 | Installation im Debian-LXC | [Deployment-Einstieg](docs/deployment/proxmox-lxc.md) |
 | Backup, Restore, Updates und Diagnose | [Betriebshandbuch](docs/deployment/operations.md) |
