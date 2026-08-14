@@ -26,7 +26,7 @@ Der Installer richtet folgende dauerhaft getrennte Pfade ein:
 | Runtime-Secrets | `/etc/fahrgastrechte/fahrgastrechte.env` | `root:fahrgastrechte`, `0640` |
 | Age-Backup-Identität | `/etc/fahrgastrechte/backup.agekey` | `root:root`, `0600` |
 | PostgreSQL | Debian-PostgreSQL-Datenverzeichnis | `postgres` |
-| Dokumente | `/var/lib/fahrgastrechte/documents` | `fahrgastrechte`, `0750` |
+| Dokumente und UI-verwaltete Datenquellen | `/var/lib/fahrgastrechte/documents` | `fahrgastrechte`, `0750` |
 | Formulartemplates | `/var/lib/fahrgastrechte/form-templates` | `root:fahrgastrechte`, `0750` |
 | verschlüsselte Backups | `/var/backups/fahrgastrechte` | `root:root`, `0700` |
 | versionierte Releases | `/opt/fahrgastrechte/releases` | `root:fahrgastrechte` |

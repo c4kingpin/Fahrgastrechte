@@ -2,9 +2,35 @@ defmodule Fahrgastrechte.Exports.Template do
   @moduledoc false
 
   alias Fahrgastrechte.Exports.FormManifest
+  alias Fahrgastrechte.ReferenceData
 
   @spec current() :: {:ok, map()} | {:error, :template_unavailable | :template_changed}
   def current do
+    case ReferenceData.current_file(:official_form) do
+      {:ok, managed} -> current_managed(managed)
+      {:error, :not_found} -> current_configured()
+      {:error, :storage_unavailable} -> {:error, :template_unavailable}
+    end
+  end
+
+  defp current_managed(%{version: version, path: path}) do
+    with true <- File.regular?(path),
+         {:ok, sha256} <- sha256(path),
+         true <- secure_compare(sha256, version.sha256),
+         {:ok, template} <- managed_template(version, path, sha256) do
+      {:ok, template}
+    else
+      false ->
+        if File.regular?(path),
+          do: {:error, :template_changed},
+          else: {:error, :template_unavailable}
+
+      _error ->
+        {:error, :template_changed}
+    end
+  end
+
+  defp current_configured do
     config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Exports)
     path = Keyword.fetch!(config, :template_path)
     expected_sha256 = Keyword.fetch!(config, :template_sha256)
@@ -32,6 +58,29 @@ defmodule Fahrgastrechte.Exports.Template do
 
       _error ->
         {:error, :template_unavailable}
+    end
+  end
+
+  defp managed_template(version, path, sha256) do
+    metadata = version.metadata
+    required_fields = metadata["required_fields"]
+    radio_values = metadata["radio_values"]
+    intentionally_blank = metadata["intentionally_blank"]
+
+    if string_list?(required_fields) and radio_values?(radio_values) and
+         string_list?(intentionally_blank) and is_binary(version.source_url) do
+      {:ok,
+       %{
+         source: version.source_url,
+         version: version.version,
+         sha256: sha256,
+         path: path,
+         required_fields: required_fields,
+         radio_values: radio_values,
+         intentionally_blank: intentionally_blank
+       }}
+    else
+      {:error, :invalid_metadata}
     end
   end
 
@@ -88,4 +137,13 @@ defmodule Fahrgastrechte.Exports.Template do
        do: Plug.Crypto.secure_compare(left, right)
 
   defp secure_compare(_left, _right), do: false
+
+  defp radio_values?(values) when is_map(values) do
+    Enum.all?(values, fn {field, options} -> is_binary(field) and string_list?(options) end)
+  end
+
+  defp radio_values?(_values), do: false
+
+  defp string_list?(values) when is_list(values), do: Enum.all?(values, &is_binary/1)
+  defp string_list?(_values), do: false
 end

@@ -35,11 +35,14 @@ Verbindungssuche werden als `:rate_limited`, `:timeout`, `:not_found` oder
 
 `Fahrgastrechte.Rail.Providers.BahnVorhersageArchive` arbeitet ausschließlich
 mit einer lokal bereitgestellten, read-only CSV-Projektion des in C00
-dokumentierten Schemas. Es gibt keine Web- oder API-Aufrufe. Konfiguriert werden
-`BAHNVORHERSAGE_DATA_PATH` und `BAHNVORHERSAGE_DATASET_VERSION`. Fehlt die Datei
-oder deckt sie den Zeitraum nicht ab, folgt sofort `:history_unavailable` und
-damit der manuelle Ersatzweg. Nur finale Werte werden als `actual_at`
-normalisiert; sonst bleibt `time_real` eine Prognose.
+dokumentierten Schemas. Es gibt keine Web- oder API-Aufrufe. Eine über
+`/datenquellen` aktivierte Version hat Vorrang; andernfalls dienen
+`BAHNVORHERSAGE_DATA_PATH` und `BAHNVORHERSAGE_DATASET_VERSION` als
+Betriebs-Fallback. Vor der Aktivierung prüft `ReferenceData` Pflichtspalten,
+Zeitabdeckung, Dateigröße und mindestens einen verwertbaren Sollzeitwert. Fehlt
+die Datei oder deckt sie den Zeitraum nicht ab, folgt sofort
+`:history_unavailable` und damit der manuelle Ersatzweg. Nur finale Werte werden
+als `actual_at` normalisiert; sonst bleibt `time_real` eine Prognose.
 
 ## Bestätigte Reisen
 
