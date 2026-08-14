@@ -269,8 +269,14 @@ defmodule FahrgastrechteWeb.CoreComponents do
     """
   end
 
-  # All other inputs text, datetime-local, url, password, etc. are handled here...
+  # Date inputs use deterministic German text formats instead of browser locale controls.
   def input(assigns) do
+    assigns =
+      assigns
+      |> assign(:html_type, localized_input_type(assigns.type))
+      |> assign(:normalized_value, localized_input_value(assigns.type, assigns.value))
+      |> assign(:rest, localized_input_rest(assigns.type, assigns.rest))
+
     ~H"""
     <div class="mb-2">
       <label for={@id} class="block">
@@ -278,10 +284,10 @@ defmodule FahrgastrechteWeb.CoreComponents do
           {@label}
         </span>
         <input
-          type={@type}
+          type={@html_type}
           name={@name}
           id={@id}
-          value={Phoenix.HTML.Form.normalize_value(@type, @value)}
+          value={@normalized_value}
           aria-invalid={if(@errors != [], do: "true", else: nil)}
           aria-describedby={if(@errors != [], do: "#{@id}-errors", else: nil)}
           class={[
@@ -299,6 +305,50 @@ defmodule FahrgastrechteWeb.CoreComponents do
     </div>
     """
   end
+
+  defp localized_input_type(type) when type in ["date", "datetime-local"], do: "text"
+  defp localized_input_type(type), do: type
+
+  defp localized_input_value("date", %Date{} = value),
+    do: Calendar.strftime(value, "%d.%m.%Y")
+
+  defp localized_input_value("date", value) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> Calendar.strftime(date, "%d.%m.%Y")
+      {:error, _reason} -> value
+    end
+  end
+
+  defp localized_input_value("datetime-local", %NaiveDateTime{} = value),
+    do: Calendar.strftime(value, "%d.%m.%Y, %H:%M")
+
+  defp localized_input_value("datetime-local", value) when is_binary(value) do
+    normalized = if String.length(value) == 16, do: value <> ":00", else: value
+
+    case NaiveDateTime.from_iso8601(normalized) do
+      {:ok, datetime} -> Calendar.strftime(datetime, "%d.%m.%Y, %H:%M")
+      {:error, _reason} -> value
+    end
+  end
+
+  defp localized_input_value(type, value),
+    do: Phoenix.HTML.Form.normalize_value(type, value)
+
+  defp localized_input_rest("date", rest) do
+    rest
+    |> Map.put_new(:autocomplete, "off")
+    |> Map.put_new(:inputmode, "numeric")
+    |> Map.put_new(:placeholder, "TT.MM.JJJJ")
+  end
+
+  defp localized_input_rest("datetime-local", rest) do
+    rest
+    |> Map.put_new(:autocomplete, "off")
+    |> Map.put_new(:inputmode, "numeric")
+    |> Map.put_new(:placeholder, "TT.MM.JJJJ, HH:MM")
+  end
+
+  defp localized_input_rest(_type, rest), do: rest
 
   # Helper used by inputs to generate form errors
   defp error(assigns) do

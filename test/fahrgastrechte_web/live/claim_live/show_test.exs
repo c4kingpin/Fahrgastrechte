@@ -55,7 +55,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     view
     |> form("#claim-form",
       claim: %{
-        "travel_date" => "2026-08-03",
+        "travel_date" => "03.08.2026",
         "origin" => "Leipzig Hbf",
         "destination" => "Dresden Hbf",
         "journey_outcome" => "aborted",
@@ -73,6 +73,29 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert updated.disruption_cause == :cancellation
     assert updated.journey_direction == :return
     assert has_element?(view, "#claim-save-state")
+  end
+
+  test "renders deterministic German date and 24-hour time formats", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope, %{"travel_date" => ~D[2026-08-02]})
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(
+             view,
+             "#claim-travel-date[type=text][value='02.08.2026'][placeholder='TT.MM.JJJJ']"
+           )
+
+    assert has_element?(
+             view,
+             "#connection-departure-at[type=text][value='02.08.2026, 08:00']"
+           )
+
+    assert has_element?(
+             view,
+             "input[name='planned[scheduled_departure]'][type=text][value='02.08.2026, 08:00']"
+           )
+
+    refute has_element?(view, "input[type=date], input[type=datetime-local]")
   end
 
   test "automatically uploads and analyzes a ticket, then applies a traceable route suggestion",
