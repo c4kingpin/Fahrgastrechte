@@ -69,12 +69,18 @@ defmodule Fahrgastrechte.Accounts do
   @doc """
   Returns a profile changeset for the current user.
   """
-  @spec change_profile(Scope.t(), map()) :: Changeset.t() | {:error, atom()}
-  def change_profile(scope, attrs \\ %{}) do
+  @spec change_profile(Scope.t() | Profile.t(), map()) :: Changeset.t() | {:error, atom()}
+  def change_profile(profile_or_scope, attrs \\ %{})
+
+  def change_profile(%Profile{} = profile, attrs), do: Profile.changeset(profile, attrs)
+
+  def change_profile(%Scope{} = scope, attrs) do
     with {:ok, profile} <- get_profile(scope) do
       Profile.changeset(profile, attrs)
     end
   end
+
+  def change_profile(_scope, _attrs), do: {:error, :not_authenticated}
 
   @doc """
   Updates only the current user's profile.
@@ -97,28 +103,37 @@ defmodule Fahrgastrechte.Accounts do
   def update_profile(_scope, _attrs), do: {:error, :not_authenticated}
 
   @doc """
-  Reports whether every field needed for a Fahrgastrechte form is present.
+  Loads and decrypts the profile once and returns its explicit completeness state.
   """
-  @spec profile_complete?(Scope.t()) :: boolean()
-  def profile_complete?(scope) do
-    profile_missing_fields(scope) == []
+  @spec profile_completeness(Scope.t()) :: {:ok, map()} | {:error, atom()}
+  def profile_completeness(%Scope{} = scope) do
+    with {:ok, profile} <- get_profile(scope) do
+      missing_fields = profile_missing_fields(profile)
+
+      {:ok,
+       %{
+         profile: profile,
+         missing_fields: missing_fields,
+         complete?: missing_fields == []
+       }}
+    end
   end
+
+  def profile_completeness(_scope), do: {:error, :not_authenticated}
+
+  @doc "Reports whether every field needed for a Fahrgastrechte form is present."
+  @spec profile_complete?(Profile.t()) :: boolean()
+  def profile_complete?(%Profile{} = profile), do: profile_missing_fields(profile) == []
 
   @doc """
   Lists the required profile fields which are still empty.
   """
-  @spec profile_missing_fields(Scope.t()) :: [atom()]
-  def profile_missing_fields(scope) do
-    case get_profile(scope) do
-      {:ok, profile} ->
-        Enum.filter(Profile.required_fields(), fn field ->
-          value = Map.fetch!(profile, field)
-          is_nil(value) or value == ""
-        end)
-
-      {:error, _reason} ->
-        Profile.required_fields()
-    end
+  @spec profile_missing_fields(Profile.t()) :: [atom()]
+  def profile_missing_fields(%Profile{} = profile) do
+    Enum.filter(Profile.required_fields(), fn field ->
+      value = Map.fetch!(profile, field)
+      is_nil(value) or value == ""
+    end)
   end
 
   defp encrypt_bank_changes(%Changeset{valid?: false} = changeset), do: changeset

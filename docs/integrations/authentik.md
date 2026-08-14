@@ -91,6 +91,10 @@ Geschützte Controller verwenden die Pipeline `:authenticated`; geschützte
 LiveViews die gleichnamige `live_session` mit `UserAuth.on_mount/4`.
 Kontextfunktionen für benutzerbezogene Daten erwarten immer diesen Scope.
 
+Beim verbundenen Mount plant der Auth-Hook zusätzlich einen Timer bis
+`session_expires_at`. Nach dessen Ablauf beendet er die laufende LiveView-Nutzung
+mit einem Hinweis und einer Weiterleitung zur öffentlichen Startseite; ein
+offener WebSocket verlängert die Sitzung daher nicht.
 Session-Cookies sind verschlüsselt und signiert sowie explizit `HttpOnly`,
 `SameSite=Lax` und in Produktion `Secure`. Nur `dev` und `test` erlauben Cookies
 über lokales HTTP.

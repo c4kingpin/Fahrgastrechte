@@ -24,7 +24,7 @@ Documents.put_document(
 Documents.get_document(current_scope, document_id)
 Documents.list_documents(current_scope, claim_id)
 Documents.stream_document(current_scope, document_id)
-Documents.delete_document(current_scope, document_id, expected_claim_lock_version)
+Documents.delete_document(current_scope, claim_id, document_id, expected_claim_lock_version)
 Documents.delete_claim(current_scope, claim_id, expected_claim_lock_version)
 ```
 
@@ -64,15 +64,22 @@ verwendende koordinierte Endpunkt; ein direkter Aufruf von
 ## Tickets
 
 ```elixir
-Tickets.analyze_document(current_scope, document_id)
+Tickets.analyze_document(current_scope, claim_id, document_id)
 Tickets.list_suggestions(current_scope, document_id)
-Tickets.set_suggestion_state(current_scope, suggestion_id, state)
+Tickets.set_suggestion_state(current_scope, claim_id, suggestion_id, state)
+Tickets.set_suggestion_states(current_scope, claim_id, suggestion_ids, state)
 ```
 
-`analyze_document/2` verwendet Popplers `pdftotext -layout -enc UTF-8` in
+`analyze_document/3` verwendet Popplers `pdftotext -layout -enc UTF-8` in
 einem begrenzten, überwachten Prozess. Es findet keine OCR-Ausführung statt.
 Erneute Analyse ersetzt alle früheren Vorschläge; neue Vorschläge beginnen
 immer im Zustand `proposed`.
+
+Alle Dokument- und Vorschlagsmutationen prüfen neben dem Benutzer-Scope die
+übergebene `claim_id` direkt im Kontext. Eine Dokument- oder Vorschlags-ID aus
+einem anderen Antrag desselben Benutzers liefert `:not_found`; die Webschicht
+ist damit nicht die einzige Sicherheitsgrenze. C06 startet PDF-Analysen über
+`start_async/3`, damit Poppler-Arbeit den LiveView-Prozess nicht blockiert.
 
 Jeder Vorschlag enthält:
 

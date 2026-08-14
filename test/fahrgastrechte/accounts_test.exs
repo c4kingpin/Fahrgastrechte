@@ -93,8 +93,8 @@ defmodule Fahrgastrechte.AccountsTest do
       assert raw_profile.iban_ciphertext == nil
       assert is_binary(raw_profile.bic_ciphertext)
       assert raw_profile.bank_data_key_version == 1
-      refute Accounts.profile_complete?(scope)
-      assert :iban in Accounts.profile_missing_fields(scope)
+      refute Accounts.profile_complete?(updated_profile)
+      assert :iban in Accounts.profile_missing_fields(updated_profile)
     end
 
     test "detects modified ciphertext" do
@@ -106,6 +106,7 @@ defmodule Fahrgastrechte.AccountsTest do
       |> Repo.update!()
 
       assert {:error, :invalid_ciphertext} = Accounts.get_profile(scope)
+      assert {:error, :invalid_ciphertext} = Accounts.profile_completeness(scope)
     end
 
     test "validates IBAN before encryption" do
@@ -120,12 +121,13 @@ defmodule Fahrgastrechte.AccountsTest do
     test "reports completeness from decrypted required fields" do
       scope = scope_fixture()
 
-      refute Accounts.profile_complete?(scope)
-      assert :first_name in Accounts.profile_missing_fields(scope)
+      assert {:ok, initial} = Accounts.profile_completeness(scope)
+      refute initial.complete?
+      assert :first_name in initial.missing_fields
 
-      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
-      assert Accounts.profile_complete?(scope)
-      assert Accounts.profile_missing_fields(scope) == []
+      assert {:ok, profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      assert Accounts.profile_complete?(profile)
+      assert Accounts.profile_missing_fields(profile) == []
     end
 
     test "a scope cannot be replaced by a bare user id" do

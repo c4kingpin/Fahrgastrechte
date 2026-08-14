@@ -260,6 +260,38 @@ defmodule Fahrgastrechte.RailTest do
                  claim.lock_version
                )
     end
+
+    test "clears summary overrides that reference replaced automatic segments" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      actual =
+        journey_fixture(scope, claim, :actual, [
+          segment_attributes()
+        ])
+
+      segment = hd(actual.segments)
+
+      assert {:ok, %{claim: claim}} =
+               Rail.set_summary_overrides(
+                 scope,
+                 claim.id,
+                 %{first_disrupted_segment_id: segment.id},
+                 claim.lock_version
+               )
+
+      assert {:ok, %{journey: refreshed}} =
+               Rail.refresh_journey(
+                 scope,
+                 claim.id,
+                 :actual,
+                 [segment_attributes(%{train_number: "200"})],
+                 claim.lock_version
+               )
+
+      assert refreshed.first_disrupted_segment_id == nil
+      assert Enum.all?(refreshed.segments, &(&1.id != segment.id))
+    end
   end
 
   describe "outcome-aware export readiness" do

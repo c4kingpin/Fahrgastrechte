@@ -174,13 +174,13 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     suggestions =
       Enum.flat_map(documents, fn document ->
         {:ok, %{suggestions: document_suggestions}} =
-          Tickets.analyze_document(scope, document.id)
+          Tickets.analyze_document(scope, claim.id, document.id)
 
         document_suggestions
       end)
 
     {:ok, _accepted} =
-      Tickets.set_suggestion_states(scope, Enum.map(suggestions, & &1.id), :accepted)
+      Tickets.set_suggestion_states(scope, claim.id, Enum.map(suggestions, & &1.id), :accepted)
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#generate-export-button:not([disabled])")
@@ -189,6 +189,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert has_element?(view, "#claim-step-tatsaechliche-reise[data-state=confirmed]")
 
     view |> element("#generate-export-button") |> render_click()
+    render_async(view, 5_000)
 
     assert {:ok, [export]} = Exports.list_exports(scope, claim.id)
     assert has_element?(view, "#download-export-#{export.id}")
