@@ -675,19 +675,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                   role="status"
                   aria-live="polite"
                   class={[
-                    "group inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold data-[state=saving]:bg-sky-50 data-[state=saving]:text-sky-700",
+                    "inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold phx-change-loading:bg-sky-50 phx-change-loading:text-sky-700",
                     save_state_style(@save_state)
                   ]}
                 >
                   <.icon
                     name="hero-arrow-path"
-                    class="hidden size-4 motion-safe:animate-spin group-data-[state=saving]:block"
+                    class="hidden size-4 motion-safe:animate-spin phx-change-loading:block"
                   />
-                  <span class="size-2 rounded-full bg-current group-data-[state=saving]:hidden"></span>
-                  <span data-save-label="result" class="group-data-[state=saving]:hidden">
+                  <span class="size-2 rounded-full bg-current phx-change-loading:hidden"></span>
+                  <span data-save-label="result" class="phx-change-loading:hidden">
                     {save_state_label(@save_state)}
                   </span>
-                  <span data-save-label="saving" class="hidden group-data-[state=saving]:inline">
+                  <span data-save-label="saving" class="hidden phx-change-loading:inline">
                     Speichert …
                   </span>
                 </span>
@@ -696,10 +696,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               <.form
                 for={@claim_form}
                 id="claim-form"
-                phx-change={
-                  JS.set_attribute({"data-state", "saving"}, to: "#claim-save-state")
-                  |> JS.push("claim_autosave")
-                }
+                phx-change={JS.push("claim_autosave", loading: "#claim-save-state")}
                 phx-submit="claim_save"
                 class={["mt-6 space-y-5"]}
               >
