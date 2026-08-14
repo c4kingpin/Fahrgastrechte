@@ -10,9 +10,9 @@ defmodule FahrgastrechteWeb.ClaimLive.AssistantTest do
   alias FahrgastrechteWeb.UserAuth
 
   @steps [
-    {"falldaten", "#claim-data-section"},
     {"dokumente", "#claim-documents-section"},
     {"vorschlaege", "#ticket-suggestions-section"},
+    {"falldaten", "#claim-data-section"},
     {"geplante-reise", "#planned-journey-section"},
     {"tatsaechliche-reise", "#actual-journey-section"},
     {"pruefung", "#claim-review-export-section"}
@@ -28,7 +28,7 @@ defmodule FahrgastrechteWeb.ClaimLive.AssistantTest do
       assert has_element?(view, "#claim-step-#{slug}[aria-current=step]")
       assert has_element?(view, "#claim-step-mobile-navigation")
 
-      if slug == "falldaten" do
+      if slug == "dokumente" do
         assert has_element?(view, "#claim-step-back[href=\"/antraege\"]")
       end
     end
@@ -39,7 +39,10 @@ defmodule FahrgastrechteWeb.ClaimLive.AssistantTest do
     assert {:ok, claim} = Claims.create_claim(scope, %{})
 
     assert {:ok, empty_view, _html} = live(conn, ~p"/antraege/#{claim.id}")
-    assert has_element?(empty_view, "#claim-data-section:not([hidden])[data-state=open]")
+    assert has_element?(empty_view, "#claim-documents-section:not([hidden])[data-state=open]")
+    assert has_element?(empty_view, "#claim-stepper li:first-child #claim-step-dokumente")
+    assert has_element?(empty_view, "#claim-stepper li:nth-child(2) #claim-step-vorschlaege")
+    assert has_element?(empty_view, "#claim-stepper li:nth-child(3) #claim-step-falldaten")
 
     assert {:ok, partial} =
              Claims.update_claim(scope, claim.id, %{"origin" => "Berlin Hbf"}, claim.lock_version)
