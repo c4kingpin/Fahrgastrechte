@@ -2191,6 +2191,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   defp persist_claim(socket, params, show_flash?) do
+    params = normalize_claim_dates(params)
+
     case Claims.update_claim(
            socket.assigns.current_scope,
            socket.assigns.claim.id,
@@ -2720,9 +2722,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp build_transfer_segments(first, _params), do: {:ok, [first]}
 
   defp parse_datetime(value) when is_binary(value) do
-    normalized = if String.length(value) == 16, do: value <> ":00", else: value
-
-    with {:ok, naive} <- NaiveDateTime.from_iso8601(normalized),
+    with {:ok, naive} <- parse_local_naive_datetime(value),
          {:ok, utc} <- BerlinTime.from_local(naive) do
       {:ok, utc}
     else
@@ -2733,6 +2733,55 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp parse_datetime(_value), do: {:error, :invalid_datetime}
   defp parse_optional_datetime(value) when value in [nil, ""], do: {:ok, nil}
   defp parse_optional_datetime(value), do: parse_datetime(value)
+
+  defp parse_local_naive_datetime(value) do
+    normalized = if String.length(value) == 16, do: value <> ":00", else: value
+
+    case NaiveDateTime.from_iso8601(normalized) do
+      {:ok, datetime} -> {:ok, datetime}
+      {:error, _reason} -> parse_german_datetime(value)
+    end
+  end
+
+  defp parse_german_datetime(value) do
+    case Regex.run(
+           ~r/^\s*(\d{2})\.(\d{2})\.(\d{4}),?\s+(\d{2}):(\d{2})\s*$/,
+           value,
+           capture: :all_but_first
+         ) do
+      [day, month, year, hour, minute] ->
+        with {:ok, date} <- Date.new(integer!(year), integer!(month), integer!(day)),
+             {:ok, time} <- Time.new(integer!(hour), integer!(minute), 0) do
+          NaiveDateTime.new(date, time)
+        end
+
+      _no_match ->
+        {:error, :invalid_format}
+    end
+  end
+
+  defp normalize_claim_dates(%{"travel_date" => value} = params) do
+    case parse_german_date(value) do
+      {:ok, date} -> Map.put(params, "travel_date", Date.to_iso8601(date))
+      {:error, _reason} -> params
+    end
+  end
+
+  defp normalize_claim_dates(params), do: params
+
+  defp parse_german_date(value) when is_binary(value) do
+    case Regex.run(~r/^\s*(\d{2})\.(\d{2})\.(\d{4})\s*$/, value, capture: :all_but_first) do
+      [day, month, year] -> Date.new(integer!(year), integer!(month), integer!(day))
+      _no_match -> Date.from_iso8601(value)
+    end
+  end
+
+  defp parse_german_date(_value), do: {:error, :invalid_format}
+
+  defp integer!(value) do
+    {integer, ""} = Integer.parse(value)
+    integer
+  end
 
   defp validate_order(from, until) do
     if DateTime.compare(until, from) == :lt,
