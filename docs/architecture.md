@@ -35,6 +35,13 @@ noch zum Ändern. Authentifizierte Seiten und Dokumentdownloads werden mit
 | `Rail` | Provider, Snapshots, geplante/tatsächliche Reise und manuelle Korrektur |
 | `Exports` | Exportbereitschaft, offizielles Formular und versioniertes Gesamt-PDF |
 
+`Fahrgastrechte.ClaimWorkspace` liegt als Anwendungsgrenze über diesen
+Fachkontexten. Es lädt über deren öffentliche APIs genau einen gescopten
+`ClaimWorkspace.ReadModel`-Snapshot und koordiniert kontextübergreifende
+Aktionen, die gemeinsam erfolgreich sein oder zurückgerollt werden müssen.
+Indizierte Dokument- und Vorschlagsmengen verhindern zusätzliche Abfragen
+während Event-Verarbeitung und Rendering.
+
 Die öffentlichen Kontextverträge für C02 bis C05 sind unter
 [`docs/interfaces/`](interfaces/README.md) beschrieben. Verbindliche technische
 Entscheidungen stehen als [ADR](decisions/README.md); der historische
@@ -53,6 +60,15 @@ Komponenten- und Wellenplan liegt getrennt unter
 5. `Exports` prüft alle Kontexte und veröffentlicht Deckblatt, Formular und
    Gesamt-PDF gemeinsam mit einer unveränderlichen Exportversion.
 6. `Claims` verfolgt anschließend Versand und Abschluss.
+
+### Webschicht
+
+`FahrgastrechteWeb.ClaimLive.Show` verantwortet Mount, Schrittnavigation und
+Event-Dispatch. Die sechs Arbeitsbereiche rendert es über reine Function
+Components in `ClaimLive.Components`; gemeinsame Beschriftungen und
+Formatierungen liegen in `ClaimLive.Presentation`. Die Webschicht leitet
+fachliche Entscheidungen und mehrteilige Mutationen an `ClaimWorkspace`
+weiter und konsumiert dessen geprüftes Read Model.
 
 ### Konsistenz
 

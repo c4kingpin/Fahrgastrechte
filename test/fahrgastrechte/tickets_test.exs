@@ -262,6 +262,28 @@ defmodule Fahrgastrechte.TicketsTest do
   end
 
   describe "suggestion scoping" do
+    test "loads all current claim suggestions through one scoped read" do
+      scope = scope_fixture()
+      foreign_scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+      assert {:ok, %{suggestions: ticket_suggestions}} =
+               Tickets.analyze_document(scope, claim.id, ticket.id)
+
+      assert {:ok, %{suggestions: invoice_suggestions}} =
+               Tickets.analyze_document(scope, claim.id, invoice.id)
+
+      assert {:ok, suggestions} = Tickets.list_claim_suggestions(scope, claim.id)
+
+      assert Enum.sort(Enum.map(suggestions, & &1.id)) ==
+               Enum.sort(Enum.map(ticket_suggestions ++ invoice_suggestions, & &1.id))
+
+      assert {:error, :not_found} = Tickets.list_claim_suggestions(foreign_scope, claim.id)
+      assert {:error, :not_authenticated} = Tickets.list_claim_suggestions(nil, claim.id)
+    end
+
     test "user A cannot read, analyze or confirm user B's suggestions" do
       first_scope = scope_fixture()
       second_scope = scope_fixture()
