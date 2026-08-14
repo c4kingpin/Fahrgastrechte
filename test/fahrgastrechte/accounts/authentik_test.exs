@@ -139,6 +139,24 @@ defmodule Fahrgastrechte.Accounts.AuthentikTest do
              Authentik.validate_callback(valid_callback(), valid_flow())
   end
 
+  test "rejects encrypted ID tokens with a specific diagnostic", %{signing_key: signing_key} do
+    stub_name = {__MODULE__, :encrypted_id_token}
+    put_provider_config(plug: {Req.Test, stub_name})
+    stub_provider(stub_name, signing_key, "header.encrypted-key.iv.ciphertext.tag")
+
+    assert {:error, :encrypted_id_token_not_supported} =
+             Authentik.validate_callback(valid_callback(), valid_flow())
+  end
+
+  test "rejects malformed ID tokens with a specific diagnostic", %{signing_key: signing_key} do
+    stub_name = {__MODULE__, :malformed_id_token}
+    put_provider_config(plug: {Req.Test, stub_name})
+    stub_provider(stub_name, signing_key, "not-a-compact-token")
+
+    assert {:error, :invalid_id_token_format} =
+             Authentik.validate_callback(valid_callback(), valid_flow())
+  end
+
   test "rejects discovery documents from another issuer" do
     stub_name = {__MODULE__, :issuer_mismatch}
     put_provider_config(plug: {Req.Test, stub_name})

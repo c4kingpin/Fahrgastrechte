@@ -255,6 +255,19 @@ defmodule Fahrgastrechte.Accounts.Authentik do
        do: {:error, :id_token_too_large}
 
   defp validate_id_token(id_token, session_state, discovery, config) do
+    case String.split(id_token, ".", parts: 6) do
+      [_header, _claims, _signature] ->
+        validate_signed_id_token(id_token, session_state, discovery, config)
+
+      [_header, _encrypted_key, _iv, _ciphertext, _tag] ->
+        {:error, :encrypted_id_token_not_supported}
+
+      _other ->
+        {:error, :invalid_id_token_format}
+    end
+  end
+
+  defp validate_signed_id_token(id_token, session_state, discovery, config) do
     try do
       with {:ok, header} <- token_header(id_token),
            {:ok, algorithm} <- allowed_algorithm(header, config),
@@ -265,16 +278,16 @@ defmodule Fahrgastrechte.Accounts.Authentik do
         {:ok, claims}
       end
     rescue
-      _exception -> {:error, :invalid_id_token}
+      _exception -> {:error, :id_token_validation_exception}
     catch
-      _kind, _reason -> {:error, :invalid_id_token}
+      _kind, _reason -> {:error, :id_token_validation_exception}
     end
   end
 
   defp token_header(id_token) do
     case id_token |> JOSE.JWT.peek_protected() |> JOSE.JWS.to_map() do
       {_metadata, header} when is_map(header) -> {:ok, header}
-      _other -> {:error, :invalid_id_token}
+      _other -> {:error, :invalid_id_token_header}
     end
   end
 
