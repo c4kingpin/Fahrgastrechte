@@ -5,14 +5,23 @@ defmodule FahrgastrechteWeb.ProfileLive do
 
   @impl true
   def mount(params, _session, socket) do
-    changeset = Accounts.change_profile(socket.assigns.current_scope)
+    case Accounts.profile_completeness(socket.assigns.current_scope) do
+      {:ok, completeness} ->
+        changeset = Accounts.change_profile(completeness.profile)
 
-    {:ok,
-     socket
-     |> assign(:page_title, "Reisendenprofil")
-     |> assign(:return_claim_id, valid_claim_id(params["antrag"]))
-     |> assign(:profile_complete?, Accounts.profile_complete?(socket.assigns.current_scope))
-     |> assign_form(changeset)}
+        {:ok,
+         socket
+         |> assign(:page_title, "Reisendenprofil")
+         |> assign(:return_claim_id, valid_claim_id(params["antrag"]))
+         |> assign(:profile_complete?, completeness.complete?)
+         |> assign_form(changeset)}
+
+      {:error, _reason} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Dein Profil konnte nicht sicher entschlüsselt werden.")
+         |> redirect(to: ~p"/")}
+    end
   end
 
   @impl true
@@ -27,14 +36,12 @@ defmodule FahrgastrechteWeb.ProfileLive do
 
   def handle_event("profile_save", %{"profile" => profile_params}, socket) do
     case Accounts.update_profile(socket.assigns.current_scope, profile_params) do
-      {:ok, _profile} ->
-        changeset = Accounts.change_profile(socket.assigns.current_scope)
-
+      {:ok, profile} ->
         socket =
           socket
           |> put_flash(:info, "Dein Reisendenprofil wurde sicher gespeichert.")
-          |> assign(:profile_complete?, Accounts.profile_complete?(socket.assigns.current_scope))
-          |> assign_form(changeset)
+          |> assign(:profile_complete?, Accounts.profile_complete?(profile))
+          |> assign_form(Accounts.change_profile(profile))
 
         case socket.assigns.return_claim_id do
           nil -> {:noreply, socket}

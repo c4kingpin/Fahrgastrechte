@@ -28,7 +28,7 @@ defmodule Fahrgastrechte.TicketsTest do
       {document, _claim} = document_fixture(scope, claim)
 
       assert {:ok, %{document: analyzed, suggestions: suggestions}} =
-               Tickets.analyze_document(scope, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id)
 
       assert analyzed.analysis_status == :completed
       assert analyzed.analysis_error == nil
@@ -72,7 +72,9 @@ defmodule Fahrgastrechte.TicketsTest do
           path: fixture_path("synthetic-ticket-flexpreis-business.pdf")
         })
 
-      assert {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, document.id)
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id)
+
       by_field = Map.new(suggestions, &{&1.field, &1})
 
       assert by_field.travel_date.value == %{"date" => "2026-04-14"}
@@ -93,7 +95,9 @@ defmodule Fahrgastrechte.TicketsTest do
           original_filename: "invoice.pdf"
         })
 
-      assert {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, document.id)
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id)
+
       by_field = Map.new(suggestions, &{&1.field, &1})
 
       assert by_field.order_number.value == %{"text" => "000000000001"}
@@ -162,13 +166,18 @@ defmodule Fahrgastrechte.TicketsTest do
       claim = claim_fixture(scope)
       {document, _claim} = document_fixture(scope, claim)
 
-      {:ok, %{suggestions: first_suggestions}} = Tickets.analyze_document(scope, document.id)
+      {:ok, %{suggestions: first_suggestions}} =
+        Tickets.analyze_document(scope, claim.id, document.id)
+
       order_number = Enum.find(first_suggestions, &(&1.field == :order_number))
-      assert {:ok, accepted} = Tickets.set_suggestion_state(scope, order_number.id, :accepted)
+
+      assert {:ok, accepted} =
+               Tickets.set_suggestion_state(scope, claim.id, order_number.id, :accepted)
+
       assert accepted.state == :accepted
 
       assert {:ok, %{suggestions: second_suggestions}} =
-               Tickets.analyze_document(scope, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id)
 
       second_order_number = Enum.find(second_suggestions, &(&1.field == :order_number))
       assert second_order_number.id != order_number.id
@@ -184,7 +193,7 @@ defmodule Fahrgastrechte.TicketsTest do
       {document, _claim} = document_fixture(scope, claim)
 
       assert {:ok, %{document: analyzed, suggestions: []}} =
-               Tickets.analyze_document(scope, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id)
 
       assert analyzed.analysis_status == :manual_required
       assert analyzed.analysis_error == "no_text"
@@ -201,7 +210,7 @@ defmodule Fahrgastrechte.TicketsTest do
       |> Repo.update!()
 
       assert {:ok, %{document: analyzed, suggestions: []}} =
-               Tickets.analyze_document(scope, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id)
 
       assert analyzed.analysis_status == :manual_required
       assert analyzed.analysis_error == "encrypted"
@@ -214,7 +223,7 @@ defmodule Fahrgastrechte.TicketsTest do
       {document, _claim} = document_fixture(scope, claim)
 
       assert {:ok, %{document: analyzed, suggestions: []}} =
-               Tickets.analyze_document(scope, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id)
 
       assert analyzed.analysis_status == :failed
       assert analyzed.analysis_error == "timeout"
@@ -225,7 +234,8 @@ defmodule Fahrgastrechte.TicketsTest do
       claim = claim_fixture(scope)
       {document, _claim} = document_fixture(scope, claim, :generated_bundle)
 
-      assert {:error, :invalid_document_kind} = Tickets.analyze_document(scope, document.id)
+      assert {:error, :invalid_document_kind} =
+               Tickets.analyze_document(scope, claim.id, document.id)
     end
   end
 
@@ -235,33 +245,38 @@ defmodule Fahrgastrechte.TicketsTest do
       second_scope = scope_fixture()
       claim = claim_fixture(second_scope)
       {document, _claim} = document_fixture(second_scope, claim)
-      {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(second_scope, document.id)
+
+      {:ok, %{suggestions: suggestions}} =
+        Tickets.analyze_document(second_scope, claim.id, document.id)
+
       suggestion = hd(suggestions)
 
-      assert {:error, :not_found} = Tickets.analyze_document(first_scope, document.id)
+      assert {:error, :not_found} = Tickets.analyze_document(first_scope, claim.id, document.id)
       assert {:error, :not_found} = Tickets.list_suggestions(first_scope, document.id)
 
       assert {:error, :not_found} =
-               Tickets.set_suggestion_state(first_scope, suggestion.id, :accepted)
+               Tickets.set_suggestion_state(first_scope, claim.id, suggestion.id, :accepted)
 
       assert {:error, :not_found} =
                Tickets.set_suggestion_states(
                  first_scope,
+                 claim.id,
                  Enum.map(suggestions, & &1.id),
                  :accepted
                )
 
       assert {:ok, accepted} =
-               Tickets.set_suggestion_state(second_scope, suggestion.id, "accepted")
+               Tickets.set_suggestion_state(second_scope, claim.id, suggestion.id, "accepted")
 
       assert accepted.state == :accepted
 
       assert {:error, :invalid_state} =
-               Tickets.set_suggestion_state(second_scope, suggestion.id, "invented")
+               Tickets.set_suggestion_state(second_scope, claim.id, suggestion.id, "invented")
 
       assert {:ok, rejected} =
                Tickets.set_suggestion_states(
                  second_scope,
+                 claim.id,
                  Enum.map(suggestions, & &1.id),
                  :rejected
                )
@@ -269,17 +284,48 @@ defmodule Fahrgastrechte.TicketsTest do
       assert Enum.all?(rejected, &(&1.state == :rejected))
     end
 
+    test "rejects mutations bound to another claim owned by the same user" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      other_claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      {:ok, %{suggestions: suggestions}} =
+        Tickets.analyze_document(scope, claim.id, document.id)
+
+      suggestion = hd(suggestions)
+
+      assert {:error, :not_found} =
+               Tickets.analyze_document(scope, other_claim.id, document.id)
+
+      assert {:error, :not_found} =
+               Tickets.set_suggestion_state(scope, other_claim.id, suggestion.id, :rejected)
+
+      assert {:error, :not_found} =
+               Tickets.set_suggestion_states(
+                 scope,
+                 other_claim.id,
+                 [suggestion.id],
+                 :rejected
+               )
+
+      assert {:ok, [unchanged | _suggestions]} = Tickets.list_suggestions(scope, document.id)
+      assert unchanged.state == :proposed
+    end
+
     test "requires current_scope" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
       {document, _claim} = document_fixture(scope, claim)
 
-      assert {:error, :not_authenticated} = Tickets.analyze_document(nil, document.id)
+      assert {:error, :not_authenticated} = Tickets.analyze_document(nil, claim.id, document.id)
       assert {:error, :not_authenticated} = Tickets.list_suggestions(nil, document.id)
-      assert {:error, :not_authenticated} = Tickets.set_suggestion_state(nil, "id", :accepted)
 
       assert {:error, :not_authenticated} =
-               Tickets.set_suggestion_states(nil, ["id"], :accepted)
+               Tickets.set_suggestion_state(nil, claim.id, "id", :accepted)
+
+      assert {:error, :not_authenticated} =
+               Tickets.set_suggestion_states(nil, claim.id, ["id"], :accepted)
     end
   end
 

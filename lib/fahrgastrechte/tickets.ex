@@ -25,16 +25,16 @@ defmodule Fahrgastrechte.Tickets do
           | :analysis_failed
 
   @doc "Analyzes one current ticket or invoice and replaces its previous suggestions."
-  @spec analyze_document(Scope.t(), Ecto.UUID.t()) ::
+  @spec analyze_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
           {:ok, %{document: Document.t(), suggestions: [Suggestion.t()]}}
           | {:error, Changeset.t() | domain_error()}
-  def analyze_document(%Scope{} = scope, document_id) do
-    Documents.with_document_path(scope, document_id, fn path, document ->
+  def analyze_document(%Scope{} = scope, claim_id, document_id) do
+    Documents.with_document_path(scope, claim_id, document_id, fn path, document ->
       analyze_path(document, path)
     end)
   end
 
-  def analyze_document(_scope, _document_id), do: {:error, :not_authenticated}
+  def analyze_document(_scope, _claim_id, _document_id), do: {:error, :not_authenticated}
 
   @doc "Lists persisted suggestions only for an authorized current document."
   @spec list_suggestions(Scope.t(), Ecto.UUID.t()) ::
@@ -55,16 +55,22 @@ defmodule Fahrgastrechte.Tickets do
   def list_suggestions(_scope, _document_id), do: {:error, :not_authenticated}
 
   @doc "Marks a scoped suggestion accepted, rejected or proposed without changing its value."
-  @spec set_suggestion_state(Scope.t(), Ecto.UUID.t(), Suggestion.state() | String.t()) ::
+  @spec set_suggestion_state(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          Suggestion.state() | String.t()
+        ) ::
           {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
   def set_suggestion_state(
         %Scope{user: %User{id: user_id}},
+        claim_id,
         suggestion_id,
         requested_state
       )
       when is_binary(suggestion_id) do
     with {:ok, state} <- parse_state(requested_state),
-         %Suggestion{} = suggestion <- scoped_suggestion(user_id, suggestion_id) do
+         %Suggestion{} = suggestion <- scoped_suggestion(user_id, claim_id, suggestion_id) do
       suggestion
       |> Suggestion.state_changeset(state)
       |> Repo.update()
@@ -74,21 +80,27 @@ defmodule Fahrgastrechte.Tickets do
     end
   end
 
-  def set_suggestion_state(_scope, _suggestion_id, _state),
+  def set_suggestion_state(_scope, _claim_id, _suggestion_id, _state),
     do: {:error, :not_authenticated}
 
   @doc "Marks several scoped suggestions with one state in one transaction."
-  @spec set_suggestion_states(Scope.t(), [Ecto.UUID.t()], Suggestion.state() | String.t()) ::
+  @spec set_suggestion_states(
+          Scope.t(),
+          Ecto.UUID.t(),
+          [Ecto.UUID.t()],
+          Suggestion.state() | String.t()
+        ) ::
           {:ok, [Suggestion.t()]} | {:error, Changeset.t() | domain_error()}
   def set_suggestion_states(
         %Scope{user: %User{id: user_id}},
+        claim_id,
         suggestion_ids,
         requested_state
       )
       when is_list(suggestion_ids) do
     with {:ok, state} <- parse_state(requested_state),
          {:ok, parsed_ids} <- cast_ids(suggestion_ids),
-         suggestions <- scoped_suggestions(user_id, parsed_ids),
+         suggestions <- scoped_suggestions(user_id, claim_id, parsed_ids),
          true <- length(suggestions) == length(Enum.uniq(parsed_ids)) do
       Repo.transaction(fn ->
         Enum.map(suggestions, fn suggestion ->
@@ -103,7 +115,7 @@ defmodule Fahrgastrechte.Tickets do
     end
   end
 
-  def set_suggestion_states(_scope, _suggestion_ids, _state),
+  def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state),
     do: {:error, :not_authenticated}
 
   defp analyze_path(%Document{kind: kind}, _path) when kind not in [:ticket, :invoice],
@@ -196,14 +208,15 @@ defmodule Fahrgastrechte.Tickets do
     end
   end
 
-  defp scoped_suggestion(user_id, suggestion_id) do
+  defp scoped_suggestion(user_id, claim_id, suggestion_id) do
     case Ecto.UUID.cast(suggestion_id) do
       {:ok, parsed_id} ->
         Repo.one(
           from suggestion in Suggestion,
             join: document in assoc(suggestion, :document),
             where:
-              suggestion.id == ^parsed_id and document.user_id == ^user_id and
+              suggestion.id == ^parsed_id and document.claim_id == ^claim_id and
+                document.user_id == ^user_id and
                 document.current == true and is_nil(document.deletion_pending_at),
             select: suggestion
         )
@@ -213,12 +226,13 @@ defmodule Fahrgastrechte.Tickets do
     end
   end
 
-  defp scoped_suggestions(user_id, suggestion_ids) do
+  defp scoped_suggestions(user_id, claim_id, suggestion_ids) do
     Repo.all(
       from suggestion in Suggestion,
         join: document in assoc(suggestion, :document),
         where:
-          suggestion.id in ^suggestion_ids and document.user_id == ^user_id and
+          suggestion.id in ^suggestion_ids and document.claim_id == ^claim_id and
+            document.user_id == ^user_id and
             document.current == true and is_nil(document.deletion_pending_at),
         order_by: [asc: suggestion.field, asc: suggestion.id],
         select: suggestion

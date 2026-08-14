@@ -164,16 +164,20 @@ defmodule Fahrgastrechte.Exports do
   defp editable_claim(_claim, _expected), do: {:error, :not_editable}
 
   defp complete_profile(scope) do
-    missing = Accounts.profile_missing_fields(scope)
-
-    if missing == [] do
-      Accounts.get_profile(scope)
-    else
-      {:error,
-       %{
-         type: :incomplete,
-         errors: Enum.map(missing, &%{source: :profile, field: &1, code: :required})
-       }}
+    with {:ok, completeness} <- Accounts.profile_completeness(scope) do
+      if completeness.complete? do
+        {:ok, completeness.profile}
+      else
+        {:error,
+         %{
+           type: :incomplete,
+           errors:
+             Enum.map(
+               completeness.missing_fields,
+               &%{source: :profile, field: &1, code: :required}
+             )
+         }}
+      end
     end
   end
 
@@ -212,11 +216,21 @@ defmodule Fahrgastrechte.Exports do
   end
 
   defp render_and_publish(scope, model, template, work_dir) do
-    Documents.with_document_path(scope, model.ticket.id, fn ticket_path, _ticket ->
-      Documents.with_document_path(scope, model.invoice.id, fn invoice_path, _invoice ->
-        run_pipeline(scope, model, template, ticket_path, invoice_path, work_dir)
-      end)
-    end)
+    Documents.with_document_path(
+      scope,
+      model.claim.id,
+      model.ticket.id,
+      fn ticket_path, _ticket ->
+        Documents.with_document_path(
+          scope,
+          model.claim.id,
+          model.invoice.id,
+          fn invoice_path, _invoice ->
+            run_pipeline(scope, model, template, ticket_path, invoice_path, work_dir)
+          end
+        )
+      end
+    )
   end
 
   defp run_pipeline(scope, model, template, ticket_path, invoice_path, work_dir) do

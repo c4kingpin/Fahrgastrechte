@@ -68,6 +68,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_state, :idle)
           |> assign(:candidate_lookup, %{})
           |> assign(:export_state, :idle)
+          |> assign(:station_search_token, nil)
+          |> assign(:connection_search_token, nil)
+          |> assign(:analysis_tokens, %{})
           |> assign(:origin_station_options, [])
           |> assign(:destination_station_options, [])
           |> assign(:upload_forms, upload_forms())
@@ -146,12 +149,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("suggest_stations", %{"connection_search" => params}, socket) do
-    socket = assign(socket, :connection_search_form, to_form(params, as: :connection_search))
+    token = async_token()
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
 
-    {:noreply,
-     socket
-     |> assign_station_options(:origin, params["origin"])
-     |> assign_station_options(:destination, params["destination"])}
+    socket =
+      socket
+      |> assign(:connection_search_form, to_form(params, as: :connection_search))
+      |> assign(:station_search_token, token)
+
+    socket =
+      start_async(socket, {:station_options, token}, fn ->
+        station_options(scope, claim_id, params)
+      end)
+
+    {:noreply, socket}
   end
 
   def handle_event("save_suggestion_corrections", %{"correction" => params}, socket) do
@@ -169,30 +181,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("search_connections", %{"connection_search" => params}, socket) do
-    socket = assign(socket, :connection_search_form, to_form(params, as: :connection_search))
+    token = async_token()
+    scope = socket.assigns.current_scope
+    claim = socket.assigns.claim
 
-    case find_connections(socket, params) do
-      {:ok, candidates} ->
-        indexed = Enum.with_index(candidates, 1)
+    socket =
+      socket
+      |> assign(:connection_search_form, to_form(params, as: :connection_search))
+      |> assign(:connection_search_token, token)
+      |> assign(:candidate_lookup, %{})
+      |> assign(:connection_search_state, :loading)
+      |> stream(:connection_candidates, [], reset: true)
 
-        lookup =
-          Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
+    socket =
+      start_async(socket, {:connection_search, token}, fn ->
+        find_connections(scope, claim, params)
+      end)
 
-        items = Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
-
-        {:noreply,
-         socket
-         |> assign(:candidate_lookup, lookup)
-         |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
-         |> stream(:connection_candidates, items, reset: true)}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:candidate_lookup, %{})
-         |> assign(:connection_search_state, {:error, reason})
-         |> stream(:connection_candidates, [], reset: true)}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("choose_connection", %{"index" => index}, socket) do
@@ -293,39 +299,29 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("generate_export", _params, socket) do
-    socket = assign(socket, :export_state, :generating)
+    scope = socket.assigns.current_scope
+    claim = socket.assigns.claim
 
-    case Exports.generate_export(
-           socket.assigns.current_scope,
-           socket.assigns.claim.id,
-           socket.assigns.claim.lock_version
-         ) do
-      {:ok, %{claim: claim}} ->
-        {:noreply,
-         socket
-         |> assign(:export_state, :idle)
-         |> load_workspace(claim)
-         |> put_flash(:info, "Das druckfertige Gesamt-PDF wurde erstellt.")}
+    socket =
+      socket
+      |> assign(:export_state, :generating)
+      |> start_async(:generate_export, fn ->
+        Exports.generate_export(
+          scope,
+          claim.id,
+          claim.lock_version
+        )
+      end)
 
-      {:error, :stale} ->
-        {:noreply, handle_stale(socket)}
-
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:export_state, :idle)
-         |> put_flash(:error, export_error_message(reason))}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("reanalyze_document", %{"id" => document_id}, socket) do
-    with {:ok, _document} <- current_claim_document(socket, document_id),
-         {:ok, _analysis} <-
-           Tickets.analyze_document(socket.assigns.current_scope, document_id) do
+    with {:ok, document} <- current_claim_document(socket, document_id) do
       {:noreply,
        socket
-       |> refresh_workspace()
-       |> put_flash(:info, "Das Dokument wurde erneut ausgewertet.")}
+       |> start_document_analysis(document)
+       |> put_flash(:info, "Die erneute Auswertung wurde gestartet.")}
     else
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Die Auswertung konnte nicht gestartet werden.")}
@@ -337,6 +333,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
          {:ok, _claim_or_deleted} <-
            Documents.delete_document(
              socket.assigns.current_scope,
+             socket.assigns.claim.id,
              document_id,
              socket.assigns.claim.lock_version
            ) do
@@ -426,6 +423,112 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Der Antrag konnte nicht gelöscht werden.")}
+    end
+  end
+
+  @impl true
+  def handle_async({:station_options, token}, result, socket) do
+    socket =
+      case {token == socket.assigns.station_search_token, result} do
+        {false, _result} ->
+          socket
+
+        {true, {:ok, {origin_options, destination_options}}} ->
+          socket
+          |> assign(:origin_station_options, origin_options)
+          |> assign(:destination_station_options, destination_options)
+          |> assign(:station_search_token, nil)
+
+        {true, _failure} ->
+          socket
+          |> assign(:origin_station_options, [])
+          |> assign(:destination_station_options, [])
+          |> assign(:station_search_token, nil)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:connection_search, token}, result, socket) do
+    socket =
+      case {token == socket.assigns.connection_search_token, result} do
+        {false, _result} ->
+          socket
+
+        {true, {:ok, {:ok, candidates}}} ->
+          indexed = Enum.with_index(candidates, 1)
+
+          lookup =
+            Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
+
+          items =
+            Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
+
+          socket
+          |> assign(:candidate_lookup, lookup)
+          |> assign(:connection_search_token, nil)
+          |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
+          |> stream(:connection_candidates, items, reset: true)
+
+        {true, failure} ->
+          reason = async_failure_reason(failure)
+
+          socket
+          |> assign(:candidate_lookup, %{})
+          |> assign(:connection_search_token, nil)
+          |> assign(:connection_search_state, {:error, reason})
+          |> stream(:connection_candidates, [], reset: true)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async(:generate_export, result, socket) do
+    socket =
+      case result do
+        {:ok, {:ok, %{claim: claim}}} ->
+          socket
+          |> assign(:export_state, :idle)
+          |> load_workspace(claim)
+          |> put_flash(:info, "Das druckfertige Gesamt-PDF wurde erstellt.")
+
+        {:ok, {:error, :stale}} ->
+          handle_stale(socket)
+
+        failure ->
+          reason = async_failure_reason(failure)
+
+          socket
+          |> assign(:export_state, :idle)
+          |> put_flash(:error, export_error_message(reason))
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:analyze_document, document_id, token}, result, socket) do
+    if Map.get(socket.assigns.analysis_tokens, document_id) != token do
+      {:noreply, socket}
+    else
+      socket =
+        assign(
+          socket,
+          :analysis_tokens,
+          Map.delete(socket.assigns.analysis_tokens, document_id)
+        )
+
+      socket =
+        case result do
+          {:ok, {:ok, _analysis}} ->
+            socket
+            |> refresh_workspace()
+            |> put_flash(:info, "Das Dokument wurde ausgewertet.")
+
+          _failure ->
+            put_flash(socket, :error, "Das Dokument konnte nicht ausgewertet werden.")
+        end
+
+      {:noreply, socket}
     end
   end
 
@@ -1513,6 +1616,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
                 <.step_badge state={@export_state_label} />
               </div>
 
+              <div
+                :if={@profile_error}
+                id="profile-read-error"
+                class={["mt-6 rounded-2xl bg-rose-50 p-4 text-sm text-rose-900"]}
+              >
+                Das Reisendenprofil konnte nicht entschlüsselt werden. Bitte öffne das Profil erneut
+                oder wende dich an den Betrieb.
+              </div>
+
               <div id="review-checklist" class={["mt-6 grid gap-3 sm:grid-cols-2"]}>
                 <.review_check
                   label="Reisendenprofil"
@@ -2142,25 +2254,26 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp handle_progress(upload_name, _entry, socket) when upload_name in @upload_kinds,
     do: {:noreply, socket}
 
+  defp start_document_analysis(socket, document) do
+    token = async_token()
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
+
+    socket
+    |> assign(
+      :analysis_tokens,
+      Map.put(socket.assigns.analysis_tokens, document.id, token)
+    )
+    |> start_async({:analyze_document, document.id, token}, fn ->
+      Tickets.analyze_document(scope, claim_id, document.id)
+    end)
+  end
+
   defp handle_upload_result(socket, [{:ok, %{document: document, claim: claim}}]) do
-    analysis = Tickets.analyze_document(socket.assigns.current_scope, document.id)
-
-    socket =
-      socket
-      |> load_workspace(claim)
-      |> put_flash(:info, "Das Dokument wurde sicher gespeichert und automatisch ausgewertet.")
-
-    case analysis do
-      {:ok, _result} ->
-        refresh_workspace(socket)
-
-      {:error, _reason} ->
-        put_flash(
-          socket,
-          :error,
-          "Das Dokument ist gespeichert, konnte aber nicht ausgewertet werden."
-        )
-    end
+    socket
+    |> load_workspace(claim)
+    |> start_document_analysis(document)
+    |> put_flash(:info, "Das Dokument wurde sicher gespeichert. Die Auswertung läuft.")
   end
 
   defp handle_upload_result(socket, [{:error, reason}]) do
@@ -2196,6 +2309,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
          {:ok, _updated} <-
            Tickets.set_suggestion_states(
              socket.assigns.current_scope,
+             socket.assigns.claim.id,
              Enum.map(suggestions, & &1.id),
              :accepted
            ) do
@@ -2217,6 +2331,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp reject_suggestion_group(socket, suggestions) do
     case Tickets.set_suggestion_states(
            socket.assigns.current_scope,
+           socket.assigns.claim.id,
            Enum.map(suggestions, & &1.id),
            :rejected
          ) do
@@ -2247,29 +2362,38 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end)
   end
 
-  defp assign_station_options(socket, field, query) when field in [:origin, :destination] do
-    options =
-      if is_binary(query) && String.length(String.trim(query)) >= 2 do
-        case Rail.search_stations(
-               socket.assigns.current_scope,
-               socket.assigns.claim.id,
-               query
-             ) do
-          {:ok, stations} -> stations |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.take(8)
-          {:error, _reason} -> []
-        end
-      else
-        []
-      end
+  defp station_options(scope, claim_id, params) do
+    {
+      station_options_for(scope, claim_id, params["origin"]),
+      station_options_for(scope, claim_id, params["destination"])
+    }
+  end
 
-    assign(socket, String.to_existing_atom("#{field}_station_options"), options)
+  defp station_options_for(scope, claim_id, query) do
+    if is_binary(query) && String.length(String.trim(query)) >= 2 do
+      case Rail.search_stations(
+             scope,
+             claim_id,
+             query
+           ) do
+        {:ok, stations} -> stations |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.take(8)
+        {:error, _reason} -> []
+      end
+    else
+      []
+    end
   end
 
   defp accept_suggestion(socket, suggestion_id) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
          {:ok, claim} <- maybe_apply_suggestion(socket, suggestion),
          {:ok, _suggestion} <-
-           Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion.id, :accepted) do
+           Tickets.set_suggestion_state(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             suggestion.id,
+             :accepted
+           ) do
       socket
       |> load_workspace(claim)
       |> put_flash(:info, suggestion_accept_message(suggestion.field))
@@ -2288,7 +2412,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp update_suggestion_state(socket, suggestion_id, state) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
          {:ok, _suggestion} <-
-           Tickets.set_suggestion_state(socket.assigns.current_scope, suggestion.id, state) do
+           Tickets.set_suggestion_state(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             suggestion.id,
+             state
+           ) do
       socket
       |> refresh_workspace()
       |> put_flash(:info, "Der Vorschlag wurde verworfen.")
@@ -2388,7 +2517,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     suggestions_complete? =
       analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
 
-    profile_complete? = Accounts.profile_complete?(scope)
+    {profile_complete?, profile_error} =
+      case Accounts.profile_completeness(scope) do
+        {:ok, completeness} -> {completeness.complete?, nil}
+        {:error, reason} -> {false, reason}
+      end
+
     planned_complete? = journey_complete?(planned_journey, :planned)
     actual_complete? = actual_journey_complete?(claim, actual_journey)
 
@@ -2435,6 +2569,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:claim_complete?, claim_complete?)
     |> assign(:documents_complete?, documents_complete?)
     |> assign(:profile_complete?, profile_complete?)
+    |> assign(:profile_error, profile_error)
     |> assign(:planned_journey, planned_journey)
     |> assign(:actual_journey, actual_journey)
     |> assign(:suggestions_complete?, suggestions_complete?)
@@ -2475,10 +2610,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
-  defp find_connections(socket, params) do
-    scope = socket.assigns.current_scope
-    claim = socket.assigns.claim
-
+  defp find_connections(scope, claim, params) do
     with {:ok, departure_at} <- parse_datetime(params["departure_at"]),
          {:ok, [origin | _]} <- Rail.search_stations(scope, claim.id, params["origin"] || ""),
          {:ok, [destination | _]} <-
@@ -3205,6 +3337,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     do: "Der Antrag wurde geändert. Bitte versuche den Upload erneut."
 
   defp document_error_message(_reason), do: "Das Dokument konnte nicht sicher gespeichert werden."
+
+  defp async_failure_reason({:ok, {:error, reason}}), do: reason
+  defp async_failure_reason({:exit, _reason}), do: :async_failed
+  defp async_failure_reason(_result), do: :async_failed
+
+  defp async_token, do: System.unique_integer([:positive, :monotonic])
 
   defp documents_config(key) do
     :fahrgastrechte

@@ -87,7 +87,14 @@ defmodule FahrgastrechteWeb.UserAuth do
   def on_mount(:require_authenticated, _params, session, socket) do
     case scope_from_live_session(session) do
       {:ok, scope} ->
-        {:cont, Phoenix.Component.assign(socket, :current_scope, scope)}
+        expires_at = Map.fetch!(session, to_string(@session_expiry_key))
+
+        socket =
+          socket
+          |> Phoenix.Component.assign(:current_scope, scope)
+          |> enforce_live_session_expiry(expires_at)
+
+        {:cont, socket}
 
       {:error, reason} ->
         socket =
@@ -165,6 +172,37 @@ defmodule FahrgastrechteWeb.UserAuth do
 
   defp authentication_message(_reason),
     do: "Bitte melde dich an, um diesen Bereich zu öffnen."
+
+  defp enforce_live_session_expiry(socket, expires_at) do
+    if Phoenix.LiveView.connected?(socket) do
+      timeout_ms = max((expires_at - now()) * 1_000, 0)
+      message = {__MODULE__, :session_expired, expires_at}
+      Process.send_after(self(), message, timeout_ms)
+
+      Phoenix.LiveView.attach_hook(
+        socket,
+        :enforce_session_expiry,
+        :handle_info,
+        fn
+          ^message, socket ->
+            socket =
+              socket
+              |> Phoenix.LiveView.put_flash(
+                :error,
+                authentication_message(:session_expired)
+              )
+              |> Phoenix.LiveView.redirect(to: ~p"/")
+
+            {:halt, socket}
+
+          _message, socket ->
+            {:cont, socket}
+        end
+      )
+    else
+      socket
+    end
+  end
 
   defp now, do: System.system_time(:second)
 end

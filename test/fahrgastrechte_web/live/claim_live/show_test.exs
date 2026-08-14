@@ -10,6 +10,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Tickets
+  alias FahrgastrechteWeb.ClaimLive.Show
   alias FahrgastrechteWeb.UserAuth
 
   test "renders a scoped workspace with stable form and upload ids", %{conn: conn} do
@@ -23,6 +24,27 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert has_element?(view, "#invoice-upload-form")
     assert has_element?(view, "#ticket-suggestions")
     assert has_element?(view, "#delete-claim-button")
+  end
+
+  test "ignores a stale station search response" do
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        station_search_token: 2,
+        origin_station_options: ["Aktueller Start"],
+        destination_station_options: ["Aktuelles Ziel"]
+      }
+    }
+
+    assert {:noreply, unchanged} =
+             Show.handle_async(
+               {:station_options, 1},
+               {:ok, {["Veralteter Start"], ["Veraltetes Ziel"]}},
+               socket
+             )
+
+    assert unchanged.assigns.origin_station_options == ["Aktueller Start"]
+    assert unchanged.assigns.destination_station_options == ["Aktuelles Ziel"]
   end
 
   test "autosaves editable claim fields through the scoped context", %{conn: conn} do
@@ -75,6 +97,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
       ])
 
     render_upload(upload, "mein-ticket.pdf")
+    render_async(view)
 
     assert has_element?(view, "#ticket-document-card #download-ticket")
     assert has_element?(view, "#ticket-document-card #reanalyze-ticket")
@@ -118,6 +141,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
       ])
 
     render_upload(upload, "rechnung.pdf")
+    render_async(view)
 
     assert has_element?(view, "#delete-document-invoice")
     assert {:ok, [document]} = Documents.list_documents(scope, claim.id)
@@ -157,7 +181,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert unchanged.analysis_status == :not_started
 
     assert {:ok, %{suggestions: [suggestion | _suggestions]}} =
-             Tickets.analyze_document(scope, other_document.id)
+             Tickets.analyze_document(scope, other_claim.id, other_document.id)
 
     render_click(view, "set_suggestion_state", %{
       "id" => suggestion.id,
