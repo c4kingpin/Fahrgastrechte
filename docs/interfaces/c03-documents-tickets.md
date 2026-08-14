@@ -66,6 +66,7 @@ verwendende koordinierte Endpunkt; ein direkter Aufruf von
 ```elixir
 Tickets.analyze_document(current_scope, claim_id, document_id)
 Tickets.list_suggestions(current_scope, document_id)
+Tickets.list_claim_suggestions(current_scope, claim_id)
 Tickets.set_suggestion_state(current_scope, claim_id, suggestion_id, state)
 Tickets.set_suggestion_states(current_scope, claim_id, suggestion_ids, state)
 ```
@@ -74,6 +75,11 @@ Tickets.set_suggestion_states(current_scope, claim_id, suggestion_ids, state)
 einem begrenzten, überwachten Prozess. Es findet keine OCR-Ausführung statt.
 Erneute Analyse ersetzt alle früheren Vorschläge; neue Vorschläge beginnen
 immer im Zustand `proposed`.
+
+`list_claim_suggestions/2` liefert in einer Abfrage die Vorschläge der
+aktuellen Ticket- und Rechnungsdokumente eines Antrags. Die Funktion prüft
+Claim, Benutzer-Scope, Dokumentaktualität und ausstehende Löschungen, bevor sie
+Werte für das Workspace-Read-Model zurückgibt.
 
 Alle Dokument- und Vorschlagsmutationen prüfen neben dem Benutzer-Scope die
 übergebene `claim_id` direkt im Kontext. Eine Dokument- oder Vorschlags-ID aus

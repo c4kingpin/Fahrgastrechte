@@ -55,7 +55,6 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     |> render_change()
 
     render_async(view)
-
     assert has_element?(view, "#origin-stations option[value='Teststadt Hbf']")
 
     view
@@ -69,6 +68,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     )
     |> render_submit()
 
+    render_async(view)
     assert has_element?(view, "#connection-delay-1[data-delay-minutes='32']")
     assert has_element?(view, "#choose-connection-1")
 
