@@ -24,6 +24,7 @@ Claims.create_claim(current_scope, attrs \\ %{})
 Claims.get_claim(current_scope, claim_id)
 Claims.change_claim(current_scope, claim_id, attrs \\ %{})
 Claims.list_claims(current_scope, filters \\ %{})
+Claims.dashboard_counts(current_scope)
 Claims.update_claim(current_scope, claim_id, attrs, expected_lock_version)
 Claims.delete_claim(current_scope, claim_id, expected_lock_version)
 
@@ -41,6 +42,10 @@ Beachtung der Groß-/Kleinschreibung als Teiltext gesucht.
 `change_claim/3` liefert für gescopte LiveView-Formulare ein Changeset, ohne
 Änderungen zu speichern. Auch diese Funktion gibt für fremde oder unbekannte
 Anträge ausschließlich `{:error, :not_found}` zurück.
+
+`dashboard_counts/1` aggregiert `total`, `open` und `completed` direkt in der
+Datenbank. Die Funktion lädt keine vollständigen Antragslisten und zählt nur
+Datensätze des aktuellen Scopes.
 
 Über `create_claim/2` und `update_claim/4` sind `travel_date`, `origin`,
 `destination`, `journey_outcome`, `disruption_cause` und `journey_direction`

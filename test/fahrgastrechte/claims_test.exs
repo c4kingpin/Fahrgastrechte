@@ -349,6 +349,24 @@ defmodule Fahrgastrechte.ClaimsTest do
   end
 
   describe "filters and deletion" do
+    test "aggregates scoped dashboard counts by lifecycle status" do
+      scope = scope_fixture()
+      other_scope = scope_fixture()
+
+      _draft = claim_in_status(scope, :draft)
+      _ready = claim_in_status(scope, :ready)
+      _sent = claim_in_status(scope, :sent)
+      _completed = claim_in_status(scope, :completed)
+      _foreign_completed = claim_in_status(other_scope, :completed)
+
+      assert {:ok, %{total: 4, open: 3, completed: 1}} = Claims.dashboard_counts(scope)
+
+      assert {:ok, %{total: 1, open: 0, completed: 1}} =
+               Claims.dashboard_counts(other_scope)
+
+      assert {:error, :not_authenticated} = Claims.dashboard_counts(nil)
+    end
+
     test "filters only scoped claims by status, date, route and claim number" do
       scope = scope_fixture()
       other_scope = scope_fixture()

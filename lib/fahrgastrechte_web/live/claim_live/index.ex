@@ -3,6 +3,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
 
   alias Fahrgastrechte.Claims
 
+  import FahrgastrechteWeb.ClaimLive.Presentation
   @impl true
   def mount(_params, _session, socket) do
     filters = %{"route" => "", "claim_number" => "", "status" => "all"}
@@ -169,7 +170,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
                   <span class={["truncate text-sm font-semibold text-slate-950"]}>{claim.claim_number}</span>
                   <span class={[
                     "rounded-full px-2.5 py-1 text-[0.68rem] font-bold uppercase tracking-wide",
-                    status_style(claim.status)
+                    status_style(claim.status, :light)
                   ]}>
                     {status_label(claim.status)}
                   </span>
@@ -196,14 +197,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
 
   defp load_claims(socket, filters) do
     scope = socket.assigns.current_scope
-    {:ok, all_claims} = Claims.list_claims(scope)
+    {:ok, counts} = Claims.dashboard_counts(scope)
     {:ok, filtered_claims} = Claims.list_claims(scope, normalize_filters(filters))
-
-    counts = %{
-      total: length(all_claims),
-      open: Enum.count(all_claims, &(&1.status != :completed)),
-      completed: Enum.count(all_claims, &(&1.status == :completed))
-    }
 
     socket
     |> assign(:counts, counts)
@@ -226,22 +221,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
 
   defp maybe_status(filters, _status), do: filters
 
-  defp route_label(%{origin: origin, destination: destination})
-       when is_binary(origin) and is_binary(destination),
-       do: "#{origin} → #{destination}"
-
-  defp route_label(_claim), do: "Strecke noch offen"
-
   defp date_label(%Date{} = date), do: Calendar.strftime(date, "%d.%m.%Y")
   defp date_label(_date), do: "Reisedatum noch offen"
-
-  defp status_label(:draft), do: "Entwurf"
-  defp status_label(:ready), do: "Druckfertig"
-  defp status_label(:sent), do: "Versendet"
-  defp status_label(:completed), do: "Erledigt"
-
-  defp status_style(:draft), do: "bg-amber-50 text-amber-800"
-  defp status_style(:ready), do: "bg-sky-50 text-sky-800"
-  defp status_style(:sent), do: "bg-violet-50 text-violet-800"
-  defp status_style(:completed), do: "bg-emerald-50 text-emerald-800"
 end
