@@ -86,6 +86,13 @@ defmodule FahrgastrechteWeb.ClaimLive.AssistantTest do
     assert has_element?(view, "#claim-save-state[data-state=saved][role=status]")
     assert has_element?(view, "#claim-save-state [data-save-label=saving]")
 
+    assert has_element?(
+             view,
+             ~s(#claim-form[phx-change*="claim_autosave"][phx-change*="claim-save-state"])
+           )
+
+    refute has_element?(view, ~s(#claim-form[phx-change*="set_attr"]))
+
     view
     |> form("#claim-form", claim: complete_params(%{"origin" => String.duplicate("B", 201)}))
     |> render_change()
