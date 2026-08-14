@@ -47,6 +47,7 @@ defmodule FahrgastrechteWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{FahrgastrechteWeb.UserAuth, :require_authenticated}] do
       live "/profil", ProfileLive, :edit
+      live "/datenquellen", ReferenceDataLive, :index
       live "/antraege", ClaimLive.Index, :index
       live "/antraege/:id", ClaimLive.Show, :show
       live "/antraege/:id/:step", ClaimLive.Show, :show

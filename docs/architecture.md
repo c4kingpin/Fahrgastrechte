@@ -14,7 +14,7 @@ Browser
 Zoraxy / TLS ──► Phoenix LiveView ──► Authentik / OIDC
                          │
                          ├──► PostgreSQL
-                         ├──► privater PDF-Speicher
+                         ├──► privater Datei- und PDF-Speicher
                          ├──► begrenzte PDF-Prozesse
                          └──► DB-Fahrplandaten über Req
 ```
@@ -33,6 +33,7 @@ noch zum Ändern. Authentifizierte Seiten und Dokumentdownloads werden mit
 | `Documents` | PDF-Prüfung, privater Speicher, Download und Löschkoordination |
 | `Tickets` | Textauslesung und nachvollziehbare, unbestätigte Datenvorschläge |
 | `Rail` | Provider, Snapshots, geplante/tatsächliche Reise und manuelle Korrektur |
+| `ReferenceData` | Geprüfte, versionierte Formular- und Bahn-Vorhersage-Quellen |
 | `Exports` | Exportbereitschaft, offizielles Formular und versioniertes Gesamt-PDF |
 
 `Fahrgastrechte.ClaimWorkspace` liegt als Anwendungsgrenze über diesen
