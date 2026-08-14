@@ -270,6 +270,7 @@ defmodule Fahrgastrechte.RailTest do
           segment_attributes()
         ])
 
+      {:ok, claim} = Claims.get_claim(scope, claim.id)
       segment = hd(actual.segments)
 
       assert {:ok, %{claim: claim}} =
