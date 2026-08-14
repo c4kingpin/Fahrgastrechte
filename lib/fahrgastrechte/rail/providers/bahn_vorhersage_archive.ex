@@ -9,6 +9,8 @@ defmodule Fahrgastrechte.Rail.Providers.BahnVorhersageArchive do
 
   @behaviour Fahrgastrechte.Rail.Provider
 
+  alias Fahrgastrechte.ReferenceData
+
   @required_headers ~w(
     trip_id time_schedule time_real update_timestamp delay is_final is_arrival
     is_cancelled category number stop_id initial_scheduled_departure
@@ -82,16 +84,43 @@ defmodule Fahrgastrechte.Rail.Providers.BahnVorhersageArchive do
 
   def journey(_journey_id, _options), do: {:error, :not_found}
 
-  defp load_rows(options) do
-    case archive_option(options, :data_path, nil) do
-      path when is_binary(path) ->
-        case File.read(path) do
-          {:ok, content} -> parse_csv(content, path, options)
-          {:error, _reason} -> {:error, :history_unavailable}
-        end
+  @doc "Validates an uploaded CSV projection and returns safe coverage metadata."
+  @spec validate_archive(Path.t(), keyword()) ::
+          {:ok, map()} | {:error, :history_unavailable | {:upstream, term()}}
+  def validate_archive(path, options \\ []) when is_binary(path) and is_list(options) do
+    options = Keyword.put(options, :data_path, path)
 
-      _missing ->
-        {:error, :history_unavailable}
+    with {:ok, rows, metadata} <- load_rows(options),
+         datetimes when datetimes != [] <-
+           rows
+           |> Enum.map(&parse_datetime(&1["time_schedule"]))
+           |> Enum.reject(&is_nil/1) do
+      {:ok,
+       Map.merge(metadata, %{
+         row_count: length(rows),
+         coverage_from:
+           datetimes |> Enum.min(DateTime) |> DateTime.to_date() |> Date.to_iso8601(),
+         coverage_until:
+           datetimes |> Enum.max(DateTime) |> DateTime.to_date() |> Date.to_iso8601()
+       })}
+    else
+      [] -> {:error, {:upstream, :invalid_archive_projection}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_rows(options) do
+    with {:ok, options} <- resolved_source_options(options) do
+      case Keyword.get(options, :data_path) do
+        path when is_binary(path) ->
+          case File.read(path) do
+            {:ok, content} -> parse_csv(content, path, options)
+            {:error, _reason} -> {:error, :history_unavailable}
+          end
+
+        _missing ->
+          {:error, :history_unavailable}
+      end
     end
   end
 
@@ -113,7 +142,7 @@ defmodule Fahrgastrechte.Rail.Providers.BahnVorhersageArchive do
             "license" => "ODbL-1.0",
             "attribution" => "Bahn-Vorhersage, Deutsche Bahn, Trainline und DELFI",
             "source_sha256" => :sha256 |> :crypto.hash(content) |> Base.encode16(case: :lower),
-            "source_name" => Path.basename(path)
+            "source_name" => archive_option(options, :source_name, Path.basename(path))
           }
 
           {:ok, rows, metadata}
@@ -123,6 +152,30 @@ defmodule Fahrgastrechte.Rail.Providers.BahnVorhersageArchive do
 
       _empty ->
         {:error, :history_unavailable}
+    end
+  end
+
+  defp resolved_source_options(options) do
+    if is_binary(Keyword.get(options, :data_path)) do
+      {:ok, options}
+    else
+      case ReferenceData.current_file(:bahn_vorhersage_archive) do
+        {:ok, %{version: version, path: path}} ->
+          {:ok,
+           options
+           |> Keyword.put(:data_path, path)
+           |> Keyword.put(:dataset_version, version.version)
+           |> Keyword.put(:source_name, version.original_filename)}
+
+        {:error, :not_found} ->
+          {:ok,
+           options
+           |> Keyword.put(:data_path, configured_option(:data_path, nil))
+           |> Keyword.put(:dataset_version, configured_option(:dataset_version, nil))}
+
+        {:error, :storage_unavailable} ->
+          {:error, :history_unavailable}
+      end
     end
   end
 
@@ -194,8 +247,13 @@ defmodule Fahrgastrechte.Rail.Providers.BahnVorhersageArchive do
   end
 
   defp archive_option(options, key, default) do
-    config = Application.get_env(:fahrgastrechte, __MODULE__, [])
-    Keyword.get(options, key, Keyword.get(config, key, default))
+    Keyword.get(options, key, configured_option(key, default))
+  end
+
+  defp configured_option(key, default) do
+    :fahrgastrechte
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(key, default)
   end
 
   defp now, do: DateTime.utc_now() |> DateTime.truncate(:microsecond)

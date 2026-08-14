@@ -2,6 +2,7 @@ defmodule Fahrgastrechte.SystemPDFBackendTest do
   use ExUnit.Case, async: false
 
   alias Fahrgastrechte.Exports.CoverRenderer
+  alias Fahrgastrechte.Exports.FormManifest
   alias Fahrgastrechte.Exports.SystemPDFBackend
 
   setup do
@@ -51,6 +52,23 @@ defmodule Fahrgastrechte.SystemPDFBackendTest do
 
     refute File.exists?(output_path <> ".xfdf")
     refute File.exists?(output_path <> ".template.pdf")
+  end
+
+  test "validates fields and radio values of the official form contract" do
+    template_path =
+      Application.app_dir(
+        :fahrgastrechte,
+        "priv/form_templates/fahrgastrechte-2025-me-08-25.pdf"
+      )
+
+    assert {:ok, manifest} = FormManifest.current()
+    assert :ok = SystemPDFBackend.validate_template(template_path, manifest, backend_options())
+
+    incompatible =
+      put_in(manifest, [:radio_values, "personal"], ["Nicht vorhandene Auswahl"])
+
+    assert {:error, :missing_field} =
+             SystemPDFBackend.validate_template(template_path, incompatible, backend_options())
   end
 
   test "matches required form fields exactly instead of by prefix", %{work_dir: work_dir} do

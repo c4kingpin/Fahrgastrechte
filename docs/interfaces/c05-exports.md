@@ -79,12 +79,14 @@ Template-Prüfsumme und die erzeugten Radio-Werte gegeneinander geprüft.
 Optionale Profilwerte ohne Formularfeld werden nicht an das PDF-Backend
 übergeben.
 
-Die aufgenommene Version ist „Formular 2025 (ME/08/25)“ mit SHA-256
+Die aufgenommene Fallback-Version ist „Formular 2025 (ME/08/25)“ mit SHA-256
 4a30f9c7f00593bf5bda1b6eaa2d1b6e293357faa48631a1d7e2ade3b77a39a9.
 Der Installer lädt genau diese Datei, prüft sie vor der Installation und setzt
-FORM_TEMPLATE_PATH. Eine neue Datei oder Prüfsumme muss als bewusst geprüfte
-Template-Version in der Anwendung aufgenommen werden; sie verändert bestehende
-Exportversionen nicht.
+FORM_TEMPLATE_PATH. Über `/datenquellen` kann eine neue, strukturell kompatible
+PDF-Version aktiviert werden. Vorher werden A4-Struktur, Größenlimit,
+Verschlüsselung, sämtliche Pflichtfelder und die erwarteten Radio-Werte
+geprüft. Die neue Datei wird unveränderlich gespeichert und hat danach Vorrang
+vor dem Fallback; bestehende Exportversionen verändern sich nicht.
 
 Das Systembackend benötigt qpdf, pdftk-java, Poppler/Cairo und eine
 DejaVu-Schrift. PDF-Jobs werden instanzweit serialisiert, beenden einzelne

@@ -28,6 +28,10 @@ config :fahrgastrechte, Fahrgastrechte.Documents,
 config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
   path: Path.expand("../tmp/documents", __DIR__)
 
+config :fahrgastrechte, Fahrgastrechte.ReferenceData,
+  max_form_size_bytes: 15 * 1024 * 1024,
+  max_archive_size_bytes: 250 * 1024 * 1024
+
 config :fahrgastrechte, Fahrgastrechte.Tickets,
   extractor: Fahrgastrechte.Tickets.PopplerExtractor,
   pdftotext_executable: "pdftotext",

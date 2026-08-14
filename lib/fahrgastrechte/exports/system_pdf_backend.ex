@@ -39,6 +39,30 @@ defmodule Fahrgastrechte.Exports.SystemPDFBackend do
   end
 
   @impl true
+  def validate_template(path, form_contract, options) do
+    timeout = Keyword.fetch!(options, :timeout_ms)
+
+    normalized_path =
+      Path.join(System.tmp_dir!(), "fahrgastrechte-template-#{Ecto.UUID.generate()}.pdf")
+
+    try do
+      with :ok <- command(options, :qpdf, [path, normalized_path], timeout, [0, 3]),
+           {:ok, dump} <-
+             command_output(options, :pdftk, [normalized_path, "dump_data_fields_utf8"], timeout),
+           :ok <- verify_fields(dump, Map.fetch!(form_contract, :required_fields)),
+           :ok <- verify_radio_values(dump, Map.fetch!(form_contract, :radio_values)) do
+        :ok
+      else
+        {:error, :missing_field} -> {:error, :missing_field}
+        {:error, :timeout} -> {:error, :timeout}
+        {:error, {:command_failed, command}} -> {:error, {:command_failed, command}}
+      end
+    after
+      _ = File.rm(normalized_path)
+    end
+  end
+
+  @impl true
   def fill_form(template_path, fields, output_path, options) do
     timeout = Keyword.fetch!(options, :timeout_ms)
     xfdf_path = output_path <> ".xfdf"
@@ -238,6 +262,33 @@ defmodule Fahrgastrechte.Exports.SystemPDFBackend do
     if Enum.all?(required_fields, &MapSet.member?(available_fields, &1)),
       do: :ok,
       else: {:error, :missing_field}
+  end
+
+  defp verify_radio_values(dump, required_values) do
+    available_values =
+      dump
+      |> String.split(~r/^---\s*$/m, trim: true)
+      |> Enum.reduce(%{}, fn block, fields ->
+        with [name] <- Regex.run(~r/^FieldName:\s*(.+)$/m, block, capture: :all_but_first) do
+          values =
+            Regex.scan(~r/^FieldStateOption:\s*(.+)$/m, block, capture: :all_but_first)
+            |> List.flatten()
+            |> Enum.map(&String.trim/1)
+            |> MapSet.new()
+
+          Map.put(fields, String.trim(name), values)
+        else
+          _missing_name -> fields
+        end
+      end)
+
+    valid? =
+      Enum.all?(required_values, fn {field, values} ->
+        available = Map.get(available_values, field, MapSet.new())
+        Enum.all?(values, &MapSet.member?(available, &1))
+      end)
+
+    if valid?, do: :ok, else: {:error, :missing_field}
   end
 
   defp xfdf(fields) do
