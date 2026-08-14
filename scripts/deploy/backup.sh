@@ -84,8 +84,7 @@ log "Sichere PostgreSQL"
 runuser -u postgres -- pg_dump \
   --format=custom \
   --no-owner \
-  --file="${staging_dir}/database.dump" \
-  "$DATABASE_NAME"
+  "$DATABASE_NAME" >"${staging_dir}/database.dump"
 
 log "Sichere Dokumente und Runtime-Secrets"
 tar --create --file="${staging_dir}/documents.tar" --directory="$document_path" .
