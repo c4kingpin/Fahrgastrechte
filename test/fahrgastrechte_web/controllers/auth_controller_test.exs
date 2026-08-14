@@ -1,6 +1,7 @@
 defmodule FahrgastrechteWeb.AuthControllerTest do
   use FahrgastrechteWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
   import Fahrgastrechte.AccountsFixtures
 
   alias FahrgastrechteWeb.UserAuth
@@ -70,6 +71,24 @@ defmodule FahrgastrechteWeb.AuthControllerTest do
 
     assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
              "Die Anmeldung ist abgelaufen. Bitte starte sie erneut."
+  end
+
+  test "logs a sanitized provider callback failure", %{conn: conn} do
+    log =
+      capture_log(fn ->
+        conn =
+          conn
+          |> get(~p"/anmelden")
+          |> recycle()
+          |> get(~p"/auth/callback?code=provider-error&state=test-state")
+
+        assert redirected_to(conn) == ~p"/"
+
+        assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+                 "Die Anmeldung konnte nicht sicher bestätigt werden. Bitte versuche es erneut."
+      end)
+
+    assert log =~ "OIDC callback rejected: provider_http_error"
   end
 
   test "clears the local session before provider logout", %{conn: conn} do
