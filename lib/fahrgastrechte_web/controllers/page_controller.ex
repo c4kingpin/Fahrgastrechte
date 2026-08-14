@@ -13,13 +13,9 @@ defmodule FahrgastrechteWeb.PageController do
   defp dashboard_counts(nil), do: %{total: 0, open: 0, completed: 0}
 
   defp dashboard_counts(current_scope) do
-    case Claims.list_claims(current_scope) do
-      {:ok, claims} ->
-        %{
-          total: length(claims),
-          open: Enum.count(claims, &(&1.status != :completed)),
-          completed: Enum.count(claims, &(&1.status == :completed))
-        }
+    case Claims.dashboard_counts(current_scope) do
+      {:ok, counts} ->
+        counts
 
       {:error, _reason} ->
         %{total: 0, open: 0, completed: 0}
