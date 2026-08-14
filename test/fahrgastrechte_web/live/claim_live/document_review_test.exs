@@ -79,7 +79,7 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
 
     assert_patch(view, ~p"/antraege/#{claim.id}/falldaten")
     assert has_element?(view, "#claim-data-section:not([hidden])")
-    assert has_element?(view, "#claim-travel-date[value='2026-04-15']")
+    assert has_element?(view, "#claim-travel-date[type=text][value='15.04.2026']")
     assert has_element?(view, "#claim-origin[value='Teststadt Hbf']")
     assert has_element?(view, "#claim-destination[value='Beispielstadt Hbf']")
   end
