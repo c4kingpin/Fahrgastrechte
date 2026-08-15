@@ -434,19 +434,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           socket
 
         {true, {:ok, {:ok, candidates}}} ->
-          indexed = Enum.with_index(candidates, 1)
-
-          lookup =
-            Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
-
-          items =
-            Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
-
-          socket
-          |> assign(:candidate_lookup, lookup)
-          |> assign(:connection_search_token, nil)
-          |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
-          |> stream(:connection_candidates, items, reset: true)
+          assign_connection_candidates(socket, candidates)
 
         {true, failure} ->
           reason = async_failure_reason(failure)
@@ -456,6 +444,27 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_token, nil)
           |> assign(:connection_search_state, {:error, reason})
           |> stream(:connection_candidates, [], reset: true)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:auto_connection_search, token, query}, result, socket) do
+    socket =
+      case {token == socket.assigns.connection_search_token, result} do
+        {false, _result} ->
+          socket
+
+        {true, {:ok, {:ok, [single_candidate]}}} ->
+          confirm_auto_candidate(socket, single_candidate, query)
+
+        {true, {:ok, {:ok, candidates}}} ->
+          socket
+          |> assign(:connection_search_form, to_form(query, as: :connection_search))
+          |> assign_connection_candidates(candidates)
+
+        {true, _failure} ->
+          assign(socket, :connection_search_token, nil)
       end
 
     {:noreply, socket}
@@ -1223,6 +1232,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
            ) do
       socket
       |> load_workspace(claim)
+      |> maybe_auto_search_connections()
       |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam übernommen.")
     else
       {:error, :stale} ->
@@ -1231,6 +1241,69 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {:error, _reason} ->
         put_flash(socket, :error, "Die Vorschläge konnten nicht übernommen werden.")
     end
+  end
+
+  defp maybe_auto_search_connections(socket) do
+    claim = socket.assigns.claim
+
+    with nil <- socket.assigns.planned_journey,
+         true <- editable?(claim.status),
+         query when not is_nil(query) <-
+           ClaimWorkspace.automatic_connection_query(claim, socket.assigns.suggestions_by_id) do
+      token = async_token()
+      scope = socket.assigns.current_scope
+
+      socket
+      |> assign(:connection_search_token, token)
+      |> assign(:connection_search_state, :loading)
+      |> start_async({:auto_connection_search, token, query}, fn ->
+        ClaimWorkspace.search_connections(scope, claim, query)
+      end)
+    else
+      _skip -> socket
+    end
+  end
+
+  defp confirm_auto_candidate(socket, candidate, query) do
+    case ClaimWorkspace.confirm_connection(
+           socket.assigns.current_scope,
+           socket.assigns.claim,
+           candidate
+         ) do
+      {:ok, %{claim: claim}} ->
+        socket
+        |> load_workspace(claim)
+        |> assign(:connection_search_token, nil)
+        |> assign(:connection_search_state, :idle)
+        |> put_flash(
+          :info,
+          "Wir haben die passende Verbindung samt aktueller Verspätung automatisch übernommen."
+        )
+
+      {:error, :stale} ->
+        handle_stale(socket)
+
+      {:error, _reason} ->
+        socket
+        |> assign(:connection_search_form, to_form(query, as: :connection_search))
+        |> assign_connection_candidates([candidate])
+    end
+  end
+
+  defp assign_connection_candidates(socket, candidates) do
+    indexed = Enum.with_index(candidates, 1)
+
+    lookup =
+      Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
+
+    items =
+      Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
+
+    socket
+    |> assign(:candidate_lookup, lookup)
+    |> assign(:connection_search_token, nil)
+    |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
+    |> stream(:connection_candidates, items, reset: true)
   end
 
   defp reject_suggestion_group(socket, []),
