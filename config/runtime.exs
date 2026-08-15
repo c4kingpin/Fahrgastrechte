@@ -45,10 +45,6 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
   data_path: System.get_env("BAHNVORHERSAGE_DATA_PATH"),
   dataset_version: System.get_env("BAHNVORHERSAGE_DATASET_VERSION")
 
-if form_template_path = System.get_env("FORM_TEMPLATE_PATH") do
-  config :fahrgastrechte, Fahrgastrechte.Exports, template_path: form_template_path
-end
-
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration
@@ -111,6 +107,21 @@ if config_env() == :prod do
   end
 
   config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage, path: document_storage_path
+
+  # Compile-time `Path.expand(..., __DIR__)` in config.exs bakes in the
+  # build machine's source checkout path, which is unreadable by the
+  # service user and unrelated to this release once deployed. Resolve the
+  # bundled template against the running release's own priv directory
+  # instead, unless an operator explicitly overrides it.
+  default_form_template_path =
+    Application.app_dir(:fahrgastrechte, "priv/form_templates/fahrgastrechte-2025-me-08-25.pdf")
+
+  default_form_manifest_path =
+    Application.app_dir(:fahrgastrechte, "priv/form_templates/fahrgastrechte-2025-me-08-25.json")
+
+  config :fahrgastrechte, Fahrgastrechte.Exports,
+    template_path: System.get_env("FORM_TEMPLATE_PATH", default_form_template_path),
+    template_manifest_path: default_form_manifest_path
 
   database_url =
     System.get_env("DATABASE_URL") ||
