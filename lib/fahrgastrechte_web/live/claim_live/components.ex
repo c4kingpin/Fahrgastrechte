@@ -35,7 +35,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
             ]}
           >
-            Falldaten
+            Reiseverlauf
           </h2>
           <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
             Bestätigte Werte aus Ticket und Rechnung sind bereits übernommen. Ergänze nur noch die Angaben zum Störungsfall; Änderungen werden automatisch gespeichert.
@@ -132,18 +132,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
             disabled={!editable?(@claim.status)}
             phx-debounce="500"
           />
-        </div>
-        <div class={["flex justify-end"]}>
-          <button
-            id="claim-save-button"
-            type="submit"
-            disabled={!editable?(@claim.status)}
-            class={[
-              "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-            ]}
-          >
-            <.icon name="hero-check" class="size-4" /> Jetzt speichern
-          </button>
         </div>
       </.form>
     </section>
@@ -1181,7 +1169,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           href={Map.fetch!(@step_paths, :suggestions)}
         />
         <.review_check
-          label="Falldaten"
+          label="Reiseverlauf"
           done?={@claim_complete?}
           href={Map.fetch!(@step_paths, :claim)}
         />

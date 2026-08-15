@@ -50,6 +50,9 @@ defmodule FahrgastrechteWeb.ClaimLive.AutoConnectionTest do
 
     assert has_element?(view, "#trip-summary-scheduled", "15.04.2026")
     refute has_element?(view, "#trip-summary-scheduled", "Noch offen")
+
+    assert_patch(view, ~p"/antraege/#{claim.id}/pruefung")
+    assert has_element?(view, "#claim-review-export-section:not([hidden])")
   end
 
   defp upload_pdf(view, name, fixture) do
