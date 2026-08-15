@@ -100,7 +100,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   @impl true
   def handle_params(params, _uri, socket) do
     requested_step = step_by_slug(params["step"])
-    step = requested_step || resume_step(socket.assigns.steps)
+    step = requested_step || resume_step(socket.assigns.steps, socket.assigns.required_inputs)
     index = step_index(step)
     previous_step = if(index > 0, do: Enum.at(@steps, index - 1), else: nil)
     next_step = Enum.at(@steps, index + 1)
@@ -564,8 +564,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               class={["w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-4"]}
             >
               <div class={["flex items-center justify-between text-xs font-semibold"]}>
-                <span class={["text-slate-300"]}>Bearbeitungsbereiche</span>
-                <span>{@completed_steps} von 6 bestätigt</span>
+                <span class={["text-slate-300"]}>Status</span>
+                <span id="workspace-progress-label">
+                  {workspace_progress_label(@required_inputs)}
+                </span>
               </div>
               <div
                 class={["mt-3 h-2 overflow-hidden rounded-full bg-white/10"]}
@@ -1414,6 +1416,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     completed_steps = Enum.count(steps, &(&1.state == :confirmed))
     step_paths = Map.new(steps, &{&1.id, step_path(workspace.claim, &1)})
+    required_inputs = ClaimWorkspace.required_inputs(workspace)
 
     socket
     |> assign(:claim, workspace.claim)
@@ -1453,6 +1456,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       to_form(workspace.connection_search_data, as: :connection_search)
     )
     |> assign(:completed_steps, completed_steps)
+    |> assign(:required_inputs, required_inputs)
     |> stream(:route_suggestions, route_suggestions, reset: true)
     |> stream(:booking_suggestions, booking_suggestions, reset: true)
     |> stream(:other_suggestions, other_suggestions, reset: true)
@@ -1517,8 +1521,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp step_by_slug(slug) when is_binary(slug),
     do: Enum.find(@steps, &(&1.slug == slug))
 
-  defp resume_step(steps),
-    do: Enum.find(steps, &(&1.state != :confirmed)) || List.last(steps)
+  defp resume_step(steps, [%{step: step_id} | _rest]),
+    do: Enum.find(steps, &(&1.id == step_id)) || List.last(steps)
+
+  defp resume_step(steps, []), do: List.last(steps)
 
   defp step_index(step),
     do: Enum.find_index(@steps, &(&1.id == step.id))

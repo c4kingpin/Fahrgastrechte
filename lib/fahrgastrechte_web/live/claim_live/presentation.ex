@@ -231,6 +231,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
     end
   end
 
+  def workspace_progress_label([]), do: "Bereit zur Prüfung"
+  def workspace_progress_label([%{label: label}]), do: "Fast fertig – es fehlt noch: #{label}"
+
+  def workspace_progress_label([%{label: label} | rest]),
+    do: "Es fehlt noch: #{label} (+#{length(rest)} weitere)"
+
   def source_label("search_stations"), do: "Bahnhofssuche"
   def source_label("search_connections"), do: "Verbindungssuche"
   def source_label("departures"), do: "Abfahrten und Abweichungen"

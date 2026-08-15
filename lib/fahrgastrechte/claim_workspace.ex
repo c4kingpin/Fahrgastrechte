@@ -54,6 +54,75 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   def load(_scope, _claim_id), do: {:error, :not_authenticated}
 
+  @doc """
+  Translates step completeness into user-facing open questions.
+
+  Ordered by where each question appears in the flow; empty once every
+  question the concrete case actually needs has been answered.
+  """
+  @spec required_inputs(ReadModel.t()) :: [%{id: atom(), step: atom(), label: String.t()}]
+  def required_inputs(%ReadModel{} = workspace) do
+    claim = workspace.claim
+
+    [
+      required_input(
+        :documents,
+        :documents,
+        "Ticket und Rechnung hochladen",
+        !workspace.documents_complete?
+      ),
+      required_input(
+        :facts,
+        :suggestions,
+        "Erkannte Angaben bestätigen",
+        !workspace.suggestions_complete?
+      ),
+      required_input(
+        :case_data,
+        :claim,
+        "Angaben zu deiner Reise vervollständigen",
+        !workspace.claim_complete?
+      ),
+      required_input(
+        :journey_direction,
+        :claim,
+        "Hin- oder Rückfahrt bestätigen",
+        ambiguous_direction?(workspace)
+      ),
+      required_input(
+        :planned_journey,
+        :planned,
+        "Geplante Verbindung ergänzen",
+        !workspace.planned_complete?
+      ),
+      required_input(
+        :actual_arrival,
+        :actual,
+        actual_arrival_label(claim),
+        !workspace.actual_complete?
+      ),
+      required_input(
+        :payout,
+        :review,
+        "IBAN für die Auszahlung ergänzen",
+        !workspace.profile_complete?
+      )
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp required_input(_id, _step, _label, false), do: nil
+  defp required_input(id, step, label, true), do: %{id: id, step: step, label: label}
+
+  defp actual_arrival_label(%Claim{disruption_cause: :cancellation}),
+    do: "Ersatzverbindung ergänzen"
+
+  defp actual_arrival_label(_claim), do: "Tatsächliche Ankunft ergänzen"
+
+  defp ambiguous_direction?(workspace) do
+    Enum.any?(Map.values(workspace.suggestions_by_id), &(&1.field == :valid_until))
+  end
+
   @doc "Applies claim values and accepts suggestions in one transaction."
   @spec accept_suggestions(Scope.t(), Claim.t(), [map()]) ::
           {:ok, %{claim: Claim.t(), suggestions: [struct()]}} | {:error, term()}
