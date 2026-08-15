@@ -687,6 +687,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               proposed_suggestions?={@proposed_suggestions?}
               suggestions_by_id={@suggestions_by_id}
               step_paths={@step_paths}
+              order_number_mismatch={@order_number_mismatch}
             />
 
             <Components.suggestions
@@ -1421,6 +1422,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     step_paths = Map.new(steps, &{&1.id, step_path(workspace.claim, &1)})
     required_inputs = ClaimWorkspace.required_inputs(workspace)
     payout_form = payout_form(socket.assigns.current_scope, workspace)
+    order_number_mismatch = ClaimWorkspace.order_number_mismatch(workspace)
 
     socket
     |> assign(:claim, workspace.claim)
@@ -1462,6 +1464,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:completed_steps, completed_steps)
     |> assign(:required_inputs, required_inputs)
     |> assign(:payout_form, payout_form)
+    |> assign(:order_number_mismatch, order_number_mismatch)
     |> stream(:route_suggestions, route_suggestions, reset: true)
     |> stream(:booking_suggestions, booking_suggestions, reset: true)
     |> stream(:other_suggestions, other_suggestions, reset: true)
