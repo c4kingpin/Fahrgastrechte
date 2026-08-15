@@ -1,6 +1,7 @@
 defmodule FahrgastrechteWeb.ClaimLive.Show do
   use FahrgastrechteWeb, :live_view
 
+  alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
   alias Fahrgastrechte.Documents
@@ -134,6 +135,31 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   def handle_event("claim_save", %{"claim" => params}, socket) do
     {:noreply, persist_claim(socket, params, true)}
+  end
+
+  def handle_event("payout_validate", %{"profile" => params}, socket) do
+    changeset =
+      socket.assigns.current_scope
+      |> Accounts.change_profile(payout_params(params))
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+  end
+
+  def handle_event("payout_save", %{"profile" => params}, socket) do
+    case Accounts.update_profile(socket.assigns.current_scope, payout_params(params)) do
+      {:ok, _profile} ->
+        {:noreply,
+         socket
+         |> refresh_workspace()
+         |> put_flash(:info, "Deine Auszahlungsdaten wurden gespeichert.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Die Angaben konnten nicht gespeichert werden.")}
+    end
   end
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
@@ -708,6 +734,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               export_state_label={@export_state_label}
               exports_available?={@exports_available?}
               planned_complete?={@planned_complete?}
+              payout_form={@payout_form}
               profile_complete?={@profile_complete?}
               profile_error={@profile_error}
               review_complete?={@review_complete?}
@@ -1417,6 +1444,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     completed_steps = Enum.count(steps, &(&1.state == :confirmed))
     step_paths = Map.new(steps, &{&1.id, step_path(workspace.claim, &1)})
     required_inputs = ClaimWorkspace.required_inputs(workspace)
+    payout_form = payout_form(socket.assigns.current_scope, workspace)
 
     socket
     |> assign(:claim, workspace.claim)
@@ -1457,6 +1485,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     )
     |> assign(:completed_steps, completed_steps)
     |> assign(:required_inputs, required_inputs)
+    |> assign(:payout_form, payout_form)
     |> stream(:route_suggestions, route_suggestions, reset: true)
     |> stream(:booking_suggestions, booking_suggestions, reset: true)
     |> stream(:other_suggestions, other_suggestions, reset: true)
@@ -1474,6 +1503,39 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     case Map.get(workspace, key) do
       entries when is_list(entries) -> Enum.reverse(entries)
       _other -> []
+    end
+  end
+
+  defp payout_form(_scope, %{profile_complete?: true}), do: nil
+  defp payout_form(_scope, %{profile_error: reason}) when not is_nil(reason), do: nil
+
+  defp payout_form(scope, _workspace) do
+    case Accounts.get_profile(scope) do
+      {:ok, profile} ->
+        to_form(Accounts.change_profile(profile, payout_default_attrs(profile)), as: :profile)
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp payout_default_attrs(%{country: country}) when country in [nil, ""],
+    do: %{"country" => "Deutschland"}
+
+  defp payout_default_attrs(_profile), do: %{}
+
+  defp payout_params(params) do
+    case Map.get(params, "account_holder") do
+      value when value in [nil, ""] ->
+        name =
+          [Map.get(params, "first_name"), Map.get(params, "last_name")]
+          |> Enum.reject(&(&1 in [nil, ""]))
+          |> Enum.join(" ")
+
+        if name == "", do: params, else: Map.put(params, "account_holder", name)
+
+      _value ->
+        params
     end
   end
 

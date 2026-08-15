@@ -1120,6 +1120,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :export_state_label, :any, required: true
   attr :exports_available?, :boolean, required: true
   attr :planned_complete?, :boolean, required: true
+  attr :payout_form, :any, required: true
   attr :profile_complete?, :boolean, required: true
   attr :profile_error, :any, required: true
   attr :review_complete?, :boolean, required: true
@@ -1168,12 +1169,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       </div>
 
       <div id="review-checklist" class={["mt-6 grid gap-3 sm:grid-cols-2"]}>
-        <.review_check
-          label="Reisendenprofil"
-          done?={@profile_complete?}
-          href={~p"/profil?antrag=#{@claim.id}"}
-          navigate={true}
-        />
+        <.review_check label="Reisendenprofil" done?={@profile_complete?} linked?={false} />
         <.review_check
           label="Ticket & Rechnung"
           done?={@documents_complete?}
@@ -1200,6 +1196,60 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           href={Map.fetch!(@step_paths, :actual)}
         />
       </div>
+
+      <section
+        :if={!@profile_complete?}
+        id="payout-form-section"
+        class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+      >
+        <h3 class="text-sm font-semibold text-slate-950">Auszahlung ergänzen</h3>
+        <p class="mt-1 text-xs leading-5 text-slate-500">
+          Diese Angaben werden für zukünftige Anträge gespeichert. IBAN und BIC liegen verschlüsselt.
+        </p>
+
+        <.form
+          for={@payout_form}
+          id="payout-form"
+          phx-change="payout_validate"
+          phx-submit="payout_save"
+          class="mt-4 space-y-5"
+        >
+          <div class="grid gap-4 sm:grid-cols-2">
+            <.input
+              field={@payout_form[:salutation]}
+              id="payout-salutation"
+              type="select"
+              label="Anrede *"
+              prompt="Bitte auswählen"
+              options={[{"Frau", "female"}, {"Herr", "male"}, {"Neutrale Anrede", "neutral"}]}
+            />
+            <.input field={@payout_form[:first_name]} id="payout-first-name" label="Vorname *" />
+            <.input field={@payout_form[:last_name]} id="payout-last-name" label="Nachname *" />
+            <.input field={@payout_form[:street]} id="payout-street" label="Straße *" />
+            <.input field={@payout_form[:house_number]} id="payout-house-number" label="Hausnummer *" />
+            <.input field={@payout_form[:postal_code]} id="payout-postal-code" label="Postleitzahl *" />
+            <.input field={@payout_form[:city]} id="payout-city" label="Ort *" />
+            <.input field={@payout_form[:country]} id="payout-country" label="Staat *" />
+          </div>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <.input
+              field={@payout_form[:account_holder]}
+              id="payout-account-holder"
+              label="Kontoinhaber *"
+            />
+            <.input field={@payout_form[:iban]} id="payout-iban" label="IBAN *" autocomplete="off" />
+            <.input field={@payout_form[:bic]} id="payout-bic" label="BIC *" autocomplete="off" />
+          </div>
+          <button
+            id="payout-save"
+            type="submit"
+            phx-disable-with="Wird gespeichert …"
+            class="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            <.icon name="hero-check" class="size-4" /> Auszahlungsdaten speichern
+          </button>
+        </.form>
+      </section>
 
       <section
         id="official-form-review"
@@ -1473,8 +1523,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
 
   attr :label, :string, required: true
   attr :done?, :boolean, required: true
-  attr :href, :string, required: true
+  attr :href, :string, default: nil
   attr :navigate, :boolean, default: false
+  attr :linked?, :boolean, default: true
 
   def review_check(assigns) do
     ~H"""
@@ -1490,15 +1541,18 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       </span>
       <span class={["text-sm font-semibold text-slate-800"]}>{@label}</span>
       <span :if={@done?} class="ml-auto text-xs font-semibold text-emerald-700">Bestätigt</span>
+      <span :if={!@done? && !@linked?} class="ml-auto text-xs font-semibold text-amber-800">
+        Siehe unten
+      </span>
       <.link
-        :if={!@done? && !@navigate}
+        :if={!@done? && @linked? && !@navigate}
         patch={@href}
         class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
       >
         Öffnen
       </.link>
       <.link
-        :if={!@done? && @navigate}
+        :if={!@done? && @linked? && @navigate}
         navigate={@href}
         class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
       >
