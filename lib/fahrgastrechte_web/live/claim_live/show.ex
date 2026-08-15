@@ -30,7 +30,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     %{
       id: :claim,
       slug: "falldaten",
-      label: "Falldaten",
+      label: "Reiseverlauf",
       heading_id: "claim-data-heading",
       icon: "hero-clipboard-document-list"
     },
@@ -616,9 +616,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         <nav
           id="claim-stepper"
           aria-label="Schritte des Antragsassistenten"
-          class={["overflow-x-auto rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"]}
+          class={["rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"]}
         >
-          <ol class={["grid min-w-[54rem] grid-cols-6 gap-2"]}>
+          <ol class={["grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"]}>
             <li :for={{step, step_number} <- Enum.with_index(@steps, 1)}>
               <.link
                 id={"claim-step-#{step.slug}"}
@@ -746,159 +746,119 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           </div>
 
           <aside class={["space-y-5"]}>
-            <section
-              id="claim-next-steps"
-              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"]}
+            <details
+              id="claim-more-options"
+              class={["group rounded-3xl border border-slate-200 bg-white shadow-sm"]}
             >
-              <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"]}>
-                Ablauf
-              </p>
-              <h2 class={["mt-2 text-lg font-semibold text-slate-950"]}>Dein Fortschritt</h2>
-              <ol class={["mt-5 space-y-2"]}>
-                <li :for={step <- @steps}>
-                  <.link
-                    id={"claim-progress-step-#{step.slug}"}
-                    patch={step_path(@claim, step)}
-                    aria-current={if(@active_step == step.id, do: "step", else: nil)}
-                    data-state={step.state}
+              <summary class={[
+                "flex cursor-pointer list-none items-center justify-between gap-3 rounded-3xl px-6 py-5 text-sm font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+              ]}>
+                Weitere Optionen
+                <.icon name="hero-chevron-down" class="size-4 transition group-open:rotate-180" />
+              </summary>
+
+              <div class={["space-y-5 px-6 pb-6"]}>
+                <section id="claim-status-actions">
+                  <h2 class={["text-sm font-semibold text-slate-950"]}>Status</h2>
+                  <p class={["mt-2 text-xs leading-5 text-slate-500"]}>
+                    {status_explanation(@claim.status)}
+                  </p>
+                  <div class={["mt-4 grid gap-2"]}>
+                    <button
+                      :if={@claim.status == :ready}
+                      id="mark-claim-sent"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="sent"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-800"
+                      ]}
+                    >
+                      <.icon name="hero-paper-airplane" class="size-4" /> Als versendet markieren
+                    </button>
+                    <button
+                      :if={@claim.status == :sent}
+                      id="complete-claim"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="completed"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                      ]}
+                    >
+                      <.icon name="hero-check-badge" class="size-4" /> Als erledigt markieren
+                    </button>
+                    <button
+                      :if={@claim.status in [:ready, :sent]}
+                      id="reopen-claim"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="draft"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      ]}
+                    >
+                      <.icon name="hero-pencil-square" class="size-4" /> Erneut bearbeiten
+                    </button>
+                  </div>
+
+                  <dl
+                    :if={@claim.sent_at || @claim.completed_at}
+                    class="mt-5 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs"
+                  >
+                    <div :if={@claim.sent_at} class="flex items-center justify-between gap-3">
+                      <dt class="font-semibold text-slate-500">Versendet</dt>
+                      <dd class="font-semibold text-slate-800">{format_datetime(@claim.sent_at)}</dd>
+                    </div>
+                    <div :if={@claim.completed_at} class="flex items-center justify-between gap-3">
+                      <dt class="font-semibold text-slate-500">Abgeschlossen</dt>
+                      <dd class="font-semibold text-slate-800">
+                        {format_datetime(@claim.completed_at)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div id="claim-status-history" phx-update="stream" class="mt-5 space-y-2">
+                    <p
+                      id="claim-status-history-heading"
+                      class="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    >
+                      Verlauf
+                    </p>
+                    <article
+                      :for={{dom_id, entry} <- @streams.status_history}
+                      id={dom_id}
+                      class="rounded-xl border border-slate-200 px-3 py-2.5"
+                    >
+                      <p class="text-xs font-semibold text-slate-800">
+                        {status_history_label(entry)}
+                      </p>
+                      <p class="mt-1 text-[0.68rem] text-slate-500">
+                        {format_datetime(entry.changed_at)}
+                      </p>
+                    </article>
+                  </div>
+                </section>
+
+                <section class={["rounded-2xl border border-rose-200 bg-rose-50/60 p-5"]}>
+                  <h2 class={["text-sm font-semibold text-rose-950"]}>Antrag löschen</h2>
+                  <p class={["mt-2 text-xs leading-5 text-rose-800"]}>
+                    Dabei werden auch alle privaten PDF-Dateien unwiderruflich entfernt.
+                  </p>
+                  <button
+                    id="delete-claim-button"
+                    type="button"
+                    phx-click="delete_claim"
+                    data-confirm="Antrag und alle zugehörigen Dokumente wirklich löschen?"
                     class={[
-                      "flex items-center gap-3 rounded-xl px-3.5 py-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
-                      if(@active_step == step.id,
-                        do: "bg-slate-950 text-white",
-                        else: "bg-slate-50 hover:bg-slate-100"
-                      )
+                      "mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-rose-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-rose-900"
                     ]}
                   >
-                    <span class={[
-                      "flex size-7 shrink-0 items-center justify-center rounded-full",
-                      if(@active_step == step.id,
-                        do: "bg-white/15 text-white",
-                        else: step_badge_style(step.state)
-                      )
-                    ]}>
-                      <.icon name={step_badge_icon(step.state)} class="size-4" />
-                    </span>
-                    <span class="min-w-0">
-                      <span class="block truncate text-sm font-semibold">{step.label}</span>
-                      <span class={[
-                        "mt-0.5 block text-xs font-semibold",
-                        if(@active_step == step.id, do: "text-slate-300", else: "text-slate-500")
-                      ]}>
-                        {step_badge_label(step.state)}
-                      </span>
-                    </span>
-                  </.link>
-                </li>
-              </ol>
-              <.link
-                id="claim-profile-link"
-                navigate={~p"/profil?antrag=#{@claim.id}"}
-                class={[
-                  "mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                ]}
-              >
-                <.icon name="hero-user-circle" class="size-5" /> Profil prüfen
-              </.link>
-            </section>
-
-            <section
-              id="claim-status-actions"
-              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"]}
-            >
-              <h2 class={["text-lg font-semibold text-slate-950"]}>Status</h2>
-              <p class={["mt-2 text-sm leading-6 text-slate-500"]}>
-                {status_explanation(@claim.status)}
-              </p>
-              <div class={["mt-4 grid gap-2"]}>
-                <button
-                  :if={@claim.status == :ready}
-                  id="mark-claim-sent"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="sent"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-800"
-                  ]}
-                >
-                  <.icon name="hero-paper-airplane" class="size-4" /> Als versendet markieren
-                </button>
-                <button
-                  :if={@claim.status == :sent}
-                  id="complete-claim"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="completed"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
-                  ]}
-                >
-                  <.icon name="hero-check-badge" class="size-4" /> Als erledigt markieren
-                </button>
-                <button
-                  :if={@claim.status in [:ready, :sent]}
-                  id="reopen-claim"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="draft"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  ]}
-                >
-                  <.icon name="hero-pencil-square" class="size-4" /> Erneut bearbeiten
-                </button>
+                    <.icon name="hero-trash" class="size-4" /> Antrag vollständig löschen
+                  </button>
+                </section>
               </div>
-
-              <dl
-                :if={@claim.sent_at || @claim.completed_at}
-                class="mt-5 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs"
-              >
-                <div :if={@claim.sent_at} class="flex items-center justify-between gap-3">
-                  <dt class="font-semibold text-slate-500">Versendet</dt>
-                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.sent_at)}</dd>
-                </div>
-                <div :if={@claim.completed_at} class="flex items-center justify-between gap-3">
-                  <dt class="font-semibold text-slate-500">Abgeschlossen</dt>
-                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.completed_at)}</dd>
-                </div>
-              </dl>
-
-              <div id="claim-status-history" phx-update="stream" class="mt-5 space-y-2">
-                <p
-                  id="claim-status-history-heading"
-                  class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
-                  Verlauf
-                </p>
-                <article
-                  :for={{dom_id, entry} <- @streams.status_history}
-                  id={dom_id}
-                  class="rounded-xl border border-slate-200 px-3 py-2.5"
-                >
-                  <p class="text-xs font-semibold text-slate-800">{status_history_label(entry)}</p>
-                  <p class="mt-1 text-[0.68rem] text-slate-500">
-                    {format_datetime(entry.changed_at)}
-                  </p>
-                </article>
-              </div>
-            </section>
-
-            <section class={["rounded-3xl border border-rose-200 bg-rose-50/60 p-6"]}>
-              <h2 class={["text-sm font-semibold text-rose-950"]}>Antrag löschen</h2>
-              <p class={["mt-2 text-xs leading-5 text-rose-800"]}>
-                Dabei werden auch alle privaten PDF-Dateien unwiderruflich entfernt.
-              </p>
-              <button
-                id="delete-claim-button"
-                type="button"
-                phx-click="delete_claim"
-                data-confirm="Antrag und alle zugehörigen Dokumente wirklich löschen?"
-                class={[
-                  "mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-rose-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-rose-900"
-                ]}
-              >
-                <.icon name="hero-trash" class="size-4" /> Antrag vollständig löschen
-              </button>
-            </section>
+            </details>
           </aside>
         </div>
 
@@ -1148,7 +1108,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> load_workspace(claim)
 
         if show_flash?,
-          do: put_flash(socket, :info, "Die Falldaten wurden gespeichert."),
+          do: put_flash(socket, :info, "Dein Reiseverlauf wurde gespeichert."),
           else: socket
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -1167,7 +1127,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {:error, _reason} ->
         socket
         |> assign(:save_state, :error)
-        |> put_flash(:error, "Die Falldaten konnten nicht gespeichert werden.")
+        |> put_flash(:error, "Dein Reiseverlauf konnte nicht gespeichert werden.")
     end
   end
 
@@ -1262,6 +1222,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       socket
       |> load_workspace(claim)
       |> maybe_auto_search_connections()
+      |> maybe_advance_to_next_question()
       |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam übernommen.")
     else
       {:error, :stale} ->
@@ -1293,6 +1254,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  defp maybe_advance_to_next_question(socket) do
+    current_step_id = socket.assigns.active_step
+    required_inputs = socket.assigns.required_inputs
+
+    with false <- Enum.any?(required_inputs, &(&1.step == current_step_id)),
+         [%{step: next_step_id} | _] <- required_inputs,
+         next_step when not is_nil(next_step) <-
+           Enum.find(socket.assigns.steps, &(&1.id == next_step_id)) do
+      push_patch(socket, to: step_path(socket.assigns.claim, next_step))
+    else
+      _no_advance -> socket
+    end
+  end
+
   defp confirm_auto_candidate(socket, candidate, query) do
     case ClaimWorkspace.confirm_connection(
            socket.assigns.current_scope,
@@ -1304,6 +1279,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         |> load_workspace(claim)
         |> assign(:connection_search_token, nil)
         |> assign(:connection_search_state, :idle)
+        |> maybe_advance_to_next_question()
         |> put_flash(
           :info,
           "Wir haben die passende Verbindung samt aktueller Verspätung automatisch übernommen."

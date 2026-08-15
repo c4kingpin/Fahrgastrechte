@@ -73,13 +73,12 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
     assert Enum.any?(suggestions, &(&1.field == :order_number and &1.state == :accepted))
     assert Enum.any?(suggestions, &(&1.field == :fare and &1.state == :accepted))
 
-    view |> element("#claim-step-forward") |> render_click()
+    {:ok, falldaten_view, _html} = live(conn, ~p"/antraege/#{claim.id}/falldaten")
 
-    assert_patch(view, ~p"/antraege/#{claim.id}/falldaten")
-    assert has_element?(view, "#claim-data-section:not([hidden])")
-    assert has_element?(view, "#claim-travel-date[type=text][value='15.04.2026']")
-    assert has_element?(view, "#claim-origin[value='Teststadt Hbf']")
-    assert has_element?(view, "#claim-destination[value='Beispielstadt Hbf']")
+    assert has_element?(falldaten_view, "#claim-data-section:not([hidden])")
+    assert has_element?(falldaten_view, "#claim-travel-date[type=text][value='15.04.2026']")
+    assert has_element?(falldaten_view, "#claim-origin[value='Teststadt Hbf']")
+    assert has_element?(falldaten_view, "#claim-destination[value='Beispielstadt Hbf']")
   end
 
   test "replaces a stored PDF without exposing an intermediate missing state", %{conn: conn} do
