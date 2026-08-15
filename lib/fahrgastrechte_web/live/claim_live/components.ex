@@ -358,6 +358,161 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
 
   attr :active_step, :atom, required: true
   attr :claim, :any, required: true
+  attr :planned_journey, :any, required: true
+  attr :actual_journey, :any, required: true
+  attr :proposed_suggestions?, :boolean, required: true
+  attr :suggestions_by_id, :map, required: true
+  attr :step_paths, :map, required: true
+
+  def trip_summary(assigns) do
+    ~H"""
+    <section
+      id="trip-summary-section"
+      hidden={@active_step not in [:suggestions, :claim, :planned, :actual]}
+      aria-labelledby="trip-summary-heading"
+      class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
+    >
+      <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
+        <div>
+          <h2
+            id="trip-summary-heading"
+            tabindex="-1"
+            class={[
+              "scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+            ]}
+          >
+            Deine Reise im Überblick
+          </h2>
+          <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
+            Stimmt das? Dann bestätige alles auf einmal statt jede Angabe einzeln zu prüfen.
+          </p>
+        </div>
+        <button
+          :if={@proposed_suggestions?}
+          id="confirm-all-facts"
+          type="button"
+          phx-click="set_all_suggestions_state"
+          phx-value-state="accepted"
+          class={[
+            "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800"
+          ]}
+        >
+          <.icon name="hero-check" class="size-4" /> Ja, diese Angaben stimmen
+        </button>
+      </div>
+
+      <dl class={["mt-6 grid gap-5 sm:grid-cols-2"]}>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Strecke</dt>
+          <dd
+            id="trip-summary-route"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_route(@claim, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.claim}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Reisedatum</dt>
+          <dd
+            id="trip-summary-date"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_date(@claim, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.claim}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Zug</dt>
+          <dd
+            id="trip-summary-train"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_train(@planned_journey, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.planned}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Planmäßige Zeiten
+          </dt>
+          <dd
+            id="trip-summary-scheduled"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_scheduled(@planned_journey)}
+            <.link
+              patch={@step_paths.planned}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Verspätung / Ausfall
+          </dt>
+          <dd
+            id="trip-summary-disruption"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_disruption(@claim, @actual_journey)}
+            <.link
+              patch={@step_paths.actual}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Tatsächliche Ankunft
+          </dt>
+          <dd
+            id="trip-summary-actual-arrival"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_actual_arrival(@actual_journey)}
+            <.link
+              patch={@step_paths.actual}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Auftragsnummer
+          </dt>
+          <dd id="trip-summary-order-number" class={["mt-1 text-sm text-slate-950"]}>
+            {trip_summary_order_number(@suggestions_by_id)}
+          </dd>
+        </div>
+      </dl>
+    </section>
+    """
+  end
+
+  attr :active_step, :atom, required: true
+  attr :claim, :any, required: true
   attr :documents_by_id, :map, required: true
   attr :proposed_suggestions?, :boolean, required: true
   attr :step_number, :integer, required: true

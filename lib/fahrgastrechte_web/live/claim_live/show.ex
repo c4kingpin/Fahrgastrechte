@@ -642,6 +642,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               upload={@uploads.documents}
             />
 
+            <Components.trip_summary
+              active_step={@active_step}
+              claim={@claim}
+              planned_journey={@planned_journey}
+              actual_journey={@actual_journey}
+              proposed_suggestions?={@proposed_suggestions?}
+              suggestions_by_id={@suggestions_by_id}
+              step_paths={@step_paths}
+            />
+
             <Components.suggestions
               active_step={@active_step}
               claim={@claim}
