@@ -161,6 +161,55 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     end
   end
 
+  @doc """
+  Builds automatic connection-search params from claim and ticket facts.
+
+  Returns `nil` while route, date or a scheduled departure time are still
+  unknown, so the caller can fall back to the manual search form.
+  """
+  @spec automatic_connection_query(Claim.t(), map()) :: map() | nil
+  def automatic_connection_query(%Claim{} = claim, suggestions_by_id)
+      when is_map(suggestions_by_id) do
+    with origin when is_binary(origin) <- claim.origin,
+         destination when is_binary(destination) <- claim.destination,
+         %Date{} = travel_date <- claim.travel_date,
+         %Time{} = departure_time <- suggested_departure_time(suggestions_by_id) do
+      %{
+        "origin" => origin,
+        "destination" => destination,
+        "departure_at" =>
+          "#{Date.to_iso8601(travel_date)}T#{departure_time |> Time.to_iso8601() |> String.slice(0, 5)}",
+        "train_number" => suggested_train_number(suggestions_by_id)
+      }
+    else
+      _missing -> nil
+    end
+  end
+
+  defp suggested_departure_time(suggestions_by_id) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{field: :scheduled_departure, value: %{"time" => time}} ->
+        case Time.from_iso8601(time <> ":00") do
+          {:ok, parsed} -> parsed
+          {:error, _reason} -> nil
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp suggested_train_number(suggestions_by_id) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{field: :scheduled_train, value: %{"number" => number}} -> number
+      _other -> nil
+    end)
+  end
+
   @doc "Returns station name options for both route fields."
   def station_options(%Scope{} = scope, claim_id, params) when is_map(params) do
     {
