@@ -123,6 +123,37 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     Enum.any?(Map.values(workspace.suggestions_by_id), &(&1.field == :valid_until))
   end
 
+  @doc """
+  Flags ticket and invoice as possibly unrelated documents.
+
+  Returns `nil` unless both carry a recognized order number and those order
+  numbers disagree, so an accidental cross-claim upload can be caught early.
+  """
+  @spec order_number_mismatch(ReadModel.t()) :: %{ticket: String.t(), invoice: String.t()} | nil
+  def order_number_mismatch(%ReadModel{} = workspace) do
+    order_numbers =
+      workspace.suggestions_by_id
+      |> Map.values()
+      |> Enum.filter(&(&1.field == :order_number))
+      |> Enum.reduce(%{}, fn suggestion, acc ->
+        case {Map.get(workspace.documents_by_id, suggestion.document_id), suggestion.value} do
+          {%{kind: kind}, %{"text" => text}} when kind in [:ticket, :invoice] ->
+            Map.put(acc, kind, text)
+
+          _other ->
+            acc
+        end
+      end)
+
+    case order_numbers do
+      %{ticket: ticket, invoice: invoice} when ticket != invoice ->
+        %{ticket: ticket, invoice: invoice}
+
+      _match_or_incomplete ->
+        nil
+    end
+  end
+
   @doc "Applies claim values and accepts suggestions in one transaction."
   @spec accept_suggestions(Scope.t(), Claim.t(), [map()]) ::
           {:ok, %{claim: Claim.t(), suggestions: [struct()]}} | {:error, term()}

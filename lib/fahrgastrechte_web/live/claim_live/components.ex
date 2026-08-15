@@ -351,6 +351,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :proposed_suggestions?, :boolean, required: true
   attr :suggestions_by_id, :map, required: true
   attr :step_paths, :map, required: true
+  attr :order_number_mismatch, :any, default: nil
 
   def trip_summary(assigns) do
     ~H"""
@@ -493,6 +494,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           <dd id="trip-summary-order-number" class={["mt-1 text-sm text-slate-950"]}>
             {trip_summary_order_number(@suggestions_by_id)}
           </dd>
+          <p
+            :if={@order_number_mismatch}
+            id="order-number-mismatch-warning"
+            class={["mt-1 text-xs font-semibold text-amber-700"]}
+          >
+            Ticket ({@order_number_mismatch.ticket}) und Rechnung ({@order_number_mismatch.invoice}) haben unterschiedliche Auftragsnummern. Bitte prüfe, ob beide Dokumente wirklich zusammengehören.
+          </p>
         </div>
       </dl>
     </section>
