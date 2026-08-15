@@ -289,7 +289,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
 
   def upload_error_message(:too_large), do: "Die PDF-Datei ist zu groß."
   def upload_error_message(:not_accepted), do: "Bitte verwende ausschließlich PDF-Dateien."
-  def upload_error_message(:too_many_files), do: "Bitte wähle nur eine Datei aus."
+  def upload_error_message(:too_many_files), do: "Bitte wähle höchstens zwei Dateien aus."
   def upload_error_message(_error), do: "Die Datei konnte nicht hochgeladen werden."
 
   def document_error_message(:wrong_content_type), do: "Die Datei wurde nicht als PDF erkannt."

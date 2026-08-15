@@ -20,16 +20,14 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
 
     upload_pdf(
       view,
-      "#ticket-upload-form",
-      :ticket,
+      "#document-upload-form",
       "ticket.pdf",
       "synthetic-ticket-flexpreis.pdf"
     )
 
     upload_pdf(
       view,
-      "#invoice-upload-form",
-      :invoice,
+      "#document-upload-form",
       "rechnung.pdf",
       "synthetic-invoice.pdf"
     )
@@ -91,19 +89,17 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
 
     upload_pdf(
       view,
-      "#ticket-upload-form",
-      :ticket,
+      "#document-upload-form",
       "ticket-alt.pdf",
       "synthetic-ticket-flexpreis.pdf"
     )
 
     assert {:ok, [old_document]} = Documents.list_documents(scope, claim.id)
-    assert has_element?(view, "#ticket-replace-form")
+    assert has_element?(view, "#document-upload-form")
 
     upload_pdf(
       view,
-      "#ticket-replace-form",
-      :ticket,
+      "#document-upload-form",
       "ticket-neu.pdf",
       "synthetic-ticket-flexpreis-business.pdf"
     )
@@ -114,11 +110,11 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
     assert has_element?(view, "#ticket-document-card #download-ticket")
   end
 
-  defp upload_pdf(view, selector, kind, name, fixture) do
+  defp upload_pdf(view, selector, name, fixture) do
     content = File.read!(fixture_path(fixture))
 
     upload =
-      file_input(view, selector, kind, [
+      file_input(view, selector, :documents, [
         %{
           last_modified: 1_700_000_000_000,
           name: name,

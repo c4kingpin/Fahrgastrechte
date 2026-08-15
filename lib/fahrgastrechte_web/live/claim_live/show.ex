@@ -75,19 +75,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:analysis_tokens, %{})
           |> assign(:origin_station_options, [])
           |> assign(:destination_station_options, [])
-          |> assign(:upload_forms, upload_forms())
+          |> assign(:upload_form, upload_form())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
-          |> allow_upload(:ticket,
+          |> allow_upload(:documents,
             accept: ~w(.pdf),
-            max_entries: 1,
-            max_file_size: max_file_size,
-            auto_upload: true,
-            progress: &handle_progress/3
-          )
-          |> allow_upload(:invoice,
-            accept: ~w(.pdf),
-            max_entries: 1,
+            max_entries: 2,
             max_file_size: max_file_size,
             auto_upload: true,
             progress: &handle_progress/3
@@ -145,9 +138,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
-  def handle_event("cancel_upload", %{"kind" => kind, "ref" => ref}, socket)
-      when kind in ["ticket", "invoice"] do
-    {:noreply, cancel_upload(socket, String.to_existing_atom(kind), ref)}
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :documents, ref)}
   end
 
   def handle_event("suggest_stations", %{"connection_search" => params}, socket) do
@@ -645,9 +637,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               max_file_size_label={@max_file_size_label}
               step_number={step_number(:documents)}
               step_states={@step_states}
-              upload_forms={@upload_forms}
+              upload_form={@upload_form}
               upload_kinds={@upload_kinds}
-              uploads={@uploads}
+              upload={@uploads.documents}
             />
 
             <Components.suggestions
@@ -1131,29 +1123,44 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
-  defp handle_progress(upload_name, entry, socket)
-       when upload_name in @upload_kinds and entry.done? do
-    result =
+  defp handle_progress(:documents, entry, socket) when entry.done? do
+    documents_by_kind = socket.assigns.documents_by_kind
+
+    tagged_result =
       consume_uploaded_entry(socket, entry, fn %{path: path} ->
-        {:ok,
-         Documents.put_document(
-           socket.assigns.current_scope,
-           socket.assigns.claim.id,
-           upload_name,
-           %{
-             path: path,
-             original_filename: entry.client_name,
-             content_type: entry.client_type
-           },
-           socket.assigns.claim.lock_version
-         )}
+        {kind, ambiguous?} = resolve_document_kind(path, documents_by_kind)
+
+        result =
+          Documents.put_document(
+            socket.assigns.current_scope,
+            socket.assigns.claim.id,
+            kind,
+            %{
+              path: path,
+              original_filename: entry.client_name,
+              content_type: entry.client_type
+            },
+            socket.assigns.claim.lock_version
+          )
+
+        {:ok, {result, ambiguous?}}
       end)
 
-    {:noreply, handle_upload_result(socket, [result])}
+    {:noreply, handle_upload_result(socket, [tagged_result])}
   end
 
-  defp handle_progress(upload_name, _entry, socket) when upload_name in @upload_kinds,
-    do: {:noreply, socket}
+  defp handle_progress(:documents, _entry, socket), do: {:noreply, socket}
+
+  defp resolve_document_kind(path, documents_by_kind) do
+    case Tickets.classify_upload(path) do
+      {:ok, kind, _confidence} -> {kind, false}
+      {:error, :ambiguous} -> {fallback_document_kind(documents_by_kind), true}
+    end
+  end
+
+  defp fallback_document_kind(documents_by_kind) do
+    Enum.find(@upload_kinds, :ticket, &(!Map.has_key?(documents_by_kind, &1)))
+  end
 
   defp start_document_analysis(socket, document) do
     token = async_token()
@@ -1170,14 +1177,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end)
   end
 
-  defp handle_upload_result(socket, [{:ok, %{document: document, claim: claim}}]) do
+  defp handle_upload_result(socket, [{{:ok, %{document: document, claim: claim}}, ambiguous?}]) do
+    message =
+      if ambiguous? do
+        "Wir konnten die Art des Dokuments nicht sicher erkennen und haben es vorläufig als " <>
+          document_kind_label(document.kind) <>
+          " gespeichert. Bitte löschen und neu hochladen, falls das nicht stimmt."
+      else
+        "Das Dokument wurde sicher gespeichert. Die Auswertung läuft."
+      end
+
     socket
     |> load_workspace(claim)
     |> start_document_analysis(document)
-    |> put_flash(:info, "Das Dokument wurde sicher gespeichert. Die Auswertung läuft.")
+    |> put_flash(:info, message)
   end
 
-  defp handle_upload_result(socket, [{:error, reason}]) do
+  defp handle_upload_result(socket, [{{:error, reason}, _ambiguous?}]) do
     put_flash(socket, :error, document_error_message(reason))
   end
 
@@ -1411,11 +1427,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     )
   end
 
-  defp upload_forms do
-    Map.new(@upload_kinds, fn kind ->
-      {kind, to_form(%{"kind" => Atom.to_string(kind)}, as: :document)}
-    end)
-  end
+  defp upload_form, do: to_form(%{}, as: :document)
 
   defp step_by_slug(nil), do: nil
 

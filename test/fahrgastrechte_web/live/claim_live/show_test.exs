@@ -20,8 +20,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#claim-workspace")
     assert has_element?(view, "#claim-form")
-    assert has_element?(view, "#ticket-upload-form")
-    assert has_element?(view, "#invoice-upload-form")
+    assert has_element?(view, "#document-upload-form")
     assert has_element?(view, "#ticket-suggestions")
     assert has_element?(view, "#delete-claim-button")
   end
@@ -109,7 +108,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     content = File.read!(fixture_path("synthetic-ticket-flexpreis.pdf"))
 
     upload =
-      file_input(view, "#ticket-upload-form", :ticket, [
+      file_input(view, "#document-upload-form", :documents, [
         %{
           last_modified: 1_700_000_000_000,
           name: "mein-ticket.pdf",
@@ -153,7 +152,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     content = File.read!(fixture_path("synthetic-invoice.pdf"))
 
     upload =
-      file_input(view, "#invoice-upload-form", :invoice, [
+      file_input(view, "#document-upload-form", :documents, [
         %{
           last_modified: 1_700_000_000_000,
           name: "rechnung.pdf",
@@ -177,7 +176,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     view |> element("#delete-document-invoice") |> render_click()
 
     assert {:ok, []} = Documents.list_documents(scope, claim.id)
-    assert has_element?(view, "#invoice-upload-form")
+    assert has_element?(view, "#document-upload-form")
   end
 
   test "redirects a manipulated foreign claim id without revealing it", %{conn: conn} do
