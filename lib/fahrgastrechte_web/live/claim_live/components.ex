@@ -155,9 +155,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :max_file_size_label, :string, required: true
   attr :step_number, :integer, required: true
   attr :step_states, :map, required: true
-  attr :upload_forms, :map, required: true
+  attr :upload_form, Phoenix.HTML.Form, required: true
   attr :upload_kinds, :list, required: true
-  attr :uploads, :map, required: true
+  attr :upload, Phoenix.LiveView.UploadConfig, required: true
 
   def documents(assigns) do
     ~H"""
@@ -182,15 +182,83 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           Ticket & Rechnung
         </h2>
         <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
-          Lade zuerst Ticket und Rechnung hoch. Beide PDFs werden automatisch ausgewertet, privat gespeichert und nie öffentlich verlinkt. Maximal {@max_file_size_label} je Datei.
+          Ziehe Ticket und Rechnung gemeinsam in die Fläche oder wähle beide Dateien auf einmal aus. Wir erkennen automatisch, welches PDF welches Dokument ist, werten es aus und speichern es privat. Maximal {@max_file_size_label} je Datei.
         </p>
       </div>
+
+      <.form
+        for={@upload_form}
+        id="document-upload-form"
+        phx-change="validate_upload"
+        phx-drop-target={@upload.ref}
+        class={["mt-6"]}
+      >
+        <label class={[
+          "group flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center transition hover:border-rose-300 hover:bg-rose-50/40"
+        ]}>
+          <.live_file_input upload={@upload} class="sr-only" />
+          <span class={[
+            "rounded-xl bg-rose-50 p-2.5 text-rose-700 transition group-hover:-translate-y-0.5"
+          ]}>
+            <.icon name="hero-arrow-up-tray" class="size-5" />
+          </span>
+          <span class={["mt-3 text-sm font-semibold text-slate-800"]}>
+            PDFs hierher ziehen oder auswählen
+          </span>
+          <span class={["mt-1 text-xs text-slate-500"]}>
+            Ticket und Rechnung zusammen hochladen · Upload und Auswertung starten automatisch
+          </span>
+        </label>
+
+        <div
+          :for={entry <- @upload.entries}
+          id={"document-upload-#{entry.ref}"}
+          class={["mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs shadow-sm"]}
+        >
+          <div class={["flex items-start justify-between gap-3"]}>
+            <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
+              {entry.client_name}
+            </p>
+            <button
+              id={"cancel-document-upload-#{entry.ref}"}
+              type="button"
+              phx-click="cancel_upload"
+              phx-value-ref={entry.ref}
+              aria-label={"Upload von #{entry.client_name} abbrechen"}
+              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <div
+            class={["mt-2 h-1.5 overflow-hidden rounded-full bg-white"]}
+            role="progressbar"
+            aria-label={"Upload-Fortschritt für #{entry.client_name}"}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={entry.progress}
+          >
+            <div
+              class={["h-full rounded-full bg-rose-600 transition-all"]}
+              style={"width: #{entry.progress}%"}
+            >
+            </div>
+          </div>
+          <p class={["mt-1 text-slate-500"]}>
+            {entry.progress}% · wird sicher gespeichert, erkannt und ausgewertet
+          </p>
+          <p :for={error <- upload_errors(@upload, entry)} class={["mt-1 text-rose-700"]}>
+            {upload_error_message(error)}
+          </p>
+        </div>
+        <p :for={error <- upload_errors(@upload)} class={["mt-2 text-xs text-rose-700"]}>
+          {upload_error_message(error)}
+        </p>
+      </.form>
 
       <div class={["mt-6 grid gap-4 lg:grid-cols-2"]}>
         <%= for kind <- @upload_kinds do %>
           <% document = Map.get(@documents_by_kind, kind) %>
-          <% upload = Map.fetch!(@uploads, kind) %>
-          <% upload_form = Map.fetch!(@upload_forms, kind) %>
           <article
             id={"#{kind}-document-card"}
             class={["rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"]}
@@ -273,133 +341,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   <.icon name="hero-trash" class="size-4" /> Löschen
                 </button>
               </div>
-              <.form
-                for={upload_form}
-                id={"#{kind}-replace-form"}
-                phx-change="validate_upload"
-                class={["mt-3"]}
-              >
-                <label class={[
-                  "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-800"
-                ]}>
-                  <.live_file_input upload={upload} class="sr-only" />
-                  <.icon name="hero-arrow-path" class="size-4" /> PDF ersetzen
-                </label>
-                <div
-                  :for={entry <- upload.entries}
-                  id={"#{kind}-replacement-#{entry.ref}"}
-                  class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
-                >
-                  <div class={["flex items-start justify-between gap-3"]}>
-                    <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
-                      {entry.client_name}
-                    </p>
-                    <button
-                      id={"cancel-#{kind}-replacement-#{entry.ref}"}
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-kind={kind}
-                      phx-value-ref={entry.ref}
-                      aria-label={"Upload von #{entry.client_name} abbrechen"}
-                      class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                    >
-                      <.icon name="hero-x-mark" class="size-4" />
-                    </button>
-                  </div>
-                  <div
-                    class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
-                    role="progressbar"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow={entry.progress}
-                  >
-                    <div
-                      class="h-full rounded-full bg-rose-600"
-                      style={"width: #{entry.progress}%"}
-                    >
-                    </div>
-                  </div>
-                </div>
-              </.form>
+              <p class={["mt-3 text-xs text-slate-500"]}>
+                Zum Ersetzen einfach eine neue Datei oben in die Fläche ziehen.
+              </p>
             <% else %>
-              <.form
-                for={upload_form}
-                id={"#{kind}-upload-form"}
-                phx-change="validate_upload"
-                class={["mt-5"]}
-              >
-                <.input
-                  field={upload_form[:kind]}
-                  id={"#{kind}-document-kind"}
-                  type="hidden"
-                />
-                <label class={[
-                  "group flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center transition hover:border-rose-300 hover:bg-rose-50/40"
-                ]}>
-                  <.live_file_input upload={upload} class="sr-only" />
-                  <span class={[
-                    "rounded-xl bg-rose-50 p-2.5 text-rose-700 transition group-hover:-translate-y-0.5"
-                  ]}>
-                    <.icon name="hero-arrow-up-tray" class="size-5" />
-                  </span>
-                  <span class={["mt-3 text-sm font-semibold text-slate-800"]}>PDF auswählen</span>
-                  <span class={["mt-1 text-xs text-slate-500"]}>
-                    Upload und Auswertung starten automatisch
-                  </span>
-                </label>
-
-                <div
-                  :for={entry <- upload.entries}
-                  id={"#{kind}-upload-#{entry.ref}"}
-                  class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
-                >
-                  <div class={["flex items-start justify-between gap-3"]}>
-                    <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
-                      {entry.client_name}
-                    </p>
-                    <button
-                      id={"cancel-#{kind}-upload-#{entry.ref}"}
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-kind={kind}
-                      phx-value-ref={entry.ref}
-                      aria-label={"Upload von #{entry.client_name} abbrechen"}
-                      class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                    >
-                      <.icon name="hero-x-mark" class="size-4" />
-                    </button>
-                  </div>
-                  <div
-                    class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
-                    role="progressbar"
-                    aria-label={"Upload-Fortschritt für #{entry.client_name}"}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow={entry.progress}
-                  >
-                    <div
-                      class={["h-full rounded-full bg-rose-600 transition-all"]}
-                      style={"width: #{entry.progress}%"}
-                    >
-                    </div>
-                  </div>
-                  <p class={["mt-1 text-slate-500"]}>
-                    {entry.progress}% · wird sicher gespeichert und ausgewertet
-                  </p>
-                  <p
-                    :for={error <- upload_errors(upload, entry)}
-                    class={["mt-1 text-rose-700"]}
-                  >
-                    {upload_error_message(error)}
-                  </p>
-                </div>
-                <p
-                  :for={error <- upload_errors(upload)}
-                  class={["mt-2 text-xs text-rose-700"]}
-                >
-                  {upload_error_message(error)}
-                </p>
-              </.form>
+              <p class={["mt-5 text-xs text-slate-500"]}>
+                Noch kein passendes Dokument erkannt.
+              </p>
             <% end %>
           </article>
         <% end %>
