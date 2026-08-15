@@ -143,6 +143,94 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
     end
   end
 
+  def trip_summary_route(%{origin: origin, destination: destination}, _suggestions_by_id)
+      when is_binary(origin) and is_binary(destination),
+      do: "#{origin} → #{destination}"
+
+  def trip_summary_route(_claim, suggestions_by_id) do
+    with origin when is_binary(origin) <- trip_summary_suggested_text(suggestions_by_id, :origin),
+         destination when is_binary(destination) <-
+           trip_summary_suggested_text(suggestions_by_id, :destination) do
+      "#{origin} → #{destination} (Vorschlag)"
+    else
+      _missing -> "Strecke noch offen"
+    end
+  end
+
+  def trip_summary_date(%{travel_date: %Date{} = date}, _suggestions_by_id), do: format_date(date)
+
+  def trip_summary_date(_claim, suggestions_by_id) do
+    case Enum.find(Map.values(suggestions_by_id), &(&1.field == :travel_date)) do
+      %{value: %{"date" => iso_date}} ->
+        case Date.from_iso8601(iso_date) do
+          {:ok, date} -> "#{format_date(date)} (Vorschlag)"
+          {:error, _reason} -> "Noch offen"
+        end
+
+      _no_suggestion ->
+        "Noch offen"
+    end
+  end
+
+  defp trip_summary_suggested_text(suggestions_by_id, field) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find(&(&1.field == field))
+    |> case do
+      %{value: %{"text" => text}} -> text
+      _no_suggestion -> nil
+    end
+  end
+
+  def trip_summary_train(%{segments: [first | _]}, _suggestions_by_id), do: train_label(first)
+
+  def trip_summary_train(_journey, suggestions_by_id) do
+    case Enum.find(Map.values(suggestions_by_id), &(&1.field == :scheduled_train)) do
+      %{value: %{"category" => category, "number" => number}} ->
+        "#{category} #{number} (Vorschlag)"
+
+      _no_suggestion ->
+        "Noch offen"
+    end
+  end
+
+  def trip_summary_scheduled(%{segments: [first | _] = segments}) do
+    "#{format_datetime(first.scheduled_departure)} – #{format_datetime(List.last(segments).scheduled_arrival)}"
+  end
+
+  def trip_summary_scheduled(_journey), do: "Noch offen"
+
+  def trip_summary_disruption(%{disruption_cause: :cancellation}, _actual_journey),
+    do: disruption_label(:cancellation)
+
+  def trip_summary_disruption(_claim, %{segments: [_ | _] = segments}) do
+    case delay_minutes(List.last(segments)) do
+      nil -> "Noch keine Prognose"
+      minutes when minutes <= 0 -> "Pünktlich"
+      minutes -> "#{minutes} Minuten verspätet"
+    end
+  end
+
+  def trip_summary_disruption(_claim, _actual_journey), do: "Noch offen"
+
+  def trip_summary_actual_arrival(%{segments: [_ | _] = segments}) do
+    format_optional_datetime(
+      List.last(segments).actual_arrival || List.last(segments).estimated_arrival
+    )
+  end
+
+  def trip_summary_actual_arrival(_journey), do: "Noch offen"
+
+  def trip_summary_order_number(suggestions_by_id) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find(&(&1.field == :order_number))
+    |> case do
+      %{value: %{"text" => number}} -> number
+      _no_order_number -> "Noch offen"
+    end
+  end
+
   def source_label("search_stations"), do: "Bahnhofssuche"
   def source_label("search_connections"), do: "Verbindungssuche"
   def source_label("departures"), do: "Abfahrten und Abweichungen"
