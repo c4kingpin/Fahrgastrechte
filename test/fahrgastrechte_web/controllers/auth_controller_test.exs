@@ -125,6 +125,24 @@ defmodule FahrgastrechteWeb.AuthControllerTest do
              "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an."
   end
 
+  # ADR 0006 keeps sessions in the cookie without server-side revocation and
+  # leans on the expiry being absolute: activity must never extend it.
+  test "activity does not extend the session expiry", %{conn: conn} do
+    user = user_fixture()
+
+    conn = conn |> init_test_session(%{}) |> UserAuth.log_in_user(user)
+    granted_at = get_session(conn, :session_expires_at)
+
+    assert is_integer(granted_at)
+
+    conn = get(conn, ~p"/antraege")
+    assert get_session(conn, :session_expires_at) == granted_at
+
+    conn = get(conn, ~p"/profil")
+    assert get_session(conn, :session_expires_at) == granted_at
+    assert get_session(conn, :user_id) == user.id
+  end
+
   test "an already authenticated user goes straight to their claims", %{conn: conn} do
     user = user_fixture()
     conn = conn |> init_test_session(%{}) |> UserAuth.log_in_user(user) |> get(~p"/anmelden")

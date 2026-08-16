@@ -62,6 +62,26 @@ BAHNVORHERSAGE_DATA_PATH
 BAHNVORHERSAGE_DATASET_VERSION
 ```
 
+### Alle Sitzungen sofort beenden
+
+Sitzungen liegen im Cookie; es gibt keine Sitzungstabelle und damit keinen
+gezielten Widerruf einzelner Sitzungen (siehe
+[ADR 0006](../decisions/0006-session-model.md)). Besteht der Verdacht, dass ein
+Cookie abhandengekommen ist, hilft die Rotation von `SECRET_KEY_BASE`:
+
+```bash
+openssl rand -base64 64 | tr -d '\n'
+# Wert in /etc/fahrgastrechte/fahrgastrechte.env eintragen, dann:
+systemctl restart fahrgastrechte
+```
+
+Damit werden alle ausgestellten Cookies ungültig und alle Benutzer müssen sich
+neu anmelden. Ohne diesen Schritt läuft eine bestehende Sitzung spätestens nach
+acht Stunden ab; eine Kontosperrung in Authentik wirkt erst danach.
+
+Den Benutzerdatensatz zu löschen ist **kein** Ersatz dafür — er nimmt alle
+Anträge, Dokumente und Ausgaben mit.
+
 ### Feldschlüssel rotieren
 
 `FIELD_ENCRYPTION_KEY` verschlüsselt IBAN und BIC. Ein Wechsel darf den Zugriff

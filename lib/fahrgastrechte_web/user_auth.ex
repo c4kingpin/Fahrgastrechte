@@ -1,6 +1,11 @@
 defmodule FahrgastrechteWeb.UserAuth do
   @moduledoc """
   Authenticated browser-session and LiveView integration for `current_scope`.
+
+  Sessions live in the encrypted cookie; there is no session table and therefore
+  no way to revoke a single session. The expiry is absolute and is never
+  extended by activity. `docs/decisions/0006-session-model.md` records that
+  decision, what it does not cover and how to revoke everything at once.
   """
 
   use FahrgastrechteWeb, :verified_routes
