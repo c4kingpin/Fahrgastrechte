@@ -2,6 +2,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   use FahrgastrechteWeb, :live_view
 
   alias Fahrgastrechte.Accounts
+  alias Fahrgastrechte.Accounts.BicLookup
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
   alias Fahrgastrechte.Documents
@@ -1504,6 +1505,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   defp payout_default_attrs(_profile), do: %{}
 
   defp payout_params(params) do
+    params
+    |> put_derived_account_holder()
+    |> put_derived_bic()
+  end
+
+  defp put_derived_account_holder(params) do
     case Map.get(params, "account_holder") do
       value when value in [nil, ""] ->
         name =
@@ -1515,6 +1522,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
       _value ->
         params
+    end
+  end
+
+  defp put_derived_bic(params) do
+    with value when value in [nil, ""] <- Map.get(params, "bic"),
+         {:ok, bic} <- BicLookup.derive(Map.get(params, "iban")) do
+      Map.put(params, "bic", bic)
+    else
+      _keep -> params
     end
   end
 
