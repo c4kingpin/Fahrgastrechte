@@ -17,6 +17,7 @@ defmodule Fahrgastrechte.Tickets do
   alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Repo
+  alias Fahrgastrechte.Tickets.Classifier
   alias Fahrgastrechte.Tickets.StationNormalizer
   alias Fahrgastrechte.Tickets.Suggestion
 
@@ -26,6 +27,32 @@ defmodule Fahrgastrechte.Tickets do
           | :invalid_document_kind
           | :invalid_state
           | :analysis_failed
+
+  @doc """
+  Classifies an unpersisted PDF as `:ticket` or `:invoice` from its embedded text.
+
+  Used to route a single shared upload area to the correct document kind
+  before the file is stored. Returns `{:error, :ambiguous}` for extraction
+  failures and score ties alike; callers fall back to the document kind the
+  claim is still missing.
+  """
+  @spec classify_upload(Path.t()) :: {:ok, :ticket | :invoice, float()} | {:error, :ambiguous}
+  def classify_upload(path) when is_binary(path) do
+    extractor = tickets_config(:extractor)
+
+    options = [
+      pdftotext_executable: tickets_config(:pdftotext_executable),
+      command_timeout_ms: tickets_config(:command_timeout_ms),
+      max_text_bytes: tickets_config(:max_text_bytes),
+      pages: nil
+    ]
+
+    with {:ok, extraction} <- extractor.extract(path, options) do
+      Classifier.classify(extraction.text)
+    else
+      {:error, _reason} -> {:error, :ambiguous}
+    end
+  end
 
   @doc "Analyzes one current ticket or invoice and replaces its previous suggestions."
   @spec analyze_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::

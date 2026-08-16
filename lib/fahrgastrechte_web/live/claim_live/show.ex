@@ -1,6 +1,8 @@
 defmodule FahrgastrechteWeb.ClaimLive.Show do
   use FahrgastrechteWeb, :live_view
 
+  alias Fahrgastrechte.Accounts
+  alias Fahrgastrechte.Accounts.BicLookup
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
   alias Fahrgastrechte.Documents
@@ -29,7 +31,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     %{
       id: :claim,
       slug: "falldaten",
-      label: "Falldaten",
+      label: "Reiseverlauf",
       heading_id: "claim-data-heading",
       icon: "hero-clipboard-document-list"
     },
@@ -75,19 +77,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:analysis_tokens, %{})
           |> assign(:origin_station_options, [])
           |> assign(:destination_station_options, [])
-          |> assign(:upload_forms, upload_forms())
+          |> assign(:upload_form, upload_form())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
-          |> allow_upload(:ticket,
+          |> allow_upload(:documents,
             accept: ~w(.pdf),
-            max_entries: 1,
-            max_file_size: max_file_size,
-            auto_upload: true,
-            progress: &handle_progress/3
-          )
-          |> allow_upload(:invoice,
-            accept: ~w(.pdf),
-            max_entries: 1,
+            max_entries: 2,
             max_file_size: max_file_size,
             auto_upload: true,
             progress: &handle_progress/3
@@ -107,7 +102,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   @impl true
   def handle_params(params, _uri, socket) do
     requested_step = step_by_slug(params["step"])
-    step = requested_step || resume_step(socket.assigns.steps)
+    step = requested_step || resume_step(socket.assigns.steps, socket.assigns.required_inputs)
     index = step_index(step)
     previous_step = if(index > 0, do: Enum.at(@steps, index - 1), else: nil)
     next_step = Enum.at(@steps, index + 1)
@@ -143,11 +138,35 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     {:noreply, persist_claim(socket, params, true)}
   end
 
+  def handle_event("payout_validate", %{"profile" => params}, socket) do
+    changeset =
+      socket.assigns.current_scope
+      |> Accounts.change_profile(payout_params(params))
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+  end
+
+  def handle_event("payout_save", %{"profile" => params}, socket) do
+    case Accounts.update_profile(socket.assigns.current_scope, payout_params(params)) do
+      {:ok, _profile} ->
+        {:noreply,
+         socket
+         |> refresh_workspace()
+         |> put_flash(:info, "Deine Auszahlungsdaten wurden gespeichert.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Die Angaben konnten nicht gespeichert werden.")}
+    end
+  end
+
   def handle_event("validate_upload", _params, socket), do: {:noreply, socket}
 
-  def handle_event("cancel_upload", %{"kind" => kind, "ref" => ref}, socket)
-      when kind in ["ticket", "invoice"] do
-    {:noreply, cancel_upload(socket, String.to_existing_atom(kind), ref)}
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :documents, ref)}
   end
 
   def handle_event("suggest_stations", %{"connection_search" => params}, socket) do
@@ -442,19 +461,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           socket
 
         {true, {:ok, {:ok, candidates}}} ->
-          indexed = Enum.with_index(candidates, 1)
-
-          lookup =
-            Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
-
-          items =
-            Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
-
-          socket
-          |> assign(:candidate_lookup, lookup)
-          |> assign(:connection_search_token, nil)
-          |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
-          |> stream(:connection_candidates, items, reset: true)
+          assign_connection_candidates(socket, candidates)
 
         {true, failure} ->
           reason = async_failure_reason(failure)
@@ -464,6 +471,27 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_token, nil)
           |> assign(:connection_search_state, {:error, reason})
           |> stream(:connection_candidates, [], reset: true)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:auto_connection_search, token, query}, result, socket) do
+    socket =
+      case {token == socket.assigns.connection_search_token, result} do
+        {false, _result} ->
+          socket
+
+        {true, {:ok, {:ok, [single_candidate]}}} ->
+          confirm_auto_candidate(socket, single_candidate, query)
+
+        {true, {:ok, {:ok, candidates}}} ->
+          socket
+          |> assign(:connection_search_form, to_form(query, as: :connection_search))
+          |> assign_connection_candidates(candidates)
+
+        {true, _failure} ->
+          assign(socket, :connection_search_token, nil)
       end
 
     {:noreply, socket}
@@ -563,8 +591,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               class={["w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-4"]}
             >
               <div class={["flex items-center justify-between text-xs font-semibold"]}>
-                <span class={["text-slate-300"]}>Bearbeitungsbereiche</span>
-                <span>{@completed_steps} von 6 bestätigt</span>
+                <span class={["text-slate-300"]}>Status</span>
+                <span id="workspace-progress-label">
+                  {workspace_progress_label(@required_inputs)}
+                </span>
               </div>
               <div
                 class={["mt-3 h-2 overflow-hidden rounded-full bg-white/10"]}
@@ -587,9 +617,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         <nav
           id="claim-stepper"
           aria-label="Schritte des Antragsassistenten"
-          class={["overflow-x-auto rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"]}
+          class={["rounded-3xl border border-slate-200 bg-white p-3 shadow-sm"]}
         >
-          <ol class={["grid min-w-[54rem] grid-cols-6 gap-2"]}>
+          <ol class={["grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"]}>
             <li :for={{step, step_number} <- Enum.with_index(@steps, 1)}>
               <.link
                 id={"claim-step-#{step.slug}"}
@@ -645,9 +675,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               max_file_size_label={@max_file_size_label}
               step_number={step_number(:documents)}
               step_states={@step_states}
-              upload_forms={@upload_forms}
+              upload_form={@upload_form}
               upload_kinds={@upload_kinds}
-              uploads={@uploads}
+              upload={@uploads.documents}
+            />
+
+            <Components.trip_summary
+              active_step={@active_step}
+              claim={@claim}
+              planned_journey={@planned_journey}
+              actual_journey={@actual_journey}
+              proposed_suggestions?={@proposed_suggestions?}
+              suggestions_by_id={@suggestions_by_id}
+              step_paths={@step_paths}
+              order_number_mismatch={@order_number_mismatch}
             />
 
             <Components.suggestions
@@ -695,6 +736,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               export_state_label={@export_state_label}
               exports_available?={@exports_available?}
               planned_complete?={@planned_complete?}
+              payout_form={@payout_form}
               profile_complete?={@profile_complete?}
               profile_error={@profile_error}
               review_complete?={@review_complete?}
@@ -706,159 +748,119 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           </div>
 
           <aside class={["space-y-5"]}>
-            <section
-              id="claim-next-steps"
-              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"]}
+            <details
+              id="claim-more-options"
+              class={["group rounded-3xl border border-slate-200 bg-white shadow-sm"]}
             >
-              <p class={["text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"]}>
-                Ablauf
-              </p>
-              <h2 class={["mt-2 text-lg font-semibold text-slate-950"]}>Dein Fortschritt</h2>
-              <ol class={["mt-5 space-y-2"]}>
-                <li :for={step <- @steps}>
-                  <.link
-                    id={"claim-progress-step-#{step.slug}"}
-                    patch={step_path(@claim, step)}
-                    aria-current={if(@active_step == step.id, do: "step", else: nil)}
-                    data-state={step.state}
+              <summary class={[
+                "flex cursor-pointer list-none items-center justify-between gap-3 rounded-3xl px-6 py-5 text-sm font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+              ]}>
+                Weitere Optionen
+                <.icon name="hero-chevron-down" class="size-4 transition group-open:rotate-180" />
+              </summary>
+
+              <div class={["space-y-5 px-6 pb-6"]}>
+                <section id="claim-status-actions">
+                  <h2 class={["text-sm font-semibold text-slate-950"]}>Status</h2>
+                  <p class={["mt-2 text-xs leading-5 text-slate-500"]}>
+                    {status_explanation(@claim.status)}
+                  </p>
+                  <div class={["mt-4 grid gap-2"]}>
+                    <button
+                      :if={@claim.status == :ready}
+                      id="mark-claim-sent"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="sent"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-800"
+                      ]}
+                    >
+                      <.icon name="hero-paper-airplane" class="size-4" /> Als versendet markieren
+                    </button>
+                    <button
+                      :if={@claim.status == :sent}
+                      id="complete-claim"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="completed"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
+                      ]}
+                    >
+                      <.icon name="hero-check-badge" class="size-4" /> Als erledigt markieren
+                    </button>
+                    <button
+                      :if={@claim.status in [:ready, :sent]}
+                      id="reopen-claim"
+                      type="button"
+                      phx-click="transition_claim"
+                      phx-value-status="draft"
+                      class={[
+                        "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      ]}
+                    >
+                      <.icon name="hero-pencil-square" class="size-4" /> Erneut bearbeiten
+                    </button>
+                  </div>
+
+                  <dl
+                    :if={@claim.sent_at || @claim.completed_at}
+                    class="mt-5 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs"
+                  >
+                    <div :if={@claim.sent_at} class="flex items-center justify-between gap-3">
+                      <dt class="font-semibold text-slate-500">Versendet</dt>
+                      <dd class="font-semibold text-slate-800">{format_datetime(@claim.sent_at)}</dd>
+                    </div>
+                    <div :if={@claim.completed_at} class="flex items-center justify-between gap-3">
+                      <dt class="font-semibold text-slate-500">Abgeschlossen</dt>
+                      <dd class="font-semibold text-slate-800">
+                        {format_datetime(@claim.completed_at)}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div id="claim-status-history" phx-update="stream" class="mt-5 space-y-2">
+                    <p
+                      id="claim-status-history-heading"
+                      class="text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    >
+                      Verlauf
+                    </p>
+                    <article
+                      :for={{dom_id, entry} <- @streams.status_history}
+                      id={dom_id}
+                      class="rounded-xl border border-slate-200 px-3 py-2.5"
+                    >
+                      <p class="text-xs font-semibold text-slate-800">
+                        {status_history_label(entry)}
+                      </p>
+                      <p class="mt-1 text-[0.68rem] text-slate-500">
+                        {format_datetime(entry.changed_at)}
+                      </p>
+                    </article>
+                  </div>
+                </section>
+
+                <section class={["rounded-2xl border border-rose-200 bg-rose-50/60 p-5"]}>
+                  <h2 class={["text-sm font-semibold text-rose-950"]}>Antrag löschen</h2>
+                  <p class={["mt-2 text-xs leading-5 text-rose-800"]}>
+                    Dabei werden auch alle privaten PDF-Dateien unwiderruflich entfernt.
+                  </p>
+                  <button
+                    id="delete-claim-button"
+                    type="button"
+                    phx-click="delete_claim"
+                    data-confirm="Antrag und alle zugehörigen Dokumente wirklich löschen?"
                     class={[
-                      "flex items-center gap-3 rounded-xl px-3.5 py-3 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
-                      if(@active_step == step.id,
-                        do: "bg-slate-950 text-white",
-                        else: "bg-slate-50 hover:bg-slate-100"
-                      )
+                      "mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-rose-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-rose-900"
                     ]}
                   >
-                    <span class={[
-                      "flex size-7 shrink-0 items-center justify-center rounded-full",
-                      if(@active_step == step.id,
-                        do: "bg-white/15 text-white",
-                        else: step_badge_style(step.state)
-                      )
-                    ]}>
-                      <.icon name={step_badge_icon(step.state)} class="size-4" />
-                    </span>
-                    <span class="min-w-0">
-                      <span class="block truncate text-sm font-semibold">{step.label}</span>
-                      <span class={[
-                        "mt-0.5 block text-xs font-semibold",
-                        if(@active_step == step.id, do: "text-slate-300", else: "text-slate-500")
-                      ]}>
-                        {step_badge_label(step.state)}
-                      </span>
-                    </span>
-                  </.link>
-                </li>
-              </ol>
-              <.link
-                id="claim-profile-link"
-                navigate={~p"/profil?antrag=#{@claim.id}"}
-                class={[
-                  "mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                ]}
-              >
-                <.icon name="hero-user-circle" class="size-5" /> Profil prüfen
-              </.link>
-            </section>
-
-            <section
-              id="claim-status-actions"
-              class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"]}
-            >
-              <h2 class={["text-lg font-semibold text-slate-950"]}>Status</h2>
-              <p class={["mt-2 text-sm leading-6 text-slate-500"]}>
-                {status_explanation(@claim.status)}
-              </p>
-              <div class={["mt-4 grid gap-2"]}>
-                <button
-                  :if={@claim.status == :ready}
-                  id="mark-claim-sent"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="sent"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-800"
-                  ]}
-                >
-                  <.icon name="hero-paper-airplane" class="size-4" /> Als versendet markieren
-                </button>
-                <button
-                  :if={@claim.status == :sent}
-                  id="complete-claim"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="completed"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-800"
-                  ]}
-                >
-                  <.icon name="hero-check-badge" class="size-4" /> Als erledigt markieren
-                </button>
-                <button
-                  :if={@claim.status in [:ready, :sent]}
-                  id="reopen-claim"
-                  type="button"
-                  phx-click="transition_claim"
-                  phx-value-status="draft"
-                  class={[
-                    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  ]}
-                >
-                  <.icon name="hero-pencil-square" class="size-4" /> Erneut bearbeiten
-                </button>
+                    <.icon name="hero-trash" class="size-4" /> Antrag vollständig löschen
+                  </button>
+                </section>
               </div>
-
-              <dl
-                :if={@claim.sent_at || @claim.completed_at}
-                class="mt-5 grid gap-2 rounded-xl bg-slate-50 p-3 text-xs"
-              >
-                <div :if={@claim.sent_at} class="flex items-center justify-between gap-3">
-                  <dt class="font-semibold text-slate-500">Versendet</dt>
-                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.sent_at)}</dd>
-                </div>
-                <div :if={@claim.completed_at} class="flex items-center justify-between gap-3">
-                  <dt class="font-semibold text-slate-500">Abgeschlossen</dt>
-                  <dd class="font-semibold text-slate-800">{format_datetime(@claim.completed_at)}</dd>
-                </div>
-              </dl>
-
-              <div id="claim-status-history" phx-update="stream" class="mt-5 space-y-2">
-                <p
-                  id="claim-status-history-heading"
-                  class="text-xs font-semibold uppercase tracking-wide text-slate-500"
-                >
-                  Verlauf
-                </p>
-                <article
-                  :for={{dom_id, entry} <- @streams.status_history}
-                  id={dom_id}
-                  class="rounded-xl border border-slate-200 px-3 py-2.5"
-                >
-                  <p class="text-xs font-semibold text-slate-800">{status_history_label(entry)}</p>
-                  <p class="mt-1 text-[0.68rem] text-slate-500">
-                    {format_datetime(entry.changed_at)}
-                  </p>
-                </article>
-              </div>
-            </section>
-
-            <section class={["rounded-3xl border border-rose-200 bg-rose-50/60 p-6"]}>
-              <h2 class={["text-sm font-semibold text-rose-950"]}>Antrag löschen</h2>
-              <p class={["mt-2 text-xs leading-5 text-rose-800"]}>
-                Dabei werden auch alle privaten PDF-Dateien unwiderruflich entfernt.
-              </p>
-              <button
-                id="delete-claim-button"
-                type="button"
-                phx-click="delete_claim"
-                data-confirm="Antrag und alle zugehörigen Dokumente wirklich löschen?"
-                class={[
-                  "mt-4 inline-flex min-h-10 items-center gap-2 rounded-lg bg-rose-800 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-rose-900"
-                ]}
-              >
-                <.icon name="hero-trash" class="size-4" /> Antrag vollständig löschen
-              </button>
-            </section>
+            </details>
           </aside>
         </div>
 
@@ -1108,7 +1110,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> load_workspace(claim)
 
         if show_flash?,
-          do: put_flash(socket, :info, "Die Falldaten wurden gespeichert."),
+          do: put_flash(socket, :info, "Dein Reiseverlauf wurde gespeichert."),
           else: socket
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -1127,33 +1129,48 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {:error, _reason} ->
         socket
         |> assign(:save_state, :error)
-        |> put_flash(:error, "Die Falldaten konnten nicht gespeichert werden.")
+        |> put_flash(:error, "Dein Reiseverlauf konnte nicht gespeichert werden.")
     end
   end
 
-  defp handle_progress(upload_name, entry, socket)
-       when upload_name in @upload_kinds and entry.done? do
-    result =
+  defp handle_progress(:documents, entry, socket) when entry.done? do
+    documents_by_kind = socket.assigns.documents_by_kind
+
+    tagged_result =
       consume_uploaded_entry(socket, entry, fn %{path: path} ->
-        {:ok,
-         Documents.put_document(
-           socket.assigns.current_scope,
-           socket.assigns.claim.id,
-           upload_name,
-           %{
-             path: path,
-             original_filename: entry.client_name,
-             content_type: entry.client_type
-           },
-           socket.assigns.claim.lock_version
-         )}
+        {kind, ambiguous?} = resolve_document_kind(path, documents_by_kind)
+
+        result =
+          Documents.put_document(
+            socket.assigns.current_scope,
+            socket.assigns.claim.id,
+            kind,
+            %{
+              path: path,
+              original_filename: entry.client_name,
+              content_type: entry.client_type
+            },
+            socket.assigns.claim.lock_version
+          )
+
+        {:ok, {result, ambiguous?}}
       end)
 
-    {:noreply, handle_upload_result(socket, [result])}
+    {:noreply, handle_upload_result(socket, [tagged_result])}
   end
 
-  defp handle_progress(upload_name, _entry, socket) when upload_name in @upload_kinds,
-    do: {:noreply, socket}
+  defp handle_progress(:documents, _entry, socket), do: {:noreply, socket}
+
+  defp resolve_document_kind(path, documents_by_kind) do
+    case Tickets.classify_upload(path) do
+      {:ok, kind, _confidence} -> {kind, false}
+      {:error, :ambiguous} -> {fallback_document_kind(documents_by_kind), true}
+    end
+  end
+
+  defp fallback_document_kind(documents_by_kind) do
+    Enum.find(@upload_kinds, :ticket, &(!Map.has_key?(documents_by_kind, &1)))
+  end
 
   defp start_document_analysis(socket, document) do
     token = async_token()
@@ -1170,14 +1187,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end)
   end
 
-  defp handle_upload_result(socket, [{:ok, %{document: document, claim: claim}}]) do
+  defp handle_upload_result(socket, [{{:ok, %{document: document, claim: claim}}, ambiguous?}]) do
+    message =
+      if ambiguous? do
+        "Wir konnten die Art des Dokuments nicht sicher erkennen und haben es vorläufig als " <>
+          document_kind_label(document.kind) <>
+          " gespeichert. Bitte löschen und neu hochladen, falls das nicht stimmt."
+      else
+        "Das Dokument wurde sicher gespeichert. Die Auswertung läuft."
+      end
+
     socket
     |> load_workspace(claim)
     |> start_document_analysis(document)
-    |> put_flash(:info, "Das Dokument wurde sicher gespeichert. Die Auswertung läuft.")
+    |> put_flash(:info, message)
   end
 
-  defp handle_upload_result(socket, [{:error, reason}]) do
+  defp handle_upload_result(socket, [{{:error, reason}, _ambiguous?}]) do
     put_flash(socket, :error, document_error_message(reason))
   end
 
@@ -1197,6 +1223,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
            ) do
       socket
       |> load_workspace(claim)
+      |> maybe_auto_search_connections()
+      |> maybe_advance_to_next_question()
       |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam übernommen.")
     else
       {:error, :stale} ->
@@ -1205,6 +1233,84 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {:error, _reason} ->
         put_flash(socket, :error, "Die Vorschläge konnten nicht übernommen werden.")
     end
+  end
+
+  defp maybe_auto_search_connections(socket) do
+    claim = socket.assigns.claim
+
+    with nil <- socket.assigns.planned_journey,
+         true <- editable?(claim.status),
+         query when not is_nil(query) <-
+           ClaimWorkspace.automatic_connection_query(claim, socket.assigns.suggestions_by_id) do
+      token = async_token()
+      scope = socket.assigns.current_scope
+
+      socket
+      |> assign(:connection_search_token, token)
+      |> assign(:connection_search_state, :loading)
+      |> start_async({:auto_connection_search, token, query}, fn ->
+        ClaimWorkspace.search_connections(scope, claim, query)
+      end)
+    else
+      _skip -> socket
+    end
+  end
+
+  defp maybe_advance_to_next_question(socket) do
+    current_step_id = socket.assigns.active_step
+    required_inputs = socket.assigns.required_inputs
+
+    with false <- Enum.any?(required_inputs, &(&1.step == current_step_id)),
+         [%{step: next_step_id} | _] <- required_inputs,
+         next_step when not is_nil(next_step) <-
+           Enum.find(socket.assigns.steps, &(&1.id == next_step_id)) do
+      push_patch(socket, to: step_path(socket.assigns.claim, next_step))
+    else
+      _no_advance -> socket
+    end
+  end
+
+  defp confirm_auto_candidate(socket, candidate, query) do
+    case ClaimWorkspace.confirm_connection(
+           socket.assigns.current_scope,
+           socket.assigns.claim,
+           candidate
+         ) do
+      {:ok, %{claim: claim}} ->
+        socket
+        |> load_workspace(claim)
+        |> assign(:connection_search_token, nil)
+        |> assign(:connection_search_state, :idle)
+        |> maybe_advance_to_next_question()
+        |> put_flash(
+          :info,
+          "Wir haben die passende Verbindung samt aktueller Verspätung automatisch übernommen."
+        )
+
+      {:error, :stale} ->
+        handle_stale(socket)
+
+      {:error, _reason} ->
+        socket
+        |> assign(:connection_search_form, to_form(query, as: :connection_search))
+        |> assign_connection_candidates([candidate])
+    end
+  end
+
+  defp assign_connection_candidates(socket, candidates) do
+    indexed = Enum.with_index(candidates, 1)
+
+    lookup =
+      Map.new(indexed, fn {candidate, index} -> {Integer.to_string(index), candidate} end)
+
+    items =
+      Enum.map(indexed, fn {candidate, index} -> %{id: index, candidate: candidate} end)
+
+    socket
+    |> assign(:candidate_lookup, lookup)
+    |> assign(:connection_search_token, nil)
+    |> assign(:connection_search_state, if(candidates == [], do: :empty, else: :results))
+    |> stream(:connection_candidates, items, reset: true)
   end
 
   defp reject_suggestion_group(socket, []),
@@ -1315,6 +1421,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
     completed_steps = Enum.count(steps, &(&1.state == :confirmed))
     step_paths = Map.new(steps, &{&1.id, step_path(workspace.claim, &1)})
+    required_inputs = ClaimWorkspace.required_inputs(workspace)
+    payout_form = payout_form(socket.assigns.current_scope, workspace)
+    order_number_mismatch = ClaimWorkspace.order_number_mismatch(workspace)
 
     socket
     |> assign(:claim, workspace.claim)
@@ -1354,6 +1463,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       to_form(workspace.connection_search_data, as: :connection_search)
     )
     |> assign(:completed_steps, completed_steps)
+    |> assign(:required_inputs, required_inputs)
+    |> assign(:payout_form, payout_form)
+    |> assign(:order_number_mismatch, order_number_mismatch)
     |> stream(:route_suggestions, route_suggestions, reset: true)
     |> stream(:booking_suggestions, booking_suggestions, reset: true)
     |> stream(:other_suggestions, other_suggestions, reset: true)
@@ -1371,6 +1483,54 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     case Map.get(workspace, key) do
       entries when is_list(entries) -> Enum.reverse(entries)
       _other -> []
+    end
+  end
+
+  defp payout_form(_scope, %{profile_complete?: true}), do: nil
+  defp payout_form(_scope, %{profile_error: reason}) when not is_nil(reason), do: nil
+
+  defp payout_form(scope, _workspace) do
+    case Accounts.get_profile(scope) do
+      {:ok, profile} ->
+        to_form(Accounts.change_profile(profile, payout_default_attrs(profile)), as: :profile)
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  defp payout_default_attrs(%{country: country}) when country in [nil, ""],
+    do: %{"country" => "Deutschland"}
+
+  defp payout_default_attrs(_profile), do: %{}
+
+  defp payout_params(params) do
+    params
+    |> put_derived_account_holder()
+    |> put_derived_bic()
+  end
+
+  defp put_derived_account_holder(params) do
+    case Map.get(params, "account_holder") do
+      value when value in [nil, ""] ->
+        name =
+          [Map.get(params, "first_name"), Map.get(params, "last_name")]
+          |> Enum.reject(&(&1 in [nil, ""]))
+          |> Enum.join(" ")
+
+        if name == "", do: params, else: Map.put(params, "account_holder", name)
+
+      _value ->
+        params
+    end
+  end
+
+  defp put_derived_bic(params) do
+    with value when value in [nil, ""] <- Map.get(params, "bic"),
+         {:ok, bic} <- BicLookup.derive(Map.get(params, "iban")) do
+      Map.put(params, "bic", bic)
+    else
+      _keep -> params
     end
   end
 
@@ -1411,19 +1571,17 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     )
   end
 
-  defp upload_forms do
-    Map.new(@upload_kinds, fn kind ->
-      {kind, to_form(%{"kind" => Atom.to_string(kind)}, as: :document)}
-    end)
-  end
+  defp upload_form, do: to_form(%{}, as: :document)
 
   defp step_by_slug(nil), do: nil
 
   defp step_by_slug(slug) when is_binary(slug),
     do: Enum.find(@steps, &(&1.slug == slug))
 
-  defp resume_step(steps),
-    do: Enum.find(steps, &(&1.state != :confirmed)) || List.last(steps)
+  defp resume_step(steps, [%{step: step_id} | _rest]),
+    do: Enum.find(steps, &(&1.id == step_id)) || List.last(steps)
+
+  defp resume_step(steps, []), do: List.last(steps)
 
   defp step_index(step),
     do: Enum.find_index(@steps, &(&1.id == step.id))
