@@ -541,4 +541,31 @@ defmodule Fahrgastrechte.RailTest do
       assert {:error, :not_authenticated} = Rail.get_journey(nil, claim.id, :actual)
     end
   end
+
+  describe "external id storage round-trip" do
+    test "converts a provider-scoped id to a storable map and back" do
+      id = %{provider: TestRailProvider, value: "8000152"}
+
+      stored = Rail.external_id_for_storage(id)
+      assert stored == %{"provider" => "Fahrgastrechte.TestRailProvider", "value" => "8000152"}
+
+      assert Rail.external_id_from_storage(stored) == {:ok, id}
+    end
+
+    test "external_id_for_storage/1 passes through nil and already-stored maps" do
+      assert Rail.external_id_for_storage(nil) == nil
+      already_stored = %{"provider" => "x", "value" => "y"}
+      assert Rail.external_id_for_storage(already_stored) == already_stored
+    end
+
+    test "external_id_from_storage/1 rejects malformed or unknown-provider data" do
+      assert Rail.external_id_from_storage(nil) == :error
+      assert Rail.external_id_from_storage(%{"value" => "8000152"}) == :error
+
+      assert Rail.external_id_from_storage(%{
+               "provider" => "Not.A.Real.Module",
+               "value" => "8000152"
+             }) == :error
+    end
+  end
 end

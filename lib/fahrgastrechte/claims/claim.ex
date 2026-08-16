@@ -23,6 +23,7 @@ defmodule Fahrgastrechte.Claims.Claim do
     :disruption_cause,
     :journey_direction
   ]
+  @station_id_fields [:origin_station_id, :destination_station_id]
   @required_export_fields [
     :travel_date,
     :origin,
@@ -44,7 +45,9 @@ defmodule Fahrgastrechte.Claims.Claim do
     field :status, Ecto.Enum, values: @statuses, default: :draft
     field :travel_date, :date
     field :origin, :string
+    field :origin_station_id, :map
     field :destination, :string
+    field :destination_station_id, :map
     field :journey_outcome, Ecto.Enum, values: @journey_outcomes
     field :disruption_cause, Ecto.Enum, values: @disruption_causes
     field :journey_direction, Ecto.Enum, values: @journey_directions, default: :outbound
@@ -63,19 +66,28 @@ defmodule Fahrgastrechte.Claims.Claim do
   @doc false
   def create_changeset(claim, attrs) do
     claim
-    |> cast(attrs, @editable_fields)
+    |> cast(attrs, @editable_fields ++ @station_id_fields)
     |> normalize_route()
     |> validate_fields()
     |> validate_required([:claim_number, :user_id, :status, :compensation_method])
     |> unique_constraint(:claim_number)
   end
 
-  @doc false
+  @doc """
+  Updates editable claim fields.
+
+  `origin_station_id`/`destination_station_id` are cast when the caller
+  provides them (a resolved station match), but are otherwise cleared
+  whenever the corresponding `origin`/`destination` text changes — a stale
+  station id must never linger next to text nobody confirmed against it.
+  """
   def update_changeset(claim, attrs) do
     claim
-    |> cast(attrs, @editable_fields)
+    |> cast(attrs, @editable_fields ++ @station_id_fields)
     |> normalize_route()
     |> validate_fields()
+    |> clear_stale_station_id(:origin, :origin_station_id, attrs)
+    |> clear_stale_station_id(:destination, :destination_station_id, attrs)
   end
 
   @doc false
@@ -102,6 +114,16 @@ defmodule Fahrgastrechte.Claims.Claim do
       do: false
 
   def cause_allowed?(%__MODULE__{}), do: true
+
+  defp clear_stale_station_id(changeset, text_field, id_field, attrs) do
+    id_provided? = Map.has_key?(attrs, id_field) or Map.has_key?(attrs, Atom.to_string(id_field))
+
+    if get_change(changeset, text_field) != nil and not id_provided? do
+      put_change(changeset, id_field, nil)
+    else
+      changeset
+    end
+  end
 
   defp normalize_route(changeset) do
     changeset

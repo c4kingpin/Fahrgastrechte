@@ -82,4 +82,82 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       assert accepted.state == :accepted
     end
   end
+
+  describe "search_connections/3" do
+    setup do
+      previous_rail_config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Rail)
+
+      Application.put_env(
+        :fahrgastrechte,
+        Fahrgastrechte.Rail,
+        Keyword.put(previous_rail_config, :provider, Fahrgastrechte.TestRailProvider)
+      )
+
+      on_exit(fn ->
+        Application.put_env(:fahrgastrechte, Fahrgastrechte.Rail, previous_rail_config)
+      end)
+
+      :ok
+    end
+
+    test "reuses a resolved station id without re-searching when the text is unchanged" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "origin" => "Hannover Hbf",
+          "origin_station_id" => %{
+            "provider" => "Fahrgastrechte.TestRailProvider",
+            "value" => "8000152"
+          },
+          "destination" => "Frankfurt(M) Flughafen Fernbf",
+          "destination_station_id" => %{
+            "provider" => "Fahrgastrechte.TestRailProvider",
+            "value" => "8070004"
+          }
+        })
+
+      params = %{
+        "origin" => claim.origin,
+        "destination" => claim.destination,
+        "departure_at" => "2026-08-02T08:00"
+      }
+
+      assert {:ok, _candidates} = ClaimWorkspace.search_connections(scope, claim, params)
+
+      refute_received {:test_rail_provider_search_stations, _query}
+      assert_received {:test_rail_provider_search_connections, query}
+      assert query.origin == %{provider: Fahrgastrechte.TestRailProvider, value: "8000152"}
+
+      assert query.destination == %{
+               provider: Fahrgastrechte.TestRailProvider,
+               value: "8070004"
+             }
+    end
+
+    test "falls back to a fresh station search when the text was edited" do
+      scope = scope_fixture()
+
+      claim =
+        claim_fixture(scope, %{
+          "origin" => "Hannover Hbf",
+          "origin_station_id" => %{
+            "provider" => "Fahrgastrechte.TestRailProvider",
+            "value" => "8000152"
+          }
+        })
+
+      params = %{
+        "origin" => "Hannover+City",
+        "destination" => claim.destination,
+        "departure_at" => "2026-08-02T08:00"
+      }
+
+      assert {:ok, _candidates} = ClaimWorkspace.search_connections(scope, claim, params)
+
+      assert_received {:test_rail_provider_search_stations, "Hannover+City"}
+      assert_received {:test_rail_provider_search_connections, query}
+      assert query.origin == %{provider: Fahrgastrechte.TestRailProvider, value: "9999999"}
+    end
+  end
 end

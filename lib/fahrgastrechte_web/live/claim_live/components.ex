@@ -1490,8 +1490,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 <span class="rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm">
                   {confidence_label(suggestion.confidence)}
                 </span>
+                <span
+                  :if={suggestion_unresolved?(suggestion)}
+                  class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[0.68rem] font-semibold text-amber-800"
+                >
+                  <.icon name="hero-exclamation-triangle" class="size-3" /> Kein Bahnhof gefunden
+                </span>
               </div>
               <p class="mt-2 text-sm font-semibold text-slate-950">{suggestion_value(suggestion)}</p>
+              <p
+                :if={suggestion_unresolved?(suggestion)}
+                class="mt-1 text-xs leading-5 text-amber-800"
+              >
+                Dieser Text konnte nicht gegen einen echten Bahnhof abgeglichen werden. Bitte vor dem Übernehmen prüfen und ggf. korrigieren.
+              </p>
               <p class="mt-2 text-xs leading-5 text-slate-500">
                 {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
               </p>
