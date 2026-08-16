@@ -53,6 +53,33 @@ BAHNVORHERSAGE_DATA_PATH
 BAHNVORHERSAGE_DATASET_VERSION
 ```
 
+### Feldschlüssel rotieren
+
+`FIELD_ENCRYPTION_KEY` verschlüsselt IBAN und BIC. Ein Wechsel darf den Zugriff
+auf bestehende Profile nicht verlieren, deshalb bleibt der alte Schlüssel
+während der Umstellung über `FIELD_ENCRYPTION_KEYS` erreichbar. Der Wert ist
+eine kommaseparierte Liste aus `VERSION:BASE64_SCHLÜSSEL`.
+
+1. Neuen Schlüssel erzeugen: `openssl rand -base64 32`.
+2. In der Environment-Datei den bisherigen Schlüssel unter seiner bisherigen
+   Version nach `FIELD_ENCRYPTION_KEYS` übernehmen, dann
+   `FIELD_ENCRYPTION_KEY` auf den neuen Wert und `FIELD_ENCRYPTION_KEY_VERSION`
+   um eins erhöhen.
+3. Dienst neu starten und Readiness prüfen.
+4. Bestandsdaten umschlüsseln:
+
+   ```bash
+   /opt/fahrgastrechte/current/bin/fahrgastrechte eval \
+     'Fahrgastrechte.Release.rekey_bank_data()'
+   ```
+
+5. Erst nach erfolgreicher Meldung `FIELD_ENCRYPTION_KEYS` wieder leeren und den
+   Dienst erneut starten.
+
+Der Befehl ist idempotent und bricht ohne Änderung ab, wenn der aktive Schlüssel
+fehlt. Wird Schritt 4 ausgelassen, bleiben die alten Datensätze nur so lange
+lesbar, wie der alte Schlüssel konfiguriert ist.
+
 Secrets niemals als Shellargument, in Git, Tickets oder Chat kopieren. Im LXC
 die geschützte Environment-Datei mit einem lokalen Editor ändern, Berechtigungen
 danach prüfen und den Dienst neu starten:

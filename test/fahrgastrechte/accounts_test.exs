@@ -109,6 +109,40 @@ defmodule Fahrgastrechte.AccountsTest do
       assert {:error, :invalid_ciphertext} = Accounts.profile_completeness(scope)
     end
 
+    test "rejects ciphertext moved to another user's profile" do
+      scope = scope_fixture()
+      other_scope = scope_fixture()
+
+      assert {:ok, profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      assert {:ok, other_profile} =
+               Accounts.update_profile(other_scope, valid_profile_attributes())
+
+      other_profile
+      |> Ecto.Changeset.change(
+        iban_ciphertext: profile.iban_ciphertext,
+        bank_data_key_version: profile.bank_data_key_version
+      )
+      |> Repo.update!()
+
+      assert {:error, :invalid_ciphertext} = Accounts.get_profile(other_scope)
+    end
+
+    test "reads records written before the additional data was bound to the user" do
+      scope = scope_fixture()
+      assert {:ok, profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      legacy_ciphertext =
+        legacy_encrypt(valid_profile_attributes()["iban"], :iban, profile.bank_data_key_version)
+
+      profile
+      |> Ecto.Changeset.change(iban_ciphertext: legacy_ciphertext)
+      |> Repo.update!()
+
+      assert {:ok, loaded} = Accounts.get_profile(scope)
+      assert loaded.iban == valid_profile_attributes()["iban"]
+    end
+
     test "validates IBAN before encryption" do
       scope = scope_fixture()
 
@@ -137,5 +171,22 @@ defmodule Fahrgastrechte.AccountsTest do
       refute function_exported?(Accounts, :get_profile, 0)
       assert %Scope{} = Scope.for_user(user)
     end
+  end
+
+  # Reproduces the additional data used before it was bound to the owning user.
+  defp legacy_encrypt(value, field, version) do
+    key =
+      :fahrgastrechte
+      |> Application.fetch_env!(Fahrgastrechte.Accounts.BankDataCipher)
+      |> Keyword.fetch!(:keys)
+      |> Map.fetch!(version)
+
+    nonce = :crypto.strong_rand_bytes(12)
+    aad = "fahrgastrechte:accounts:bank-data:v#{version}:#{field}"
+
+    {ciphertext, tag} =
+      :crypto.crypto_one_time_aead(:aes_256_gcm, key, nonce, value, aad, true)
+
+    nonce <> tag <> ciphertext
   end
 end
