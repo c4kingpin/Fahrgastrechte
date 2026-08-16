@@ -203,7 +203,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     {conn, scope} = authenticated_conn(conn)
     open_claim = claim_fixture(scope)
     other_claim = claim_fixture(scope)
-    {other_document, _other_claim} = document_fixture(scope, other_claim)
+    {other_document, other_claim} = document_fixture(scope, other_claim)
     {:ok, view, _html} = live(conn, ~p"/antraege/#{open_claim.id}/dokumente")
 
     render_click(view, "delete_document", %{"id" => other_document.id})
@@ -214,7 +214,12 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert unchanged.analysis_status == :not_started
 
     assert {:ok, %{suggestions: [suggestion | _suggestions]}} =
-             Tickets.analyze_document(scope, other_claim.id, other_document.id)
+             Tickets.analyze_document(
+               scope,
+               other_claim.id,
+               other_document.id,
+               other_claim.lock_version
+             )
 
     render_click(view, "set_suggestion_state", %{
       "id" => suggestion.id,
@@ -223,6 +228,33 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     assert {:ok, unchanged_suggestions} = Tickets.list_suggestions(scope, other_document.id)
     assert Enum.find(unchanged_suggestions, &(&1.id == suggestion.id)).state == :proposed
+  end
+
+  test "a manipulated suggestion event cannot mutate a sent claim", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim)
+
+    {:ok, %{suggestions: [suggestion | _suggestions]}} =
+      Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+    {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+    {:ok, _sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    render_click(view, "set_suggestion_state", %{
+      "id" => suggestion.id,
+      "state" => "accepted"
+    })
+
+    assert has_element?(view, "#flash-error", "erneut geöffnet werden")
+
+    assert {:ok, unchanged_suggestions} = Tickets.list_suggestions(scope, document.id)
+    assert Enum.find(unchanged_suggestions, &(&1.id == suggestion.id)).state == :proposed
+
+    assert {:ok, still_sent} = Claims.get_claim(scope, claim.id)
+    assert still_sent.status == :sent
   end
 
   test "deletes the claim and all owned resources from the workspace", %{conn: conn} do

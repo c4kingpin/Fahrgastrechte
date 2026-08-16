@@ -170,9 +170,11 @@ defmodule Fahrgastrechte.ClaimWorkspace do
                scope,
                claim.id,
                suggestion_ids,
-               :accepted
-             ) do
-        %{claim: updated_claim, suggestions: updated_suggestions}
+               :accepted,
+               updated_claim.lock_version
+             ),
+           {:ok, final_claim} <- Claims.get_claim(scope, claim.id) do
+        %{claim: final_claim, suggestions: updated_suggestions}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -187,15 +189,22 @@ defmodule Fahrgastrechte.ClaimWorkspace do
           {:ok, %{claim: Claim.t(), suggestions: [struct()]}} | {:error, term()}
   def reject_suggestions(%Scope{} = scope, %Claim{} = claim, suggestions)
       when is_list(suggestions) and suggestions != [] do
-    with {:ok, updated_suggestions} <-
-           Tickets.set_suggestion_states(
-             scope,
-             claim.id,
-             Enum.map(suggestions, & &1.id),
-             :rejected
-           ) do
-      {:ok, %{claim: claim, suggestions: updated_suggestions}}
-    end
+    Repo.transaction(fn ->
+      with {:ok, updated_suggestions} <-
+             Tickets.set_suggestion_states(
+               scope,
+               claim.id,
+               Enum.map(suggestions, & &1.id),
+               :rejected,
+               claim.lock_version
+             ),
+           {:ok, final_claim} <- Claims.get_claim(scope, claim.id) do
+        %{claim: final_claim, suggestions: updated_suggestions}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> normalize_transaction()
   end
 
   def reject_suggestions(_scope, _claim, _suggestions), do: {:error, :not_found}
