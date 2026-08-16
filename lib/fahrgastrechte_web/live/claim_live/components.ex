@@ -778,7 +778,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         id="connection-search-error"
         class={["mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900"]}
       >
-        Die Bahndaten sind gerade nicht verfügbar. Deine Angaben bleiben erhalten; bestätige die Verbindung manuell.
+        {connection_search_error_message(@connection_search_state)}
       </div>
 
       <div id="connection-results" phx-update="stream" class={["mt-5 grid gap-3"]}>
@@ -911,6 +911,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
     </section>
     """
   end
+
+  defp connection_search_error_message({:error, :invalid_datetime}),
+    do: "Bitte gib eine gültige geplante Abfahrtszeit an."
+
+  defp connection_search_error_message({:error, {:upstream, :invalid_query}}),
+    do: "Bitte gib Start- und Zielbahnhof an."
+
+  defp connection_search_error_message({:error, {:upstream, :invalid_time_window}}),
+    do: "Der gewählte Zeitraum ist ungültig. Bitte prüfe die Abfahrtszeit."
+
+  defp connection_search_error_message({:error, _reason}),
+    do:
+      "Die Bahndaten sind gerade nicht verfügbar. Deine Angaben bleiben erhalten; bestätige die Verbindung manuell."
 
   attr :active_step, :atom, required: true
   attr :actual_form, :any, required: true
