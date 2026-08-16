@@ -54,6 +54,106 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   def load(_scope, _claim_id), do: {:error, :not_authenticated}
 
+  @doc """
+  Translates step completeness into user-facing open questions.
+
+  Ordered by where each question appears in the flow; empty once every
+  question the concrete case actually needs has been answered.
+  """
+  @spec required_inputs(ReadModel.t()) :: [%{id: atom(), step: atom(), label: String.t()}]
+  def required_inputs(%ReadModel{} = workspace) do
+    claim = workspace.claim
+
+    [
+      required_input(
+        :documents,
+        :documents,
+        "Ticket und Rechnung hochladen",
+        !workspace.documents_complete?
+      ),
+      required_input(
+        :facts,
+        :suggestions,
+        "Erkannte Angaben bestätigen",
+        !workspace.suggestions_complete?
+      ),
+      required_input(
+        :case_data,
+        :claim,
+        "Angaben zu deiner Reise vervollständigen",
+        !workspace.claim_complete?
+      ),
+      required_input(
+        :journey_direction,
+        :claim,
+        "Hin- oder Rückfahrt bestätigen",
+        ambiguous_direction?(workspace)
+      ),
+      required_input(
+        :planned_journey,
+        :planned,
+        "Geplante Verbindung ergänzen",
+        !workspace.planned_complete?
+      ),
+      required_input(
+        :actual_arrival,
+        :actual,
+        actual_arrival_label(claim),
+        !workspace.actual_complete?
+      ),
+      required_input(
+        :payout,
+        :review,
+        "IBAN für die Auszahlung ergänzen",
+        !workspace.profile_complete?
+      )
+    ]
+    |> Enum.filter(& &1)
+  end
+
+  defp required_input(_id, _step, _label, false), do: nil
+  defp required_input(id, step, label, true), do: %{id: id, step: step, label: label}
+
+  defp actual_arrival_label(%Claim{disruption_cause: :cancellation}),
+    do: "Ersatzverbindung ergänzen"
+
+  defp actual_arrival_label(_claim), do: "Tatsächliche Ankunft ergänzen"
+
+  defp ambiguous_direction?(workspace) do
+    Enum.any?(Map.values(workspace.suggestions_by_id), &(&1.field == :valid_until))
+  end
+
+  @doc """
+  Flags ticket and invoice as possibly unrelated documents.
+
+  Returns `nil` unless both carry a recognized order number and those order
+  numbers disagree, so an accidental cross-claim upload can be caught early.
+  """
+  @spec order_number_mismatch(ReadModel.t()) :: %{ticket: String.t(), invoice: String.t()} | nil
+  def order_number_mismatch(%ReadModel{} = workspace) do
+    order_numbers =
+      workspace.suggestions_by_id
+      |> Map.values()
+      |> Enum.filter(&(&1.field == :order_number))
+      |> Enum.reduce(%{}, fn suggestion, acc ->
+        case {Map.get(workspace.documents_by_id, suggestion.document_id), suggestion.value} do
+          {%{kind: kind}, %{"text" => text}} when kind in [:ticket, :invoice] ->
+            Map.put(acc, kind, text)
+
+          _other ->
+            acc
+        end
+      end)
+
+    case order_numbers do
+      %{ticket: ticket, invoice: invoice} when ticket != invoice ->
+        %{ticket: ticket, invoice: invoice}
+
+      _match_or_incomplete ->
+        nil
+    end
+  end
+
   @doc "Applies claim values and accepts suggestions in one transaction."
   @spec accept_suggestions(Scope.t(), Claim.t(), [map()]) ::
           {:ok, %{claim: Claim.t(), suggestions: [struct()]}} | {:error, term()}
@@ -159,6 +259,55 @@ defmodule Fahrgastrechte.ClaimWorkspace do
            build_actual_segments(params, claim.disruption_cause, planned_journey) do
       Rail.confirm_journey(scope, claim.id, :actual, segments, claim.lock_version)
     end
+  end
+
+  @doc """
+  Builds automatic connection-search params from claim and ticket facts.
+
+  Returns `nil` while route, date or a scheduled departure time are still
+  unknown, so the caller can fall back to the manual search form.
+  """
+  @spec automatic_connection_query(Claim.t(), map()) :: map() | nil
+  def automatic_connection_query(%Claim{} = claim, suggestions_by_id)
+      when is_map(suggestions_by_id) do
+    with origin when is_binary(origin) <- claim.origin,
+         destination when is_binary(destination) <- claim.destination,
+         %Date{} = travel_date <- claim.travel_date,
+         %Time{} = departure_time <- suggested_departure_time(suggestions_by_id) do
+      %{
+        "origin" => origin,
+        "destination" => destination,
+        "departure_at" =>
+          "#{Date.to_iso8601(travel_date)}T#{departure_time |> Time.to_iso8601() |> String.slice(0, 5)}",
+        "train_number" => suggested_train_number(suggestions_by_id)
+      }
+    else
+      _missing -> nil
+    end
+  end
+
+  defp suggested_departure_time(suggestions_by_id) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{field: :scheduled_departure, value: %{"time" => time}} ->
+        case Time.from_iso8601(time <> ":00") do
+          {:ok, parsed} -> parsed
+          {:error, _reason} -> nil
+        end
+
+      _other ->
+        nil
+    end)
+  end
+
+  defp suggested_train_number(suggestions_by_id) do
+    suggestions_by_id
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{field: :scheduled_train, value: %{"number" => number}} -> number
+      _other -> nil
+    end)
   end
 
   @doc "Returns station name options for both route fields."

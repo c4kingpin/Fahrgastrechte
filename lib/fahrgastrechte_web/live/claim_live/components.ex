@@ -35,7 +35,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               "mt-2 scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
             ]}
           >
-            Falldaten
+            Reiseverlauf
           </h2>
           <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
             Bestätigte Werte aus Ticket und Rechnung sind bereits übernommen. Ergänze nur noch die Angaben zum Störungsfall; Änderungen werden automatisch gespeichert.
@@ -133,18 +133,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
             phx-debounce="500"
           />
         </div>
-        <div class={["flex justify-end"]}>
-          <button
-            id="claim-save-button"
-            type="submit"
-            disabled={!editable?(@claim.status)}
-            class={[
-              "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:opacity-40"
-            ]}
-          >
-            <.icon name="hero-check" class="size-4" /> Jetzt speichern
-          </button>
-        </div>
       </.form>
     </section>
     """
@@ -155,9 +143,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :max_file_size_label, :string, required: true
   attr :step_number, :integer, required: true
   attr :step_states, :map, required: true
-  attr :upload_forms, :map, required: true
+  attr :upload_form, Phoenix.HTML.Form, required: true
   attr :upload_kinds, :list, required: true
-  attr :uploads, :map, required: true
+  attr :upload, Phoenix.LiveView.UploadConfig, required: true
 
   def documents(assigns) do
     ~H"""
@@ -182,15 +170,83 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           Ticket & Rechnung
         </h2>
         <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
-          Lade zuerst Ticket und Rechnung hoch. Beide PDFs werden automatisch ausgewertet, privat gespeichert und nie öffentlich verlinkt. Maximal {@max_file_size_label} je Datei.
+          Ziehe Ticket und Rechnung gemeinsam in die Fläche oder wähle beide Dateien auf einmal aus. Wir erkennen automatisch, welches PDF welches Dokument ist, werten es aus und speichern es privat. Maximal {@max_file_size_label} je Datei.
         </p>
       </div>
+
+      <.form
+        for={@upload_form}
+        id="document-upload-form"
+        phx-change="validate_upload"
+        phx-drop-target={@upload.ref}
+        class={["mt-6"]}
+      >
+        <label class={[
+          "group flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center transition hover:border-rose-300 hover:bg-rose-50/40"
+        ]}>
+          <.live_file_input upload={@upload} class="sr-only" />
+          <span class={[
+            "rounded-xl bg-rose-50 p-2.5 text-rose-700 transition group-hover:-translate-y-0.5"
+          ]}>
+            <.icon name="hero-arrow-up-tray" class="size-5" />
+          </span>
+          <span class={["mt-3 text-sm font-semibold text-slate-800"]}>
+            PDFs hierher ziehen oder auswählen
+          </span>
+          <span class={["mt-1 text-xs text-slate-500"]}>
+            Ticket und Rechnung zusammen hochladen · Upload und Auswertung starten automatisch
+          </span>
+        </label>
+
+        <div
+          :for={entry <- @upload.entries}
+          id={"document-upload-#{entry.ref}"}
+          class={["mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs shadow-sm"]}
+        >
+          <div class={["flex items-start justify-between gap-3"]}>
+            <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
+              {entry.client_name}
+            </p>
+            <button
+              id={"cancel-document-upload-#{entry.ref}"}
+              type="button"
+              phx-click="cancel_upload"
+              phx-value-ref={entry.ref}
+              aria-label={"Upload von #{entry.client_name} abbrechen"}
+              class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+            >
+              <.icon name="hero-x-mark" class="size-4" />
+            </button>
+          </div>
+          <div
+            class={["mt-2 h-1.5 overflow-hidden rounded-full bg-white"]}
+            role="progressbar"
+            aria-label={"Upload-Fortschritt für #{entry.client_name}"}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={entry.progress}
+          >
+            <div
+              class={["h-full rounded-full bg-rose-600 transition-all"]}
+              style={"width: #{entry.progress}%"}
+            >
+            </div>
+          </div>
+          <p class={["mt-1 text-slate-500"]}>
+            {entry.progress}% · wird sicher gespeichert, erkannt und ausgewertet
+          </p>
+          <p :for={error <- upload_errors(@upload, entry)} class={["mt-1 text-rose-700"]}>
+            {upload_error_message(error)}
+          </p>
+        </div>
+        <p :for={error <- upload_errors(@upload)} class={["mt-2 text-xs text-rose-700"]}>
+          {upload_error_message(error)}
+        </p>
+      </.form>
 
       <div class={["mt-6 grid gap-4 lg:grid-cols-2"]}>
         <%= for kind <- @upload_kinds do %>
           <% document = Map.get(@documents_by_kind, kind) %>
-          <% upload = Map.fetch!(@uploads, kind) %>
-          <% upload_form = Map.fetch!(@upload_forms, kind) %>
           <article
             id={"#{kind}-document-card"}
             class={["rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"]}
@@ -273,137 +329,180 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   <.icon name="hero-trash" class="size-4" /> Löschen
                 </button>
               </div>
-              <.form
-                for={upload_form}
-                id={"#{kind}-replace-form"}
-                phx-change="validate_upload"
-                class={["mt-3"]}
-              >
-                <label class={[
-                  "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-rose-300 hover:text-rose-800"
-                ]}>
-                  <.live_file_input upload={upload} class="sr-only" />
-                  <.icon name="hero-arrow-path" class="size-4" /> PDF ersetzen
-                </label>
-                <div
-                  :for={entry <- upload.entries}
-                  id={"#{kind}-replacement-#{entry.ref}"}
-                  class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
-                >
-                  <div class={["flex items-start justify-between gap-3"]}>
-                    <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
-                      {entry.client_name}
-                    </p>
-                    <button
-                      id={"cancel-#{kind}-replacement-#{entry.ref}"}
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-kind={kind}
-                      phx-value-ref={entry.ref}
-                      aria-label={"Upload von #{entry.client_name} abbrechen"}
-                      class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                    >
-                      <.icon name="hero-x-mark" class="size-4" />
-                    </button>
-                  </div>
-                  <div
-                    class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
-                    role="progressbar"
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow={entry.progress}
-                  >
-                    <div
-                      class="h-full rounded-full bg-rose-600"
-                      style={"width: #{entry.progress}%"}
-                    >
-                    </div>
-                  </div>
-                </div>
-              </.form>
+              <p class={["mt-3 text-xs text-slate-500"]}>
+                Zum Ersetzen einfach eine neue Datei oben in die Fläche ziehen.
+              </p>
             <% else %>
-              <.form
-                for={upload_form}
-                id={"#{kind}-upload-form"}
-                phx-change="validate_upload"
-                class={["mt-5"]}
-              >
-                <.input
-                  field={upload_form[:kind]}
-                  id={"#{kind}-document-kind"}
-                  type="hidden"
-                />
-                <label class={[
-                  "group flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-center transition hover:border-rose-300 hover:bg-rose-50/40"
-                ]}>
-                  <.live_file_input upload={upload} class="sr-only" />
-                  <span class={[
-                    "rounded-xl bg-rose-50 p-2.5 text-rose-700 transition group-hover:-translate-y-0.5"
-                  ]}>
-                    <.icon name="hero-arrow-up-tray" class="size-5" />
-                  </span>
-                  <span class={["mt-3 text-sm font-semibold text-slate-800"]}>PDF auswählen</span>
-                  <span class={["mt-1 text-xs text-slate-500"]}>
-                    Upload und Auswertung starten automatisch
-                  </span>
-                </label>
-
-                <div
-                  :for={entry <- upload.entries}
-                  id={"#{kind}-upload-#{entry.ref}"}
-                  class={["mt-3 rounded-xl bg-white px-3 py-2.5 text-xs shadow-sm"]}
-                >
-                  <div class={["flex items-start justify-between gap-3"]}>
-                    <p class={["min-w-0 truncate font-semibold text-slate-700"]}>
-                      {entry.client_name}
-                    </p>
-                    <button
-                      id={"cancel-#{kind}-upload-#{entry.ref}"}
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-kind={kind}
-                      phx-value-ref={entry.ref}
-                      aria-label={"Upload von #{entry.client_name} abbrechen"}
-                      class="shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
-                    >
-                      <.icon name="hero-x-mark" class="size-4" />
-                    </button>
-                  </div>
-                  <div
-                    class={["mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"]}
-                    role="progressbar"
-                    aria-label={"Upload-Fortschritt für #{entry.client_name}"}
-                    aria-valuemin="0"
-                    aria-valuemax="100"
-                    aria-valuenow={entry.progress}
-                  >
-                    <div
-                      class={["h-full rounded-full bg-rose-600 transition-all"]}
-                      style={"width: #{entry.progress}%"}
-                    >
-                    </div>
-                  </div>
-                  <p class={["mt-1 text-slate-500"]}>
-                    {entry.progress}% · wird sicher gespeichert und ausgewertet
-                  </p>
-                  <p
-                    :for={error <- upload_errors(upload, entry)}
-                    class={["mt-1 text-rose-700"]}
-                  >
-                    {upload_error_message(error)}
-                  </p>
-                </div>
-                <p
-                  :for={error <- upload_errors(upload)}
-                  class={["mt-2 text-xs text-rose-700"]}
-                >
-                  {upload_error_message(error)}
-                </p>
-              </.form>
+              <p class={["mt-5 text-xs text-slate-500"]}>
+                Noch kein passendes Dokument erkannt.
+              </p>
             <% end %>
           </article>
         <% end %>
       </div>
+    </section>
+    """
+  end
+
+  attr :active_step, :atom, required: true
+  attr :claim, :any, required: true
+  attr :planned_journey, :any, required: true
+  attr :actual_journey, :any, required: true
+  attr :proposed_suggestions?, :boolean, required: true
+  attr :suggestions_by_id, :map, required: true
+  attr :step_paths, :map, required: true
+  attr :order_number_mismatch, :any, default: nil
+
+  def trip_summary(assigns) do
+    ~H"""
+    <section
+      id="trip-summary-section"
+      hidden={@active_step not in [:suggestions, :claim, :planned, :actual]}
+      aria-labelledby="trip-summary-heading"
+      class={["rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"]}
+    >
+      <div class={["flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"]}>
+        <div>
+          <h2
+            id="trip-summary-heading"
+            tabindex="-1"
+            class={[
+              "scroll-mt-28 rounded-lg text-xl font-semibold text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-rose-700"
+            ]}
+          >
+            Deine Reise im Überblick
+          </h2>
+          <p class={["mt-1 text-sm leading-6 text-slate-500"]}>
+            Stimmt das? Dann bestätige alles auf einmal statt jede Angabe einzeln zu prüfen.
+          </p>
+        </div>
+        <button
+          :if={@proposed_suggestions?}
+          id="confirm-all-facts"
+          type="button"
+          phx-click="set_all_suggestions_state"
+          phx-value-state="accepted"
+          class={[
+            "inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-rose-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800"
+          ]}
+        >
+          <.icon name="hero-check" class="size-4" /> Ja, diese Angaben stimmen
+        </button>
+      </div>
+
+      <dl class={["mt-6 grid gap-5 sm:grid-cols-2"]}>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Strecke</dt>
+          <dd
+            id="trip-summary-route"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_route(@claim, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.claim}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Reisedatum</dt>
+          <dd
+            id="trip-summary-date"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_date(@claim, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.claim}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>Zug</dt>
+          <dd
+            id="trip-summary-train"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_train(@planned_journey, @suggestions_by_id)}
+            <.link
+              patch={@step_paths.planned}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Planmäßige Zeiten
+          </dt>
+          <dd
+            id="trip-summary-scheduled"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_scheduled(@planned_journey)}
+            <.link
+              patch={@step_paths.planned}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Verspätung / Ausfall
+          </dt>
+          <dd
+            id="trip-summary-disruption"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_disruption(@claim, @actual_journey)}
+            <.link
+              patch={@step_paths.actual}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Tatsächliche Ankunft
+          </dt>
+          <dd
+            id="trip-summary-actual-arrival"
+            class={["mt-1 flex items-center justify-between gap-2 text-sm text-slate-950"]}
+          >
+            {trip_summary_actual_arrival(@actual_journey)}
+            <.link
+              patch={@step_paths.actual}
+              class={["shrink-0 text-xs font-semibold text-rose-700 hover:text-rose-800"]}
+            >
+              Ändern
+            </.link>
+          </dd>
+        </div>
+        <div>
+          <dt class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}>
+            Auftragsnummer
+          </dt>
+          <dd id="trip-summary-order-number" class={["mt-1 text-sm text-slate-950"]}>
+            {trip_summary_order_number(@suggestions_by_id)}
+          </dd>
+          <p
+            :if={@order_number_mismatch}
+            id="order-number-mismatch-warning"
+            class={["mt-1 text-xs font-semibold text-amber-700"]}
+          >
+            Ticket ({@order_number_mismatch.ticket}) und Rechnung ({@order_number_mismatch.invoice}) haben unterschiedliche Auftragsnummern. Bitte prüfe, ob beide Dokumente wirklich zusammengehören.
+          </p>
+        </div>
+      </dl>
     </section>
     """
   end
@@ -600,60 +699,72 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.step_badge state={@planned_state} />
       </div>
 
-      <.form
-        for={@connection_search_form}
-        id="connection-search-form"
-        phx-submit="search_connections"
-        phx-change="suggest_stations"
-        class={["mt-6 rounded-2xl bg-slate-50 p-4 sm:p-5"]}
+      <details
+        id="connection-search-drawer"
+        class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
+        open={!@planned_complete?}
       >
-        <div class={["grid gap-4 sm:grid-cols-2"]}>
-          <.input
-            field={@connection_search_form[:origin]}
-            id="connection-origin"
-            label="Startbahnhof"
-            list="origin-stations"
-            autocomplete="off"
-            phx-debounce="350"
-          />
-          <datalist id="origin-stations">
-            <option :for={station <- @origin_station_options} value={station}></option>
-          </datalist>
-          <.input
-            field={@connection_search_form[:destination]}
-            id="connection-destination"
-            label="Zielbahnhof"
-            list="destination-stations"
-            autocomplete="off"
-            phx-debounce="350"
-          />
-          <datalist id="destination-stations">
-            <option :for={station <- @destination_station_options} value={station}></option>
-          </datalist>
-          <.input
-            field={@connection_search_form[:departure_at]}
-            id="connection-departure-at"
-            type="datetime-local"
-            label="Geplante Abfahrt"
-          />
-          <.input
-            field={@connection_search_form[:train_number]}
-            id="connection-train-number"
-            label="Zugnummer (optional)"
-            placeholder="z. B. 100"
-          />
-        </div>
-        <button
-          id="search-connections-button"
-          type="submit"
-          phx-disable-with="Verbindungen werden geladen …"
-          class={[
-            "mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
-          ]}
+        <summary class={[
+          "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
+        ]}>
+          Verbindung selbst suchen
+        </summary>
+        <.form
+          for={@connection_search_form}
+          id="connection-search-form"
+          phx-submit="search_connections"
+          phx-change="suggest_stations"
+          class={["border-t border-slate-200 bg-slate-50 p-4 sm:p-5"]}
         >
-          <.icon name="hero-magnifying-glass" class="size-5" /> Verbindungen und Verspätungen abrufen
-        </button>
-      </.form>
+          <div class={["grid gap-4 sm:grid-cols-2"]}>
+            <.input
+              field={@connection_search_form[:origin]}
+              id="connection-origin"
+              label="Startbahnhof"
+              list="origin-stations"
+              autocomplete="off"
+              phx-debounce="350"
+            />
+            <datalist id="origin-stations">
+              <option :for={station <- @origin_station_options} value={station}></option>
+            </datalist>
+            <.input
+              field={@connection_search_form[:destination]}
+              id="connection-destination"
+              label="Zielbahnhof"
+              list="destination-stations"
+              autocomplete="off"
+              phx-debounce="350"
+            />
+            <datalist id="destination-stations">
+              <option :for={station <- @destination_station_options} value={station}></option>
+            </datalist>
+            <.input
+              field={@connection_search_form[:departure_at]}
+              id="connection-departure-at"
+              type="datetime-local"
+              label="Geplante Abfahrt"
+            />
+            <.input
+              field={@connection_search_form[:train_number]}
+              id="connection-train-number"
+              label="Zugnummer (optional)"
+              placeholder="z. B. 100"
+            />
+          </div>
+          <button
+            id="search-connections-button"
+            type="submit"
+            phx-disable-with="Verbindungen werden geladen …"
+            class={[
+              "mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
+            ]}
+          >
+            <.icon name="hero-magnifying-glass" class="size-5" />
+            Verbindungen und Verspätungen abrufen
+          </button>
+        </.form>
+      </details>
 
       <div
         :if={@connection_search_state == :empty}
@@ -940,71 +1051,82 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </article>
       </div>
 
-      <.form
-        for={@actual_form}
-        id="actual-journey-form"
-        phx-submit="save_actual_journey"
-        class={["mt-6 space-y-5"]}
+      <details
+        id="actual-journey-manual"
+        class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
+        open={@actual_state != :confirmed}
       >
-        <div class={["grid gap-5 sm:grid-cols-2"]}>
-          <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
-          <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
-          <.input field={@actual_form[:train_category]} label="Zuggattung" />
-          <.input field={@actual_form[:train_number]} label="Zugnummer" />
-          <.input
-            field={@actual_form[:scheduled_departure]}
-            type="datetime-local"
-            label="Planmäßige Abfahrt"
-          />
-          <.input
-            field={@actual_form[:scheduled_arrival]}
-            type="datetime-local"
-            label="Planmäßige Ankunft"
-          />
-          <.input
-            field={@actual_form[:actual_departure]}
-            type="datetime-local"
-            label="Tatsächliche/Prognose-Abfahrt"
-          />
-          <.input
-            field={@actual_form[:actual_arrival]}
-            type="datetime-local"
-            label="Tatsächliche Ankunft am Ziel"
-          />
-        </div>
-
-        <div
-          :if={@claim.disruption_cause == :cancellation}
-          id="replacement-connection-fields"
-          class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+        <summary class={[
+          "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
+        ]}>
+          Tatsächlichen Verlauf manuell eingeben oder korrigieren
+        </summary>
+        <.form
+          for={@actual_form}
+          id="actual-journey-form"
+          phx-submit="save_actual_journey"
+          class={["space-y-5 border-t border-slate-200 p-4 sm:p-5"]}
         >
-          <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
-          <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
-            <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
-            <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
+          <div class={["grid gap-5 sm:grid-cols-2"]}>
+            <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
+            <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+            <.input field={@actual_form[:train_category]} label="Zuggattung" />
+            <.input field={@actual_form[:train_number]} label="Zugnummer" />
             <.input
-              field={@actual_form[:replacement_departure]}
+              field={@actual_form[:scheduled_departure]}
               type="datetime-local"
-              label="Abfahrt Ersatz"
+              label="Planmäßige Abfahrt"
             />
             <.input
-              field={@actual_form[:replacement_arrival]}
+              field={@actual_form[:scheduled_arrival]}
               type="datetime-local"
-              label="Ankunft Ersatz"
+              label="Planmäßige Ankunft"
+            />
+            <.input
+              field={@actual_form[:actual_departure]}
+              type="datetime-local"
+              label="Tatsächliche/Prognose-Abfahrt"
+            />
+            <.input
+              field={@actual_form[:actual_arrival]}
+              type="datetime-local"
+              label="Tatsächliche Ankunft am Ziel"
             />
           </div>
-        </div>
-        <button
-          id="save-actual-journey"
-          type="submit"
-          disabled={!editable?(@claim.status)}
-          class={[
-            "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          ]}
-        >
-          <.icon name="hero-check" class="size-5" /> Tatsächliche Reise bestätigen
-        </button>
-      </.form>
+
+          <div
+            :if={@claim.disruption_cause == :cancellation}
+            id="replacement-connection-fields"
+            class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+          >
+            <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
+            <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+              <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
+              <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
+              <.input
+                field={@actual_form[:replacement_departure]}
+                type="datetime-local"
+                label="Abfahrt Ersatz"
+              />
+              <.input
+                field={@actual_form[:replacement_arrival]}
+                type="datetime-local"
+                label="Ankunft Ersatz"
+              />
+            </div>
+          </div>
+          <button
+            id="save-actual-journey"
+            type="submit"
+            disabled={!editable?(@claim.status)}
+            class={[
+              "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            ]}
+          >
+            <.icon name="hero-check" class="size-5" /> Tatsächliche Reise bestätigen
+          </button>
+        </.form>
+      </details>
     </section>
     """
   end
@@ -1017,6 +1139,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :export_state_label, :any, required: true
   attr :exports_available?, :boolean, required: true
   attr :planned_complete?, :boolean, required: true
+  attr :payout_form, :any, required: true
   attr :profile_complete?, :boolean, required: true
   attr :profile_error, :any, required: true
   attr :review_complete?, :boolean, required: true
@@ -1065,12 +1188,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       </div>
 
       <div id="review-checklist" class={["mt-6 grid gap-3 sm:grid-cols-2"]}>
-        <.review_check
-          label="Reisendenprofil"
-          done?={@profile_complete?}
-          href={~p"/profil?antrag=#{@claim.id}"}
-          navigate={true}
-        />
+        <.review_check label="Reisendenprofil" done?={@profile_complete?} linked?={false} />
         <.review_check
           label="Ticket & Rechnung"
           done?={@documents_complete?}
@@ -1082,7 +1200,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           href={Map.fetch!(@step_paths, :suggestions)}
         />
         <.review_check
-          label="Falldaten"
+          label="Reiseverlauf"
           done?={@claim_complete?}
           href={Map.fetch!(@step_paths, :claim)}
         />
@@ -1097,6 +1215,60 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           href={Map.fetch!(@step_paths, :actual)}
         />
       </div>
+
+      <section
+        :if={!@profile_complete?}
+        id="payout-form-section"
+        class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
+      >
+        <h3 class="text-sm font-semibold text-slate-950">Auszahlung ergänzen</h3>
+        <p class="mt-1 text-xs leading-5 text-slate-500">
+          Diese Angaben werden für zukünftige Anträge gespeichert. IBAN und BIC liegen verschlüsselt.
+        </p>
+
+        <.form
+          for={@payout_form}
+          id="payout-form"
+          phx-change="payout_validate"
+          phx-submit="payout_save"
+          class="mt-4 space-y-5"
+        >
+          <div class="grid gap-4 sm:grid-cols-2">
+            <.input
+              field={@payout_form[:salutation]}
+              id="payout-salutation"
+              type="select"
+              label="Anrede *"
+              prompt="Bitte auswählen"
+              options={[{"Frau", "female"}, {"Herr", "male"}, {"Neutrale Anrede", "neutral"}]}
+            />
+            <.input field={@payout_form[:first_name]} id="payout-first-name" label="Vorname *" />
+            <.input field={@payout_form[:last_name]} id="payout-last-name" label="Nachname *" />
+            <.input field={@payout_form[:street]} id="payout-street" label="Straße *" />
+            <.input field={@payout_form[:house_number]} id="payout-house-number" label="Hausnummer *" />
+            <.input field={@payout_form[:postal_code]} id="payout-postal-code" label="Postleitzahl *" />
+            <.input field={@payout_form[:city]} id="payout-city" label="Ort *" />
+            <.input field={@payout_form[:country]} id="payout-country" label="Staat *" />
+          </div>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <.input
+              field={@payout_form[:account_holder]}
+              id="payout-account-holder"
+              label="Kontoinhaber *"
+            />
+            <.input field={@payout_form[:iban]} id="payout-iban" label="IBAN *" autocomplete="off" />
+            <.input field={@payout_form[:bic]} id="payout-bic" label="BIC *" autocomplete="off" />
+          </div>
+          <button
+            id="payout-save"
+            type="submit"
+            phx-disable-with="Wird gespeichert …"
+            class="inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            <.icon name="hero-check" class="size-4" /> Auszahlungsdaten speichern
+          </button>
+        </.form>
+      </section>
 
       <section
         id="official-form-review"
@@ -1370,8 +1542,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
 
   attr :label, :string, required: true
   attr :done?, :boolean, required: true
-  attr :href, :string, required: true
+  attr :href, :string, default: nil
   attr :navigate, :boolean, default: false
+  attr :linked?, :boolean, default: true
 
   def review_check(assigns) do
     ~H"""
@@ -1387,15 +1560,18 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       </span>
       <span class={["text-sm font-semibold text-slate-800"]}>{@label}</span>
       <span :if={@done?} class="ml-auto text-xs font-semibold text-emerald-700">Bestätigt</span>
+      <span :if={!@done? && !@linked?} class="ml-auto text-xs font-semibold text-amber-800">
+        Siehe unten
+      </span>
       <.link
-        :if={!@done? && !@navigate}
+        :if={!@done? && @linked? && !@navigate}
         patch={@href}
         class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
       >
         Öffnen
       </.link>
       <.link
-        :if={!@done? && @navigate}
+        :if={!@done? && @linked? && @navigate}
         navigate={@href}
         class="ml-auto rounded-lg px-2 py-1 text-xs font-bold text-amber-900 underline decoration-amber-400 underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-700"
       >
