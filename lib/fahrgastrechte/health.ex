@@ -6,17 +6,20 @@ defmodule Fahrgastrechte.Health do
   that both durable stores required for accepting user traffic are usable.
   """
 
+  alias Fahrgastrechte.Accounts
+  alias Fahrgastrechte.Accounts.BankDataCipher
   alias Fahrgastrechte.Documents.LocalStorage
   alias Fahrgastrechte.Repo
 
-  @type check :: :database | :document_storage
+  @type check :: :database | :document_storage | :crypto
 
   @spec ready() :: :ok | {:error, [check()]}
   def ready do
     failures =
       [
         database: &database_ready?/0,
-        document_storage: &document_storage_ready?/0
+        document_storage: &document_storage_ready?/0,
+        crypto: &crypto_ready?/0
       ]
       |> Enum.reject(fn {_name, check} -> check.() == :ok end)
       |> Enum.map(&elem(&1, 0))
@@ -28,6 +31,22 @@ defmodule Fahrgastrechte.Health do
     case Repo.query("SELECT 1", [], timeout: 2_000, log: false) do
       {:ok, _result} -> :ok
       {:error, _reason} -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    :exit, _reason -> :error
+  end
+
+  defp crypto_ready? do
+    with {:ok, _active_version} <- BankDataCipher.active_key_version() do
+      if Enum.all?(Accounts.bank_data_key_versions_in_use(), &BankDataCipher.key_available?/1) do
+        :ok
+      else
+        :error
+      end
+    else
+      _error -> :error
     end
   rescue
     _error -> :error

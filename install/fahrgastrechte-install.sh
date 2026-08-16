@@ -140,6 +140,8 @@ write_runtime_environment() {
   local secret_key_base="$2"
   local field_encryption_key="$3"
   local backup_recipient="$4"
+  local field_encryption_key_version="$5"
+  local field_encryption_keys="$6"
   local temporary_env
 
   umask 027
@@ -161,7 +163,8 @@ DB_API_KEY=$(runtime_value DB_API_KEY)
 DB_CLIENT_ID=$(runtime_value DB_CLIENT_ID)
 DOCUMENT_STORAGE_PATH=${DOCUMENTS_DIR}
 FIELD_ENCRYPTION_KEY=${field_encryption_key}
-FIELD_ENCRYPTION_KEY_VERSION=1
+FIELD_ENCRYPTION_KEY_VERSION=${field_encryption_key_version}
+FIELD_ENCRYPTION_KEYS=${field_encryption_keys}
 FORM_TEMPLATE_PATH=${FORM_TEMPLATE_FILE}
 LANG=C.UTF-8
 PHX_BIND_ADDRESS=0.0.0.0
@@ -451,10 +454,13 @@ backup_recipient="${backup_recipient:-$(age-keygen -y "$BACKUP_IDENTITY_FILE")}"
 database_password="$(existing_value "$ENV_FILE" DATABASE_PASSWORD)"
 secret_key_base="$(existing_value "$ENV_FILE" SECRET_KEY_BASE)"
 field_encryption_key="$(existing_value "$ENV_FILE" FIELD_ENCRYPTION_KEY)"
+field_encryption_key_version="$(existing_value "$ENV_FILE" FIELD_ENCRYPTION_KEY_VERSION)"
+field_encryption_keys="$(existing_value "$ENV_FILE" FIELD_ENCRYPTION_KEYS)"
 
 database_password="${database_password:-$(openssl rand -hex 32)}"
 secret_key_base="${secret_key_base:-$(openssl rand -base64 64 | tr -d '\n')}"
 field_encryption_key="${field_encryption_key:-$(openssl rand -base64 32 | tr -d '\n')}"
+field_encryption_key_version="${field_encryption_key_version:-1}"
 
 [[ "$database_password" =~ ^[a-f0-9]{64}$ ]] ||
   die "Gespeichertes DATABASE_PASSWORD hat ein unerwartetes Format"
@@ -472,7 +478,7 @@ if ! runuser -u postgres -- psql --tuples-only --command "SELECT 1 FROM pg_datab
   runuser -u postgres -- createdb --encoding UTF8 --owner "$APP_NAME" --template template0 "${APP_NAME}_prod"
 fi
 
-write_runtime_environment "$database_password" "$secret_key_base" "$field_encryption_key" "$backup_recipient"
+write_runtime_environment "$database_password" "$secret_key_base" "$field_encryption_key" "$backup_recipient" "$field_encryption_key_version" "$field_encryption_keys"
 write_deployment_environment
 
 log "Hole den App-Quellcode (${APP_REF})"
