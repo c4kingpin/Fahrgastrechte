@@ -32,13 +32,14 @@ defmodule FahrgastrechteWeb.ClaimLive.PayoutFormTest do
         "city" => "Berlin",
         "country" => "Deutschland",
         "iban" => "DE89370400440532013000",
-        "bic" => "COBADEFFXXX"
+        "bic" => ""
       }
     )
     |> render_submit()
 
     assert {:ok, profile} = Accounts.get_profile(scope)
     assert profile.account_holder == "Erika Beispiel"
+    assert profile.bic == "COBADEFFXXX"
     assert Accounts.profile_complete?(profile)
 
     refute has_element?(view, "#payout-form-section")

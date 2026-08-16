@@ -699,60 +699,72 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.step_badge state={@planned_state} />
       </div>
 
-      <.form
-        for={@connection_search_form}
-        id="connection-search-form"
-        phx-submit="search_connections"
-        phx-change="suggest_stations"
-        class={["mt-6 rounded-2xl bg-slate-50 p-4 sm:p-5"]}
+      <details
+        id="connection-search-drawer"
+        class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
+        open={!@planned_complete?}
       >
-        <div class={["grid gap-4 sm:grid-cols-2"]}>
-          <.input
-            field={@connection_search_form[:origin]}
-            id="connection-origin"
-            label="Startbahnhof"
-            list="origin-stations"
-            autocomplete="off"
-            phx-debounce="350"
-          />
-          <datalist id="origin-stations">
-            <option :for={station <- @origin_station_options} value={station}></option>
-          </datalist>
-          <.input
-            field={@connection_search_form[:destination]}
-            id="connection-destination"
-            label="Zielbahnhof"
-            list="destination-stations"
-            autocomplete="off"
-            phx-debounce="350"
-          />
-          <datalist id="destination-stations">
-            <option :for={station <- @destination_station_options} value={station}></option>
-          </datalist>
-          <.input
-            field={@connection_search_form[:departure_at]}
-            id="connection-departure-at"
-            type="datetime-local"
-            label="Geplante Abfahrt"
-          />
-          <.input
-            field={@connection_search_form[:train_number]}
-            id="connection-train-number"
-            label="Zugnummer (optional)"
-            placeholder="z. B. 100"
-          />
-        </div>
-        <button
-          id="search-connections-button"
-          type="submit"
-          phx-disable-with="Verbindungen werden geladen …"
-          class={[
-            "mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
-          ]}
+        <summary class={[
+          "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
+        ]}>
+          Verbindung selbst suchen
+        </summary>
+        <.form
+          for={@connection_search_form}
+          id="connection-search-form"
+          phx-submit="search_connections"
+          phx-change="suggest_stations"
+          class={["border-t border-slate-200 bg-slate-50 p-4 sm:p-5"]}
         >
-          <.icon name="hero-magnifying-glass" class="size-5" /> Verbindungen und Verspätungen abrufen
-        </button>
-      </.form>
+          <div class={["grid gap-4 sm:grid-cols-2"]}>
+            <.input
+              field={@connection_search_form[:origin]}
+              id="connection-origin"
+              label="Startbahnhof"
+              list="origin-stations"
+              autocomplete="off"
+              phx-debounce="350"
+            />
+            <datalist id="origin-stations">
+              <option :for={station <- @origin_station_options} value={station}></option>
+            </datalist>
+            <.input
+              field={@connection_search_form[:destination]}
+              id="connection-destination"
+              label="Zielbahnhof"
+              list="destination-stations"
+              autocomplete="off"
+              phx-debounce="350"
+            />
+            <datalist id="destination-stations">
+              <option :for={station <- @destination_station_options} value={station}></option>
+            </datalist>
+            <.input
+              field={@connection_search_form[:departure_at]}
+              id="connection-departure-at"
+              type="datetime-local"
+              label="Geplante Abfahrt"
+            />
+            <.input
+              field={@connection_search_form[:train_number]}
+              id="connection-train-number"
+              label="Zugnummer (optional)"
+              placeholder="z. B. 100"
+            />
+          </div>
+          <button
+            id="search-connections-button"
+            type="submit"
+            phx-disable-with="Verbindungen werden geladen …"
+            class={[
+              "mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
+            ]}
+          >
+            <.icon name="hero-magnifying-glass" class="size-5" />
+            Verbindungen und Verspätungen abrufen
+          </button>
+        </.form>
+      </details>
 
       <div
         :if={@connection_search_state == :empty}
@@ -1039,71 +1051,82 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </article>
       </div>
 
-      <.form
-        for={@actual_form}
-        id="actual-journey-form"
-        phx-submit="save_actual_journey"
-        class={["mt-6 space-y-5"]}
+      <details
+        id="actual-journey-manual"
+        class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
+        open={@actual_state != :confirmed}
       >
-        <div class={["grid gap-5 sm:grid-cols-2"]}>
-          <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
-          <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
-          <.input field={@actual_form[:train_category]} label="Zuggattung" />
-          <.input field={@actual_form[:train_number]} label="Zugnummer" />
-          <.input
-            field={@actual_form[:scheduled_departure]}
-            type="datetime-local"
-            label="Planmäßige Abfahrt"
-          />
-          <.input
-            field={@actual_form[:scheduled_arrival]}
-            type="datetime-local"
-            label="Planmäßige Ankunft"
-          />
-          <.input
-            field={@actual_form[:actual_departure]}
-            type="datetime-local"
-            label="Tatsächliche/Prognose-Abfahrt"
-          />
-          <.input
-            field={@actual_form[:actual_arrival]}
-            type="datetime-local"
-            label="Tatsächliche Ankunft am Ziel"
-          />
-        </div>
-
-        <div
-          :if={@claim.disruption_cause == :cancellation}
-          id="replacement-connection-fields"
-          class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+        <summary class={[
+          "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
+        ]}>
+          Tatsächlichen Verlauf manuell eingeben oder korrigieren
+        </summary>
+        <.form
+          for={@actual_form}
+          id="actual-journey-form"
+          phx-submit="save_actual_journey"
+          class={["space-y-5 border-t border-slate-200 p-4 sm:p-5"]}
         >
-          <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
-          <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
-            <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
-            <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
+          <div class={["grid gap-5 sm:grid-cols-2"]}>
+            <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
+            <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+            <.input field={@actual_form[:train_category]} label="Zuggattung" />
+            <.input field={@actual_form[:train_number]} label="Zugnummer" />
             <.input
-              field={@actual_form[:replacement_departure]}
+              field={@actual_form[:scheduled_departure]}
               type="datetime-local"
-              label="Abfahrt Ersatz"
+              label="Planmäßige Abfahrt"
             />
             <.input
-              field={@actual_form[:replacement_arrival]}
+              field={@actual_form[:scheduled_arrival]}
               type="datetime-local"
-              label="Ankunft Ersatz"
+              label="Planmäßige Ankunft"
+            />
+            <.input
+              field={@actual_form[:actual_departure]}
+              type="datetime-local"
+              label="Tatsächliche/Prognose-Abfahrt"
+            />
+            <.input
+              field={@actual_form[:actual_arrival]}
+              type="datetime-local"
+              label="Tatsächliche Ankunft am Ziel"
             />
           </div>
-        </div>
-        <button
-          id="save-actual-journey"
-          type="submit"
-          disabled={!editable?(@claim.status)}
-          class={[
-            "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
-          ]}
-        >
-          <.icon name="hero-check" class="size-5" /> Tatsächliche Reise bestätigen
-        </button>
-      </.form>
+
+          <div
+            :if={@claim.disruption_cause == :cancellation}
+            id="replacement-connection-fields"
+            class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+          >
+            <h3 class={["text-sm font-semibold text-amber-950"]}>Ersatzverbindung</h3>
+            <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+              <.input field={@actual_form[:replacement_category]} label="Zuggattung Ersatz" />
+              <.input field={@actual_form[:replacement_number]} label="Zugnummer Ersatz" />
+              <.input
+                field={@actual_form[:replacement_departure]}
+                type="datetime-local"
+                label="Abfahrt Ersatz"
+              />
+              <.input
+                field={@actual_form[:replacement_arrival]}
+                type="datetime-local"
+                label="Ankunft Ersatz"
+              />
+            </div>
+          </div>
+          <button
+            id="save-actual-journey"
+            type="submit"
+            disabled={!editable?(@claim.status)}
+            class={[
+              "inline-flex min-h-11 items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+            ]}
+          >
+            <.icon name="hero-check" class="size-5" /> Tatsächliche Reise bestätigen
+          </button>
+        </.form>
+      </details>
     </section>
     """
   end
