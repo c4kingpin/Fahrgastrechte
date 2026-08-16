@@ -48,7 +48,7 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       {document, claim} = document_fixture(scope, initial_claim)
 
       assert {:ok, %{suggestions: suggestions}} =
-               Tickets.analyze_document(scope, claim.id, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
 
       origin = Enum.find(suggestions, &(&1.field == :origin))
       forged = %{origin | id: Ecto.UUID.generate()}
@@ -70,7 +70,7 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       {document, claim} = document_fixture(scope, initial_claim)
 
       assert {:ok, %{suggestions: suggestions}} =
-               Tickets.analyze_document(scope, claim.id, document.id)
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
 
       origin = Enum.find(suggestions, &(&1.field == :origin))
 
@@ -80,6 +80,79 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       assert updated.origin == "Teststadt Hbf"
       assert accepted.id == origin.id
       assert accepted.state == :accepted
+    end
+
+    test "rejects mutating a sent claim, even for fields not mapped to claim attrs" do
+      scope = scope_fixture()
+      initial_claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, initial_claim)
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      order_number = Enum.find(suggestions, &(&1.field == :order_number))
+
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      {:ok, sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+
+      assert {:error, :not_editable} =
+               ClaimWorkspace.accept_suggestions(scope, sent, [order_number])
+    end
+  end
+
+  describe "reject_suggestions/3" do
+    test "rejects the checked suggestions on a draft claim" do
+      scope = scope_fixture()
+      initial_claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, initial_claim)
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      origin = Enum.find(suggestions, &(&1.field == :origin))
+
+      assert {:ok, %{claim: unchanged, suggestions: [rejected]}} =
+               ClaimWorkspace.reject_suggestions(scope, claim, [origin])
+
+      assert unchanged.status == :draft
+      assert rejected.id == origin.id
+      assert rejected.state == :rejected
+    end
+
+    test "on a ready claim, invalidates the output atomically alongside the rejection" do
+      scope = scope_fixture()
+      initial_claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, initial_claim)
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      origin = Enum.find(suggestions, &(&1.field == :origin))
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:ok, %{claim: reopened, suggestions: [rejected]}} =
+               ClaimWorkspace.reject_suggestions(scope, ready, [origin])
+
+      assert reopened.status == :draft
+      assert reopened.generated_at == nil
+      assert rejected.state == :rejected
+    end
+
+    test "rejects mutating a sent claim" do
+      scope = scope_fixture()
+      initial_claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, initial_claim)
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      origin = Enum.find(suggestions, &(&1.field == :origin))
+
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      {:ok, sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+
+      assert {:error, :not_editable} =
+               ClaimWorkspace.reject_suggestions(scope, sent, [origin])
     end
   end
 

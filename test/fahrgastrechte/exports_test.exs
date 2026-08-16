@@ -41,9 +41,20 @@ defmodule Fahrgastrechte.ExportsTest do
       claim = export_ready_fixture(scope)
       {:ok, documents} = Documents.list_documents(scope, claim.id)
       ticket = Enum.find(documents, &(&1.kind == :ticket))
-      {:ok, %{suggestions: suggestions}} = Tickets.analyze_document(scope, claim.id, ticket.id)
+
+      {:ok, %{suggestions: suggestions}} =
+        Tickets.analyze_document(scope, claim.id, ticket.id, claim.lock_version)
+
       order_number = Enum.find(suggestions, &(&1.field == :order_number))
-      {:ok, _accepted} = Tickets.set_suggestion_state(scope, claim.id, order_number.id, :accepted)
+
+      {:ok, _accepted} =
+        Tickets.set_suggestion_state(
+          scope,
+          claim.id,
+          order_number.id,
+          :accepted,
+          claim.lock_version
+        )
 
       assert {:ok, %{export: export, claim: ready}} =
                Exports.generate_export(scope, claim.id, claim.lock_version)

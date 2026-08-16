@@ -140,6 +140,26 @@ defmodule Fahrgastrechte.Claims do
   def dashboard_counts(_scope), do: {:error, :not_authenticated}
 
   @doc """
+  Loads a claim and verifies it matches `expected_lock_version` and is in an
+  editable status (`:draft` or `:ready`).
+
+  Shared guard for any context mutating claim-dependent data, so editability
+  is never enforced by the UI alone.
+  """
+  @spec ensure_editable(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, Claim.t()} | {:error, domain_error()}
+  def ensure_editable(%Scope{} = scope, claim_id, expected_lock_version) do
+    with {:ok, claim} <- get_claim(scope, claim_id),
+         :ok <- verify_lock_version(claim, expected_lock_version),
+         :ok <- editable_status(claim.status) do
+      {:ok, claim}
+    end
+  end
+
+  def ensure_editable(_scope, _claim_id, _expected_lock_version),
+    do: {:error, :not_authenticated}
+
+  @doc """
   Updates editable claim data using optimistic locking.
 
   Updating a `ready` claim automatically returns it to `draft`, clears
@@ -150,9 +170,7 @@ defmodule Fahrgastrechte.Claims do
           {:ok, Claim.t()} | {:error, Changeset.t() | domain_error()}
   def update_claim(%Scope{} = scope, claim_id, attrs, expected_lock_version)
       when is_map(attrs) do
-    with {:ok, claim} <- get_claim(scope, claim_id),
-         :ok <- verify_lock_version(claim, expected_lock_version),
-         :ok <- editable_status(claim.status) do
+    with {:ok, claim} <- ensure_editable(scope, claim_id, expected_lock_version) do
       changeset = Claim.update_changeset(claim, attrs)
 
       cond do
