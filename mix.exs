@@ -5,7 +5,7 @@ defmodule Fahrgastrechte.MixProject do
     [
       app: :fahrgastrechte,
       version: "0.1.0",
-      elixir: "~> 1.17",
+      elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -65,7 +65,9 @@ defmodule Fahrgastrechte.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:sobelow, "~> 0.14", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -93,6 +95,8 @@ defmodule Fahrgastrechte.MixProject do
         "deps.unlock --unused",
         "format",
         "cmd mix hex.audit",
+        "deps.audit",
+        "sobelow --exit medium",
         "test"
       ]
     ]

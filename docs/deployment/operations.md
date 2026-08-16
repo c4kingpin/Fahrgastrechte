@@ -8,7 +8,7 @@
 | Vorbedingungen prüfen | `install/fahrgastrechte-install.sh --check` |
 | Aktualisieren | `update [TAG-ODER-COMMIT]` |
 | Dienst prüfen | `systemctl status fahrgastrechte` |
-| Readiness prüfen | `curl --fail http://127.0.0.1:4000/readyz` |
+| Readiness prüfen | `curl --fail -H "Host: $PHX_HOST" http://127.0.0.1:4000/readyz` |
 | Backup erzeugen | `fahrgastrechte-backup` |
 | Backup wiederherstellen | `fahrgastrechte-restore DATEI --confirm` |
 | App-Release zurückrollen | `fahrgastrechte-rollback [RELEASE]` |
@@ -16,6 +16,15 @@
 Installation und Aktualisierung sind in
 [`proxmox-lxc.md`](proxmox-lxc.md) vollständig beschrieben. Die folgenden
 Abschnitte sind das Runbook für eine bereits installierte Instanz.
+
+Die Anwendung beantwortet nur Anfragen an ihren konfigurierten Hostnamen; ein
+lokaler Aufruf ohne passenden `Host`-Header wird mit `421 Misdirected Request`
+abgewiesen. `PHX_HOST` steht in `/etc/fahrgastrechte/fahrgastrechte.env` und
+lässt sich für die Sitzung übernehmen:
+
+```bash
+export PHX_HOST="$(sed -n 's/^PHX_HOST=//p' /etc/fahrgastrechte/fahrgastrechte.env)"
+```
 
 ## Laufzeit und Persistenz
 
@@ -52,6 +61,53 @@ DB_API_KEY
 BAHNVORHERSAGE_DATA_PATH
 BAHNVORHERSAGE_DATASET_VERSION
 ```
+
+### Alle Sitzungen sofort beenden
+
+Sitzungen liegen im Cookie; es gibt keine Sitzungstabelle und damit keinen
+gezielten Widerruf einzelner Sitzungen (siehe
+[ADR 0006](../decisions/0006-session-model.md)). Besteht der Verdacht, dass ein
+Cookie abhandengekommen ist, hilft die Rotation von `SECRET_KEY_BASE`:
+
+```bash
+openssl rand -base64 64 | tr -d '\n'
+# Wert in /etc/fahrgastrechte/fahrgastrechte.env eintragen, dann:
+systemctl restart fahrgastrechte
+```
+
+Damit werden alle ausgestellten Cookies ungültig und alle Benutzer müssen sich
+neu anmelden. Ohne diesen Schritt läuft eine bestehende Sitzung spätestens nach
+acht Stunden ab; eine Kontosperrung in Authentik wirkt erst danach.
+
+Den Benutzerdatensatz zu löschen ist **kein** Ersatz dafür — er nimmt alle
+Anträge, Dokumente und Ausgaben mit.
+
+### Feldschlüssel rotieren
+
+`FIELD_ENCRYPTION_KEY` verschlüsselt IBAN und BIC. Ein Wechsel darf den Zugriff
+auf bestehende Profile nicht verlieren, deshalb bleibt der alte Schlüssel
+während der Umstellung über `FIELD_ENCRYPTION_KEYS` erreichbar. Der Wert ist
+eine kommaseparierte Liste aus `VERSION:BASE64_SCHLÜSSEL`.
+
+1. Neuen Schlüssel erzeugen: `openssl rand -base64 32`.
+2. In der Environment-Datei den bisherigen Schlüssel unter seiner bisherigen
+   Version nach `FIELD_ENCRYPTION_KEYS` übernehmen, dann
+   `FIELD_ENCRYPTION_KEY` auf den neuen Wert und `FIELD_ENCRYPTION_KEY_VERSION`
+   um eins erhöhen.
+3. Dienst neu starten und Readiness prüfen.
+4. Bestandsdaten umschlüsseln:
+
+   ```bash
+   /opt/fahrgastrechte/current/bin/fahrgastrechte eval \
+     'Fahrgastrechte.Release.rekey_bank_data()'
+   ```
+
+5. Erst nach erfolgreicher Meldung `FIELD_ENCRYPTION_KEYS` wieder leeren und den
+   Dienst erneut starten.
+
+Der Befehl ist idempotent und bricht ohne Änderung ab, wenn der aktive Schlüssel
+fehlt. Wird Schritt 4 ausgelassen, bleiben die alten Datensätze nur so lange
+lesbar, wie der alte Schlüssel konfiguriert ist.
 
 Secrets niemals als Shellargument, in Git, Tickets oder Chat kopieren. Im LXC
 die geschützte Environment-Datei mit einem lokalen Editor ändern, Berechtigungen

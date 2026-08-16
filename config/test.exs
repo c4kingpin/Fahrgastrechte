@@ -1,9 +1,13 @@
 import Config
 
 config :fahrgastrechte, secure_session_cookie: false
+config :fahrgastrechte, development_login: true
 config :fahrgastrechte, development_identity: nil
 
 config :fahrgastrechte, Fahrgastrechte.Documents, max_file_size_bytes: 1024 * 1024
+
+# Sweeps run outside the test sandbox, so tests drive the cleanup directly.
+config :fahrgastrechte, Fahrgastrechte.Documents.CleanupWorker, enabled: false
 
 config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
   path: Path.join(System.tmp_dir!(), "fahrgastrechte-test-documents")

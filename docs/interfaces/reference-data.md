@@ -19,6 +19,12 @@ Schreib- und Listenoperationen verlangen einen authentifizierten
 zufällige Speicher-ID adressiert und nie direkt durch den Webserver
 ausgeliefert.
 
+Geprüft wird dabei ausschließlich, *dass* ein Benutzer angemeldet ist, nicht
+*welcher*: Referenzdaten sind installationsweite Betriebsdaten ohne
+Rollentrennung. Das ist eine bewusste Entscheidung und in
+[ADR 0005](../decisions/0005-installation-trust-zone.md) samt ihrer Grenzen
+festgehalten. Für benutzerbezogene Daten gilt sie ausdrücklich nicht.
+
 ## Aktivierung und Historie
 
 Uploads werden zuerst vollständig validiert und anschließend in den privaten

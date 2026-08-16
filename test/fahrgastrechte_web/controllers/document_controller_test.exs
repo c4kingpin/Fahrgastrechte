@@ -22,9 +22,16 @@ defmodule FahrgastrechteWeb.DocumentControllerTest do
     assert get_resp_header(conn, "content-type") == ["application/pdf; charset=utf-8"]
     assert get_resp_header(conn, "cache-control") == ["private, no-store"]
     assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    assert get_resp_header(conn, "content-security-policy") == ["sandbox; default-src 'none'"]
     assert [disposition] = get_resp_header(conn, "content-disposition")
     assert disposition =~ "attachment"
     assert disposition =~ "synthetic-ticket.pdf"
+
+    # The response is chunked and must therefore not announce a length
+    # (RFC 9112 §6.2); the test adapter does not add the transfer-encoding
+    # header itself, so the absent length is what we can assert here.
+    assert conn.state == :chunked
+    assert get_resp_header(conn, "content-length") == []
   end
 
   test "redirects unauthenticated downloads", %{conn: conn} do

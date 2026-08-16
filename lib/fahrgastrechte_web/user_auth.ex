@@ -1,6 +1,11 @@
 defmodule FahrgastrechteWeb.UserAuth do
   @moduledoc """
   Authenticated browser-session and LiveView integration for `current_scope`.
+
+  Sessions live in the encrypted cookie; there is no session table and therefore
+  no way to revoke a single session. The expiry is absolute and is never
+  extended by activity. `docs/decisions/0006-session-model.md` records that
+  decision, what it does not cover and how to revoke everything at once.
   """
 
   use FahrgastrechteWeb, :verified_routes
@@ -9,13 +14,13 @@ defmodule FahrgastrechteWeb.UserAuth do
   import Plug.Conn
 
   alias Fahrgastrechte.Accounts
-  alias Fahrgastrechte.Accounts.Identity
 
   @session_key :user_id
   @session_expiry_key :session_expires_at
   @id_token_hint_key :id_token_hint
   @default_session_ttl_seconds 8 * 60 * 60
   @max_id_token_hint_bytes 2048
+  @development_login Application.compile_env(:fahrgastrechte, :development_login, false)
 
   def fetch_current_scope(conn, _opts) do
     case scope_from_session(conn) do
@@ -140,21 +145,30 @@ defmodule FahrgastrechteWeb.UserAuth do
   defp scope_for_credentials(nil, nil), do: :missing
   defp scope_for_credentials(_user_id, _expires_at), do: {:error, :invalid_session}
 
-  defp put_development_scope(conn) do
-    case Application.get_env(:fahrgastrechte, :development_identity) do
-      nil ->
-        assign(conn, :current_scope, nil)
+  # Signing an anonymous visitor in as a local identity must never be reachable
+  # in a production release, so the branch is removed at compile time rather
+  # than guarded by a runtime value that a stray config line could set.
+  if @development_login do
+    alias Fahrgastrechte.Accounts.Identity
 
-      attrs ->
-        with {:ok, identity} <- Identity.development(attrs),
-             {:ok, user} <- Accounts.register_identity(identity) do
-          conn
-          |> log_in_user(user)
-          |> assign(:current_scope, Accounts.scope_for_user_id(user.id))
-        else
-          _error -> assign(conn, :current_scope, nil)
-        end
+    defp put_development_scope(conn) do
+      case Application.get_env(:fahrgastrechte, :development_identity) do
+        nil ->
+          assign(conn, :current_scope, nil)
+
+        attrs ->
+          with {:ok, identity} <- Identity.development(attrs),
+               {:ok, user} <- Accounts.register_identity(identity) do
+            conn
+            |> log_in_user(user)
+            |> assign(:current_scope, Accounts.scope_for_user_id(user.id))
+          else
+            _error -> assign(conn, :current_scope, nil)
+          end
+      end
     end
+  else
+    defp put_development_scope(conn), do: assign(conn, :current_scope, nil)
   end
 
   defp clear_authentication(conn) do

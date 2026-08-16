@@ -8,14 +8,18 @@ defmodule FahrgastrechteWeb.DocumentController do
       {:ok, %{document: document, stream: stream}} ->
         conn =
           conn
-          |> put_resp_content_type(document.mime_type)
+          # Only PDFs are ever stored, so the type is fixed here rather than
+          # echoed back from a database column.
+          |> put_resp_content_type("application/pdf")
           |> put_resp_header(
             "content-disposition",
             content_disposition(document.original_filename)
           )
           |> put_resp_header("cache-control", "private, no-store")
           |> put_resp_header("x-content-type-options", "nosniff")
-          |> put_resp_header("content-length", Integer.to_string(document.size_bytes))
+          # A chunked response must not carry Content-Length (RFC 9112 §6.2);
+          # proxies may otherwise truncate or drop it.
+          |> put_resp_header("content-security-policy", "sandbox; default-src 'none'")
           |> send_chunked(200)
 
         Enum.reduce_while(stream, conn, fn bytes, current_conn ->

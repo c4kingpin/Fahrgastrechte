@@ -22,11 +22,19 @@ defmodule Fahrgastrechte.Exports do
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets
 
+  # Rendering is serialised so concurrent exports cannot exhaust memory and CPU.
+  # `:global.trans/2` would retry forever; with a retry count the wait is bounded
+  # instead. OTP backs off up to 32 seconds per retry from the sixth onwards, so
+  # eight retries wait roughly a minute and a half — long enough to queue behind
+  # a running export, short enough to answer the caller instead of hanging.
+  @lock_retries 8
+
   @type domain_error ::
           :not_authenticated
           | :not_found
           | :not_editable
           | :stale
+          | :busy
           | :template_unavailable
           | :template_changed
           | :render_failed
@@ -41,7 +49,7 @@ defmodule Fahrgastrechte.Exports do
           {:ok, %{export: ExportVersion.t(), claim: Claims.Claim.t()}}
           | {:error, Ecto.Changeset.t() | domain_error()}
   def generate_export(%Scope{} = scope, claim_id, expected_claim_lock_version) do
-    :global.trans({__MODULE__, :pdf_job}, fn ->
+    job = fn ->
       with {:ok, model} <- build_model(scope, claim_id, expected_claim_lock_version),
            {:ok, template} <- Template.current(),
            {:ok, work_dir} <- create_work_dir() do
@@ -51,7 +59,12 @@ defmodule Fahrgastrechte.Exports do
           File.rm_rf(work_dir)
         end
       end
-    end)
+    end
+
+    case :global.trans({__MODULE__, :pdf_job}, job, [node() | Node.list()], @lock_retries) do
+      :aborted -> {:error, :busy}
+      result -> result
+    end
   end
 
   def generate_export(_scope, _claim_id, _expected_claim_lock_version),
