@@ -51,6 +51,48 @@ defmodule Fahrgastrechte.ReferenceDataTest do
     assert {:error, :template_unavailable} = Template.current()
   end
 
+  # ADR 0005 accepts that any authenticated user may replace installation-wide
+  # sources and relies on the immutable history to keep each change attributable.
+  test "records which user activated each version" do
+    first_scope = scope_fixture()
+    second_scope = scope_fixture()
+    pdf_path = Path.join(@fixtures, "synthetic-ticket-flexpreis.pdf")
+
+    assert {:ok, first} =
+             ReferenceData.replace_official_form(first_scope, pdf_path, %{
+               "version" => "Formular A",
+               "source_url" => "https://example.invalid/form-a.pdf",
+               "original_filename" => "form-a.pdf"
+             })
+
+    assert {:ok, second} =
+             ReferenceData.replace_official_form(second_scope, pdf_path, %{
+               "version" => "Formular B",
+               "source_url" => "https://example.invalid/form-b.pdf",
+               "original_filename" => "form-b.pdf"
+             })
+
+    on_exit(fn ->
+      LocalStorage.delete(first.storage_key)
+      LocalStorage.delete(second.storage_key)
+    end)
+
+    assert first.uploaded_by_user_id == first_scope.user.id
+    assert second.uploaded_by_user_id == second_scope.user.id
+
+    # Either user sees the same installation-wide history, including who
+    # activated the version that is currently in force.
+    assert {:ok, [current, previous]} = ReferenceData.list_versions(first_scope, :official_form)
+    assert current.current
+    assert current.uploaded_by_user_id == second_scope.user.id
+    assert previous.uploaded_by_user_id == first_scope.user.id
+
+    assert {:ok, listed_for_second} =
+             ReferenceData.list_versions(second_scope, :official_form)
+
+    assert Enum.map(listed_for_second, & &1.id) == [current.id, previous.id]
+  end
+
   test "rejects invalid form metadata before storing a file" do
     scope = scope_fixture()
     pdf_path = Path.join(@fixtures, "synthetic-ticket-flexpreis.pdf")

@@ -11,7 +11,9 @@ config :fahrgastrechte,
   ecto_repos: [Fahrgastrechte.Repo],
   generators: [timestamp_type: :utc_datetime],
   identity_provider: Fahrgastrechte.Accounts.Authentik,
-  secure_session_cookie: true
+  secure_session_cookie: true,
+  # Compiled out of the release; only dev and test opt in.
+  development_login: false
 
 config :fahrgastrechte, Fahrgastrechte.Accounts.Authentik,
   issuer: nil,

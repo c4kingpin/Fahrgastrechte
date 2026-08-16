@@ -57,8 +57,17 @@ jobs:
       - name: Abhängigkeiten installieren
         run: mix deps.get --only test
 
-      - name: Abhängigkeiten auf Sicherheitslücken prüfen
+      - name: Zurückgezogene Abhängigkeiten prüfen
         run: mix hex.audit
+
+      - name: Abhängigkeiten auf bekannte Sicherheitslücken prüfen
+        run: mix deps.audit
+
+      - name: Statische Sicherheitsanalyse
+        # Bricht ab Vertrauensgrad "medium" ab; Low-Confidence-Treffer bleiben
+        # als Hinweis sichtbar, sind aber geprüfte Fehlalarme (feste Pfade aus
+        # Konfiguration und validierten Storage-Keys, Kommandos ohne Shell).
+        run: mix sobelow --exit medium
 
       - name: PDF-Werkzeuge installieren
         run: sudo apt-get update && sudo apt-get install --yes pdftk-java poppler-utils qpdf

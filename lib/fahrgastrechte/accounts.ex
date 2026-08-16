@@ -140,6 +140,7 @@ defmodule Fahrgastrechte.Accounts do
 
   defp encrypt_bank_changes(changeset) do
     bank_fields = [:iban, :bic]
+    user_id = Changeset.get_field(changeset, :user_id)
 
     if Enum.any?(bank_fields, &(Changeset.fetch_change(changeset, &1) != :error)) do
       changeset =
@@ -149,7 +150,7 @@ defmodule Fahrgastrechte.Accounts do
               {:cont, Changeset.put_change(current_changeset, :"#{field}_ciphertext", nil)}
 
             value ->
-              encrypt_bank_field(current_changeset, field, value)
+              encrypt_bank_field(current_changeset, field, value, user_id)
           end
         end)
 
@@ -164,8 +165,8 @@ defmodule Fahrgastrechte.Accounts do
     end
   end
 
-  defp encrypt_bank_field(changeset, field, value) do
-    case BankDataCipher.encrypt(value, field) do
+  defp encrypt_bank_field(changeset, field, value, user_id) do
+    case BankDataCipher.encrypt(value, field, user_id) do
       {:ok, ciphertext, version} ->
         changeset =
           changeset
@@ -183,16 +184,58 @@ defmodule Fahrgastrechte.Accounts do
   defp decrypt_profile(%Profile{bank_data_key_version: nil} = profile), do: {:ok, profile}
 
   defp decrypt_profile(%Profile{} = profile) do
-    with {:ok, iban} <-
-           decrypt_optional(profile.iban_ciphertext, profile.bank_data_key_version, :iban),
-         {:ok, bic} <-
-           decrypt_optional(profile.bic_ciphertext, profile.bank_data_key_version, :bic) do
+    version = profile.bank_data_key_version
+
+    with {:ok, iban} <- decrypt_optional(profile.iban_ciphertext, version, :iban, profile.user_id),
+         {:ok, bic} <- decrypt_optional(profile.bic_ciphertext, version, :bic, profile.user_id) do
       {:ok, %{profile | iban: iban, bic: bic}}
     end
   end
 
-  defp decrypt_optional(nil, _version, _field), do: {:ok, nil}
+  defp decrypt_optional(nil, _version, _field, _user_id), do: {:ok, nil}
 
-  defp decrypt_optional(ciphertext, version, field),
-    do: BankDataCipher.decrypt(ciphertext, version, field)
+  defp decrypt_optional(ciphertext, version, field, user_id),
+    do: BankDataCipher.decrypt(ciphertext, version, field, user_id)
+
+  @doc """
+  Rewrites every stored bank record with the active key and owner-bound additional data.
+
+  Run this after rotating `FIELD_ENCRYPTION_KEY`, with the previous key still
+  configured in `FIELD_ENCRYPTION_KEYS`. The operation is idempotent and skips
+  profiles without stored bank data.
+  """
+  @spec rekey_bank_data() ::
+          {:ok, %{rekeyed: non_neg_integer(), skipped: non_neg_integer()}}
+          | {:error, :encryption_key_unavailable | {:profile, integer(), term()}}
+  def rekey_bank_data do
+    with {:ok, active_version} <- BankDataCipher.active_key_version() do
+      Profile
+      |> Repo.all()
+      |> Enum.reduce_while({:ok, %{rekeyed: 0, skipped: 0}}, fn profile, {:ok, counts} ->
+        case rekey_profile(profile, active_version) do
+          :skipped -> {:cont, {:ok, %{counts | skipped: counts.skipped + 1}}}
+          :rekeyed -> {:cont, {:ok, %{counts | rekeyed: counts.rekeyed + 1}}}
+          {:error, reason} -> {:halt, {:error, {:profile, profile.id, reason}}}
+        end
+      end)
+    end
+  end
+
+  defp rekey_profile(%Profile{bank_data_key_version: nil}, _active_version), do: :skipped
+
+  defp rekey_profile(%Profile{} = profile, _active_version) do
+    with {:ok, decrypted} <- decrypt_profile(profile) do
+      changeset =
+        profile
+        |> Changeset.change(%{})
+        |> Changeset.force_change(:iban, decrypted.iban)
+        |> Changeset.force_change(:bic, decrypted.bic)
+        |> encrypt_bank_changes()
+
+      case Repo.update(changeset) do
+        {:ok, _updated} -> :rekeyed
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
 end

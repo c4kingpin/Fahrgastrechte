@@ -5,6 +5,12 @@ defmodule Fahrgastrechte.ReferenceData do
   Uploaded files are validated before an immutable copy is stored. Activating a
   new version is transactional; older versions stay available for audit and for
   exports that already recorded their source metadata.
+
+  These sources are operational data for the whole installation, so every
+  authenticated user may replace them — the functions here deliberately check
+  that a user is signed in, not which one. An installation is one trust zone;
+  see `docs/decisions/0005-installation-trust-zone.md` for the reasoning and
+  its limits. User-owned data is scoped as strictly as everywhere else.
   """
 
   import Ecto.Query, warn: false

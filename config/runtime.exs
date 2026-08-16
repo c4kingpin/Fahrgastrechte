@@ -28,9 +28,40 @@ field_encryption_key_version =
     _other -> raise "FIELD_ENCRYPTION_KEY_VERSION must be a positive integer"
   end
 
+# Retired keys stay configured so records written before a rotation remain
+# readable until `bin/fahrgastrechte eval 'Fahrgastrechte.Release.rekey_bank_data()'`
+# has rewritten them. Format: "2:<base64>,1:<base64>".
+retired_field_encryption_keys =
+  case System.get_env("FIELD_ENCRYPTION_KEYS") do
+    nil ->
+      %{}
+
+    "" ->
+      %{}
+
+    encoded_keys ->
+      encoded_keys
+      |> String.split(",", trim: true)
+      |> Map.new(fn entry ->
+        with [encoded_version, encoded_key] <- String.split(String.trim(entry), ":", parts: 2),
+             {version, ""} when version > 0 <- Integer.parse(encoded_version),
+             {:ok, key} when byte_size(key) == 32 <- Base.decode64(encoded_key) do
+          {version, key}
+        else
+          _other ->
+            raise "FIELD_ENCRYPTION_KEYS must be a comma-separated list of VERSION:BASE64_32_BYTE_KEY"
+        end
+      end)
+  end
+
 config :fahrgastrechte, Fahrgastrechte.Accounts.BankDataCipher,
   active_key_version: field_encryption_key_version,
-  keys: %{field_encryption_key_version => field_encryption_key}
+  keys:
+    Map.put(
+      retired_field_encryption_keys,
+      field_encryption_key_version,
+      field_encryption_key
+    )
 
 config :fahrgastrechte, Fahrgastrechte.Accounts.Authentik,
   issuer: System.get_env("AUTHENTIK_ISSUER"),
