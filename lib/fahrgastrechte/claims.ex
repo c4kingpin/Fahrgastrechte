@@ -250,6 +250,26 @@ defmodule Fahrgastrechte.Claims do
   def invalidate_output(_scope, _claim_id, _expected_lock_version),
     do: {:error, :not_authenticated}
 
+  @doc """
+  Demotes every `:ready` claim of this user back to `:draft` when data
+  outside any single claim changes in a way that could affect its
+  generated PDF — currently only the traveller profile.
+
+  Sent and completed claims are deliberately left untouched: once sent,
+  the generated application is a frozen snapshot and profile changes made
+  afterwards must not retroactively alter it. Best effort per claim; a
+  claim mutated concurrently by its own request is simply left for that
+  request's own invalidation.
+  """
+  @spec invalidate_ready_claims_for_profile_change(Scope.t()) :: :ok
+  def invalidate_ready_claims_for_profile_change(%Scope{} = scope) do
+    {:ok, ready_claims} = list_claims(scope, %{status: :ready})
+    Enum.each(ready_claims, &invalidate_output(scope, &1.id, &1.lock_version))
+    :ok
+  end
+
+  def invalidate_ready_claims_for_profile_change(_scope), do: :ok
+
   @doc "Returns structured C02 readiness errors for export callers."
   @spec export_readiness(Scope.t(), Ecto.UUID.t()) ::
           {:ok, Claim.t()} | {:error, domain_error()}
