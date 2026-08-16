@@ -203,6 +203,27 @@ defmodule Fahrgastrechte.ClaimsTest do
                  completed.lock_version
                )
     end
+
+    test "ensure_editable/3 shares the editability guard with update_claim/4" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, ^claim} = Claims.ensure_editable(scope, claim.id, claim.lock_version)
+      assert {:error, :stale} = Claims.ensure_editable(scope, claim.id, claim.lock_version + 1)
+
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      assert {:ok, ^ready} = Claims.ensure_editable(scope, claim.id, ready.lock_version)
+
+      {:ok, sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+      assert {:error, :not_editable} = Claims.ensure_editable(scope, claim.id, sent.lock_version)
+
+      {:ok, completed} = Claims.transition_claim(scope, claim.id, :completed, sent.lock_version)
+
+      assert {:error, :not_editable} =
+               Claims.ensure_editable(scope, claim.id, completed.lock_version)
+
+      assert {:error, :not_authenticated} = Claims.ensure_editable(nil, claim.id, 1)
+    end
   end
 
   describe "status lifecycle" do

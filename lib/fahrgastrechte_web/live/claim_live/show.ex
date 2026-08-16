@@ -539,6 +539,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
             |> refresh_workspace()
             |> put_flash(:info, "Das Dokument wurde ausgewertet.")
 
+          {:ok, {:error, :stale}} ->
+            handle_stale(socket)
+
+          {:ok, {:error, :not_editable}} ->
+            put_flash(
+              socket,
+              :error,
+              "Dieser Antrag muss vor Änderungen erneut geöffnet werden."
+            )
+
           _failure ->
             put_flash(socket, :error, "Das Dokument konnte nicht ausgewertet werden.")
         end
@@ -1177,6 +1187,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     token = async_token()
     scope = socket.assigns.current_scope
     claim_id = socket.assigns.claim.id
+    lock_version = socket.assigns.claim.lock_version
 
     socket
     |> assign(
@@ -1184,7 +1195,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       Map.put(socket.assigns.analysis_tokens, document.id, token)
     )
     |> start_async({:analyze_document, document.id, token}, fn ->
-      Tickets.analyze_document(scope, claim_id, document.id)
+      Tickets.analyze_document(scope, claim_id, document.id, lock_version)
     end)
   end
 
@@ -1230,6 +1241,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     else
       {:error, :stale} ->
         handle_stale(socket)
+
+      {:error, :not_editable} ->
+        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
 
       {:error, _reason} ->
         put_flash(socket, :error, "Die Vorschläge konnten nicht übernommen werden.")
@@ -1328,6 +1342,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         |> refresh_workspace()
         |> put_flash(:info, "Die erkannten Angaben wurden gemeinsam verworfen.")
 
+      {:error, :stale} ->
+        handle_stale(socket)
+
+      {:error, :not_editable} ->
+        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
+
       {:error, _reason} ->
         put_flash(socket, :error, "Die Vorschläge konnten nicht aktualisiert werden.")
     end
@@ -1355,6 +1375,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       {:error, :stale} ->
         handle_stale(socket)
 
+      {:error, :not_editable} ->
+        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
+
       {:error, _reason} ->
         put_flash(socket, :error, "Der Vorschlag konnte nicht übernommen werden.")
     end
@@ -1374,6 +1397,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     else
       nil ->
         put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
+
+      {:error, :stale} ->
+        handle_stale(socket)
+
+      {:error, :not_editable} ->
+        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
 
       {:error, _reason} ->
         put_flash(socket, :error, "Der Vorschlag konnte nicht aktualisiert werden.")

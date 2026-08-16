@@ -176,13 +176,19 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     suggestions =
       Enum.flat_map(documents, fn document ->
         {:ok, %{suggestions: document_suggestions}} =
-          Tickets.analyze_document(scope, claim.id, document.id)
+          Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
 
         document_suggestions
       end)
 
     {:ok, _accepted} =
-      Tickets.set_suggestion_states(scope, claim.id, Enum.map(suggestions, & &1.id), :accepted)
+      Tickets.set_suggestion_states(
+        scope,
+        claim.id,
+        Enum.map(suggestions, & &1.id),
+        :accepted,
+        claim.lock_version
+      )
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#generate-export-button:not([disabled])")
