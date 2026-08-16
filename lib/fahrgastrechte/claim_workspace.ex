@@ -14,6 +14,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   alias Fahrgastrechte.ClaimWorkspace.ReadModel
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Exports
+  alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Rail.BerlinTime
   alias Fahrgastrechte.Repo
@@ -590,38 +591,16 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp build_transfer_segments(first, _params), do: {:ok, [first]}
 
   defp parse_datetime(value) when is_binary(value) do
-    case Regex.run(
-           ~r/^\s*(\d{2})\.(\d{2})\.(\d{4}),?\s+(\d{2}):(\d{2})\s*$/,
-           value,
-           capture: :all_but_first
-         ) do
-      [day, month, year, hour, minute] ->
-        [year, month, day, hour, minute]
-        |> Enum.map(&String.to_integer/1)
-        |> then(fn [year, month, day, hour, minute] ->
-          NaiveDateTime.new(year, month, day, hour, minute, 0)
-        end)
-        |> finish_datetime()
-
-      _no_match ->
-        normalized = if String.length(value) == 16, do: value <> ":00", else: value
-
-        normalized
-        |> NaiveDateTime.from_iso8601()
-        |> finish_datetime()
+    with {:ok, naive} <- GermanDateTime.parse_datetime(value),
+         {:ok, utc} <- BerlinTime.from_local(naive) do
+      {:ok, utc}
+    else
+      _error -> {:error, :invalid_datetime}
     end
   end
 
   defp parse_datetime(_value), do: {:error, :invalid_datetime}
 
-  defp finish_datetime({:ok, naive}) do
-    case BerlinTime.from_local(naive) do
-      {:ok, utc} -> {:ok, utc}
-      {:error, _reason} -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp finish_datetime({:error, _reason}), do: {:error, :invalid_datetime}
   defp parse_optional_datetime(value) when value in [nil, ""], do: {:ok, nil}
   defp parse_optional_datetime(value), do: parse_datetime(value)
 

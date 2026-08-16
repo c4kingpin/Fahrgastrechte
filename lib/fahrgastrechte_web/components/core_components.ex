@@ -22,6 +22,7 @@ defmodule FahrgastrechteWeb.CoreComponents do
   use Phoenix.Component
   use Gettext, backend: FahrgastrechteWeb.Gettext
 
+  alias Fahrgastrechte.GermanDateTime
   alias Phoenix.LiveView.JS
 
   @doc """
@@ -269,12 +270,14 @@ defmodule FahrgastrechteWeb.CoreComponents do
     """
   end
 
-  # Date inputs use deterministic German text formats instead of browser locale controls.
-  def input(assigns) do
+  # Date/datetime inputs submit deterministic German text ("TT.MM.JJJJ[, HH:MM]")
+  # instead of relying on the browser's locale, but still offer a native picker
+  # through a transparent overlay input synced by the .GermanDatePicker hook.
+  def input(%{type: type} = assigns) when type in ["date", "datetime-local"] do
     assigns =
       assigns
-      |> assign(:html_type, localized_input_type(assigns.type))
-      |> assign(:normalized_value, localized_input_value(assigns.type, assigns.value))
+      |> assign(:text_value, localized_input_value(assigns.type, assigns.value))
+      |> assign(:native_value, native_input_value(assigns.type, assigns.value))
       |> assign(:rest, localized_input_rest(assigns.type, assigns.rest))
 
     ~H"""
@@ -283,8 +286,101 @@ defmodule FahrgastrechteWeb.CoreComponents do
         <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
           {@label}
         </span>
+        <div id={"#{@id}-picker"} phx-hook=".GermanDatePicker" phx-update="ignore" class="relative">
+          <input
+            type="text"
+            name={@name}
+            id={@id}
+            value={@text_value}
+            aria-invalid={if(@errors != [], do: "true", else: nil)}
+            aria-describedby={if(@errors != [], do: "#{@id}-errors", else: nil)}
+            class={[
+              @class ||
+                "scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-3 pr-11 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm",
+              @errors != [] &&
+                (@error_class || "border-rose-600 ring-4 ring-rose-600/10")
+            ]}
+            {@rest}
+          />
+          <span class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400">
+            <.icon name="hero-calendar-days" class="size-5" />
+          </span>
+          <input
+            type={@type}
+            value={@native_value}
+            tabindex="-1"
+            aria-hidden="true"
+            data-role="native-picker"
+            disabled={@rest[:disabled]}
+            class="absolute inset-y-0 right-0 w-11 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+          />
+        </div>
+        <div :if={@errors != []} id={"#{@id}-errors"}>
+          <.error :for={msg <- @errors}>{msg}</.error>
+        </div>
+      </label>
+    </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".GermanDatePicker">
+      export default {
+        mounted() {
+          this.textInput = this.el.querySelector('input[type="text"]')
+          this.nativeInput = this.el.querySelector('[data-role="native-picker"]')
+          this.isDateTime = this.nativeInput.type === "datetime-local"
+
+          this.nativeInput.addEventListener("change", () => {
+            const formatted = this.formatNative(this.nativeInput.value)
+            if (!formatted) return
+
+            this.textInput.value = formatted
+            this.textInput.dispatchEvent(new Event("input", {bubbles: true}))
+            this.textInput.dispatchEvent(new Event("change", {bubbles: true}))
+          })
+
+          this.textInput.addEventListener("change", () => {
+            const native = this.parseGerman(this.textInput.value)
+            if (native) this.nativeInput.value = native
+          })
+        },
+        formatNative(value) {
+          if (!value) return null
+          if (this.isDateTime) {
+            const [datePart, timePart] = value.split("T")
+            const [y, m, d] = datePart.split("-")
+            return `${d}.${m}.${y}, ${timePart.slice(0, 5)}`
+          }
+          const [y, m, d] = value.split("-")
+          return `${d}.${m}.${y}`
+        },
+        parseGerman(value) {
+          if (this.isDateTime) {
+            const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4}),?\s+(\d{2}):(\d{2})$/)
+            if (!match) return null
+            const [, d, m, y, h, min] = match
+            return `${y}-${m}-${d}T${h}:${min}`
+          }
+          const match = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+          if (!match) return null
+          const [, d, m, y] = match
+          return `${y}-${m}-${d}`
+        }
+      }
+    </script>
+    """
+  end
+
+  # Every other input type renders as-is; the browser handles its own locale.
+  def input(assigns) do
+    assigns = assign(assigns, :normalized_value, Phoenix.HTML.Form.normalize_value(assigns.type, assigns.value))
+
+    ~H"""
+    <div class="mb-2">
+      <label for={@id} class="block">
+        <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
+          {@label}
+        </span>
         <input
-          type={@html_type}
+          type={@type}
           name={@name}
           id={@id}
           value={@normalized_value}
@@ -306,33 +402,49 @@ defmodule FahrgastrechteWeb.CoreComponents do
     """
   end
 
-  defp localized_input_type(type) when type in ["date", "datetime-local"], do: "text"
-  defp localized_input_type(type), do: type
-
-  defp localized_input_value("date", %Date{} = value),
-    do: Calendar.strftime(value, "%d.%m.%Y")
+  defp localized_input_value("date", %Date{} = value), do: GermanDateTime.format_date(value)
 
   defp localized_input_value("date", value) when is_binary(value) do
-    case Date.from_iso8601(value) do
-      {:ok, date} -> Calendar.strftime(date, "%d.%m.%Y")
-      {:error, _reason} -> value
+    case GermanDateTime.parse_date(value) do
+      {:ok, date} -> GermanDateTime.format_date(date)
+      :error -> value
     end
   end
 
   defp localized_input_value("datetime-local", %NaiveDateTime{} = value),
-    do: Calendar.strftime(value, "%d.%m.%Y, %H:%M")
+    do: GermanDateTime.format_datetime(value)
 
   defp localized_input_value("datetime-local", value) when is_binary(value) do
-    normalized = if String.length(value) == 16, do: value <> ":00", else: value
-
-    case NaiveDateTime.from_iso8601(normalized) do
-      {:ok, datetime} -> Calendar.strftime(datetime, "%d.%m.%Y, %H:%M")
-      {:error, _reason} -> value
+    case GermanDateTime.parse_datetime(value) do
+      {:ok, naive} -> GermanDateTime.format_datetime(naive)
+      :error -> value
     end
   end
 
-  defp localized_input_value(type, value),
-    do: Phoenix.HTML.Form.normalize_value(type, value)
+  defp localized_input_value(_type, value), do: value || ""
+
+  defp native_input_value("date", %Date{} = value), do: Date.to_iso8601(value)
+
+  defp native_input_value("date", value) when is_binary(value) do
+    case GermanDateTime.parse_date(value) do
+      {:ok, date} -> Date.to_iso8601(date)
+      :error -> ""
+    end
+  end
+
+  defp native_input_value("date", _value), do: ""
+
+  defp native_input_value("datetime-local", %NaiveDateTime{} = value),
+    do: Calendar.strftime(value, "%Y-%m-%dT%H:%M")
+
+  defp native_input_value("datetime-local", value) when is_binary(value) do
+    case GermanDateTime.parse_datetime(value) do
+      {:ok, naive} -> Calendar.strftime(naive, "%Y-%m-%dT%H:%M")
+      :error -> ""
+    end
+  end
+
+  defp native_input_value("datetime-local", _value), do: ""
 
   defp localized_input_rest("date", rest) do
     rest
@@ -347,8 +459,6 @@ defmodule FahrgastrechteWeb.CoreComponents do
     |> Map.put_new(:inputmode, "numeric")
     |> Map.put_new(:placeholder, "TT.MM.JJJJ, HH:MM")
   end
-
-  defp localized_input_rest(_type, rest), do: rest
 
   # Helper used by inputs to generate form errors
   defp error(assigns) do
