@@ -188,6 +188,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
                 />
               </span>
             </.link>
+
+            <p
+              :if={@claims_truncated?}
+              id="claims-truncated-notice"
+              class={["rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-600"]}
+            >
+              Es werden die {@claims_limit} zuletzt angelegten Anträge angezeigt. Ältere
+              Fälle findest du über die Suche nach Antragsnummer oder Strecke.
+            </p>
           </div>
         </section>
       </div>
@@ -203,6 +212,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Index do
     socket
     |> assign(:counts, counts)
     |> assign(:claims_empty?, filtered_claims == [])
+    |> assign(:claims_limit, Claims.list_limit())
+    |> assign(:claims_truncated?, length(filtered_claims) == Claims.list_limit())
     |> stream(:claims, filtered_claims, reset: true)
   end
 

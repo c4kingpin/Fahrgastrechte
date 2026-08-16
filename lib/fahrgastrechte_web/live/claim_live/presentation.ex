@@ -386,6 +386,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
     do: "Das offizielle Formular ist derzeit nicht verfügbar."
 
   def export_error_message(:timeout), do: "Die PDF-Erzeugung hat zu lange gedauert."
+
+  def export_error_message(:busy),
+    do: "Es wird gerade ein anderes PDF erzeugt. Bitte versuche es in einer Minute erneut."
+
   def export_error_message(_reason), do: "Das Gesamt-PDF konnte nicht erstellt werden."
 
   def upload_error_message(:too_large), do: "Die PDF-Datei ist zu groß."

@@ -18,6 +18,7 @@ defmodule Fahrgastrechte.Claims do
   alias Fahrgastrechte.Repo
 
   @claim_number_attempts 5
+  @list_limit 200
   @allowed_transitions %{
     draft: [:ready],
     ready: [:draft, :sent],
@@ -90,6 +91,9 @@ defmodule Fahrgastrechte.Claims do
 
   Supported keys are `:status`, `:travel_date`, `:date_from`, `:date_to`,
   `:route` and `:claim_number`. Date values may be `Date` structs or ISO dates.
+
+  The result is capped at `#{@list_limit}` newest claims so one user's history
+  cannot grow into an unbounded query and render.
   """
   @spec list_claims(Scope.t(), map() | keyword()) ::
           {:ok, [Claim.t()]} | {:error, domain_error()}
@@ -100,7 +104,8 @@ defmodule Fahrgastrechte.Claims do
     query =
       from claim in Claim,
         where: claim.user_id == ^user_id,
-        order_by: [desc: claim.inserted_at, desc: claim.id]
+        order_by: [desc: claim.inserted_at, desc: claim.id],
+        limit: @list_limit
 
     with {:ok, query} <- apply_filters(query, filters) do
       {:ok, Repo.all(query)}
@@ -281,6 +286,10 @@ defmodule Fahrgastrechte.Claims do
 
   def delete_claim(_scope, _claim_id, _expected_lock_version),
     do: {:error, :not_authenticated}
+
+  @doc "Returns the maximum number of claims `list_claims/2` will return."
+  @spec list_limit() :: pos_integer()
+  def list_limit, do: @list_limit
 
   defp do_create_claim(_user_id, _attrs, 0), do: {:error, :claim_number_unavailable}
 

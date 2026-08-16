@@ -165,8 +165,6 @@ defmodule Fahrgastrechte.Documents do
           {:ok, [Document.t()]} | {:error, domain_error()}
   def list_documents(%Scope{user: %User{id: user_id}} = scope, claim_id) do
     with {:ok, _claim} <- Claims.get_claim(scope, claim_id) do
-      cleanup_pending_documents(user_id, claim_id)
-
       documents =
         Repo.all(
           from document in Document,
@@ -502,16 +500,23 @@ defmodule Fahrgastrechte.Documents do
     end)
   end
 
-  defp cleanup_pending_documents(user_id, claim_id) do
-    Repo.all(
-      from document in Document,
-        where:
-          document.user_id == ^user_id and document.claim_id == ^claim_id and
-            not is_nil(document.deletion_pending_at)
-    )
-    |> Enum.each(&cleanup_replaced_original/1)
+  @doc """
+  Retries every physical deletion that a previous request could not complete.
 
-    :ok
+  Deletion marks a row pending, removes the file and only then removes the row.
+  If the file removal fails, the row stays pending and invisible to lists and
+  downloads. This sweep is the retry for those rows. It is maintenance on data
+  the system owns rather than a user request, so it runs on a schedule instead
+  of inside a read path — see `Fahrgastrechte.Documents.CleanupWorker`.
+  """
+  @spec cleanup_pending_documents() :: {:ok, non_neg_integer()}
+  def cleanup_pending_documents do
+    pending =
+      Repo.all(from document in Document, where: not is_nil(document.deletion_pending_at))
+
+    Enum.each(pending, &cleanup_replaced_original/1)
+
+    {:ok, length(pending)}
   end
 
   defp delete_files(documents) do

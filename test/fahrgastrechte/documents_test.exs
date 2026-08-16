@@ -343,6 +343,58 @@ defmodule Fahrgastrechte.DocumentsTest do
     path
   end
 
+  describe "cleanup_pending_documents/0" do
+    test "reading documents does not delete anything" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      # Mark the row pending as a failed physical deletion would have left it.
+      document
+      |> Ecto.Changeset.change(
+        current: false,
+        deletion_pending_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      )
+      |> Repo.update!()
+
+      assert {:ok, []} = Documents.list_documents(scope, claim.id)
+
+      # The read path must leave the row and its file untouched.
+      assert Repo.get(Document, document.id)
+      assert LocalStorage.exists?(document.storage_key)
+    end
+
+    test "the sweep removes the file and the row" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      document
+      |> Ecto.Changeset.change(
+        current: false,
+        deletion_pending_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+      )
+      |> Repo.update!()
+
+      assert {:ok, 1} = Documents.cleanup_pending_documents()
+
+      refute Repo.get(Document, document.id)
+      refute LocalStorage.exists?(document.storage_key)
+    end
+
+    test "is idempotent and ignores documents that are not pending" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, _claim} = document_fixture(scope, claim)
+
+      assert {:ok, 0} = Documents.cleanup_pending_documents()
+      assert {:ok, 0} = Documents.cleanup_pending_documents()
+
+      assert Repo.get(Document, document.id)
+      assert LocalStorage.exists?(document.storage_key)
+    end
+  end
+
   defp temporary_path(name) do
     path = Path.join(System.tmp_dir!(), "c03-#{System.unique_integer([:positive])}-#{name}")
     on_exit(fn -> File.rm(path) end)

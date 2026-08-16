@@ -6,6 +6,9 @@ config :fahrgastrechte, development_identity: nil
 
 config :fahrgastrechte, Fahrgastrechte.Documents, max_file_size_bytes: 1024 * 1024
 
+# Sweeps run outside the test sandbox, so tests drive the cleanup directly.
+config :fahrgastrechte, Fahrgastrechte.Documents.CleanupWorker, enabled: false
+
 config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
   path: Path.join(System.tmp_dir!(), "fahrgastrechte-test-documents")
 
@@ -28,8 +31,7 @@ database_name = System.get_env("DATABASE_NAME", "fahrgastrechte_test")
 config :fahrgastrechte, Fahrgastrechte.Repo,
   username: System.get_env("DATABASE_USER", "postgres"),
   password: System.get_env("DATABASE_PASSWORD", "postgres"),
-  hostname: System.get_env("DATABASE_HOST", "localhost"),
-  port: String.to_integer(System.get_env("DATABASE_PORT", "5432")),
+  socket_dir: System.get_env("DATABASE_SOCKET_DIR", "/var/run/postgresql"),
   database: "#{database_name}#{System.get_env("MIX_TEST_PARTITION")}",
   template: System.get_env("DATABASE_TEMPLATE", "template0"),
   pool: Ecto.Adapters.SQL.Sandbox,
