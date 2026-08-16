@@ -269,6 +269,24 @@ defmodule Fahrgastrechte.DocumentsTest do
       assert {:ok, ^document} = Documents.get_document(scope, document.id)
       assert {:ok, ^updated_claim} = Claims.get_claim(scope, claim.id)
     end
+
+    test "cleanup_pending_claim_deletions/0 recovers a claim left mid-deletion after a crash" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      # Simulate a crash right after marking, before any file/row cleanup ran.
+      assert {:ok, _marked} = Claims.mark_deleting(scope, claim.id, claim.lock_version)
+      assert LocalStorage.exists?(document.storage_key)
+      assert Repo.get(Document, document.id)
+
+      assert {:ok, 1} = Documents.cleanup_pending_claim_deletions()
+
+      refute LocalStorage.exists?(document.storage_key)
+      assert Repo.get(Document, document.id) == nil
+      assert Repo.get(Fahrgastrechte.Claims.Claim, claim.id) == nil
+      assert {:ok, 0} = Documents.cleanup_pending_claim_deletions()
+    end
   end
 
   describe "scope isolation and persistence" do
