@@ -1,7 +1,11 @@
 defmodule FahrgastrechteWeb.HealthControllerTest do
   use FahrgastrechteWeb.ConnCase, async: false
 
+  alias Fahrgastrechte.Accounts
+  alias Fahrgastrechte.Accounts.BankDataCipher
   alias Fahrgastrechte.Documents.LocalStorage
+
+  import Fahrgastrechte.AccountsFixtures
 
   test "GET /healthz reports process liveness", %{conn: conn} do
     assert %{"status" => "ok"} =
@@ -38,6 +42,34 @@ defmodule FahrgastrechteWeb.HealthControllerTest do
     assert %{
              "status" => "unavailable",
              "failed_checks" => ["document_storage"]
+           } =
+             conn
+             |> get(~p"/readyz")
+             |> json_response(503)
+  end
+
+  test "GET /readyz fails closed when a stored profile's key version has no matching key", %{
+    conn: conn
+  } do
+    original_configuration = Application.fetch_env!(:fahrgastrechte, BankDataCipher)
+
+    on_exit(fn ->
+      Application.put_env(:fahrgastrechte, BankDataCipher, original_configuration)
+    end)
+
+    scope = scope_fixture()
+    assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+    # An installer that reverted a key rotation would leave the DB referencing a
+    # version the configured keyring no longer has a key for.
+    Application.put_env(:fahrgastrechte, BankDataCipher,
+      active_key_version: 1,
+      keys: %{}
+    )
+
+    assert %{
+             "status" => "unavailable",
+             "failed_checks" => ["crypto"]
            } =
              conn
              |> get(~p"/readyz")
