@@ -8,7 +8,9 @@ defmodule FahrgastrechteWeb.DocumentController do
       {:ok, %{document: document, stream: stream}} ->
         conn =
           conn
-          |> put_resp_content_type(document.mime_type)
+          # Only PDFs are ever stored, so the type is fixed here rather than
+          # echoed back from a database column.
+          |> put_resp_content_type("application/pdf")
           |> put_resp_header(
             "content-disposition",
             content_disposition(document.original_filename)
