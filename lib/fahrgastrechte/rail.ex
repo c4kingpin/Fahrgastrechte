@@ -9,6 +9,8 @@ defmodule Fahrgastrechte.Rail do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias Ecto.Changeset
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
@@ -378,6 +380,10 @@ defmodule Fahrgastrechte.Rail do
   defp provider_call(scope, claim, operation, args, options) do
     provider = Keyword.get(options, :provider, rail_config(:provider))
     provider_options = Keyword.delete(options, :provider)
+    do_provider_call(scope, claim, provider, operation, args, provider_options)
+  end
+
+  defp do_provider_call(scope, claim, provider, operation, args, provider_options) do
     result = apply(provider, operation, args ++ [provider_options])
 
     case result do
@@ -395,16 +401,45 @@ defmodule Fahrgastrechte.Rail do
         end)
 
       {:error, reason} ->
+        log_provider_failure(provider, operation, claim, reason)
         {:error, reason}
 
       other ->
-        {:error, {:upstream, {:invalid_provider_response, other}}}
+        reason = {:upstream, {:invalid_provider_response, other}}
+        log_provider_failure(provider, operation, claim, reason)
+        {:error, reason}
     end
   rescue
-    _error -> {:error, {:upstream, :provider_exception}}
+    error ->
+      reason = {:upstream, :provider_exception}
+
+      Logger.warning(
+        "Rail provider call raised: #{Exception.format(:error, error, __STACKTRACE__)}",
+        provider: provider,
+        operation: operation,
+        claim_id: claim.id
+      )
+
+      {:error, reason}
   catch
-    :exit, {:timeout, _details} -> {:error, :timeout}
-    :exit, _reason -> {:error, {:upstream, :provider_exit}}
+    :exit, {:timeout, _details} ->
+      log_provider_failure(provider, operation, claim, :timeout)
+      {:error, :timeout}
+
+    :exit, exit_reason ->
+      reason = {:upstream, :provider_exit}
+      log_provider_failure(provider, operation, claim, reason, exit_reason)
+      {:error, reason}
+  end
+
+  defp log_provider_failure(provider, operation, claim, reason, exit_reason \\ nil) do
+    Logger.warning(
+      "Rail provider call failed: #{inspect(reason)}",
+      provider: provider,
+      operation: operation,
+      claim_id: claim.id,
+      exit_reason: exit_reason && inspect(exit_reason)
+    )
   end
 
   defp persist_snapshot(
