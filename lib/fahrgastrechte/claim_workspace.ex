@@ -14,6 +14,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   alias Fahrgastrechte.ClaimWorkspace.ReadModel
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Exports
+  alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Rail.BerlinTime
   alias Fahrgastrechte.Repo
@@ -590,9 +591,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp build_transfer_segments(first, _params), do: {:ok, [first]}
 
   defp parse_datetime(value) when is_binary(value) do
-    normalized = if String.length(value) == 16, do: value <> ":00", else: value
-
-    with {:ok, naive} <- NaiveDateTime.from_iso8601(normalized),
+    with {:ok, naive} <- GermanDateTime.parse_datetime(value),
          {:ok, utc} <- BerlinTime.from_local(naive) do
       {:ok, utc}
     else
@@ -601,6 +600,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   end
 
   defp parse_datetime(_value), do: {:error, :invalid_datetime}
+
   defp parse_optional_datetime(value) when value in [nil, ""], do: {:ok, nil}
   defp parse_optional_datetime(value), do: parse_datetime(value)
 

@@ -94,7 +94,18 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
              "input[name='planned[scheduled_departure]'][type=text][value='02.08.2026, 08:00']"
            )
 
-    refute has_element?(view, "input[type=date], input[type=datetime-local]")
+    # A native date/datetime-local input backs the picker overlay, but it has
+    # no `name` and stays out of the submitted form data — only the visible
+    # German-formatted text input above is ever submitted.
+    assert has_element?(
+             view,
+             "#claim-travel-date-picker input[type=date][data-role='native-picker']:not([name])"
+           )
+
+    assert has_element?(
+             view,
+             "#connection-departure-at-picker input[type=datetime-local][data-role='native-picker']:not([name])"
+           )
   end
 
   test "automatically uploads and analyzes a ticket, then applies a traceable route suggestion",
