@@ -7,6 +7,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.ClaimWorkspace
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Exports
+  alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.ClaimLive.Components
 
@@ -1535,27 +1536,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   defp normalize_claim_dates(%{"travel_date" => value} = params) do
-    case parse_german_date(value) do
+    case GermanDateTime.parse_date(value) do
       {:ok, date} -> Map.put(params, "travel_date", Date.to_iso8601(date))
-      {:error, _reason} -> params
+      :error -> params
     end
   end
 
   defp normalize_claim_dates(params), do: params
-
-  defp parse_german_date(value) when is_binary(value) do
-    case Regex.run(~r/^\s*(\d{2})\.(\d{2})\.(\d{4})\s*$/, value, capture: :all_but_first) do
-      [day, month, year] -> Date.new(integer!(year), integer!(month), integer!(day))
-      _no_match -> Date.from_iso8601(value)
-    end
-  end
-
-  defp parse_german_date(_value), do: {:error, :invalid_format}
-
-  defp integer!(value) do
-    {integer, ""} = Integer.parse(value)
-    integer
-  end
 
   defp refresh_workspace(socket) do
     load_workspace(socket, socket.assigns.claim)
