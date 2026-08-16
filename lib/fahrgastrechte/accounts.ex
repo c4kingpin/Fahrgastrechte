@@ -221,6 +221,17 @@ defmodule Fahrgastrechte.Accounts do
     end
   end
 
+  @doc "Distinct bank data encryption key versions currently referenced by stored profiles."
+  @spec bank_data_key_versions_in_use() :: [pos_integer()]
+  def bank_data_key_versions_in_use do
+    Repo.all(
+      from p in Profile,
+        where: not is_nil(p.bank_data_key_version),
+        select: p.bank_data_key_version,
+        distinct: true
+    )
+  end
+
   defp rekey_profile(%Profile{bank_data_key_version: nil}, _active_version), do: :skipped
 
   defp rekey_profile(%Profile{} = profile, _active_version) do

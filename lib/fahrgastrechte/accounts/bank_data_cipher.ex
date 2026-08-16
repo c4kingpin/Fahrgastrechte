@@ -62,6 +62,10 @@ defmodule Fahrgastrechte.Accounts.BankDataCipher do
     with {:ok, version, _key} <- active_key(), do: {:ok, version}
   end
 
+  @doc "Whether a usable key is configured for the given version."
+  @spec key_available?(pos_integer()) :: boolean()
+  def key_available?(version), do: match?({:ok, _key}, key(version))
+
   defp active_key do
     config = config()
     version = Keyword.get(config, :active_key_version)

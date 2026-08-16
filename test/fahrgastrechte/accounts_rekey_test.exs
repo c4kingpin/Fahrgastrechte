@@ -5,6 +5,7 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Accounts.BankDataCipher
   alias Fahrgastrechte.Accounts.Profile
+  alias Fahrgastrechte.Health
   alias Fahrgastrechte.Repo
 
   import Fahrgastrechte.AccountsFixtures
@@ -94,6 +95,21 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
 
       assert {:error, :encryption_key_unavailable} = Accounts.rekey_bank_data()
       assert Repo.get!(Profile, profile.id).iban_ciphertext == original_ciphertext
+    end
+
+    test "readiness catches an installer that reverts a completed key rotation",
+         %{configuration: configuration} do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      rotate_to_version_two(configuration)
+      assert {:ok, %{rekeyed: 1}} = Accounts.rekey_bank_data()
+
+      # Simulate a buggy installer run that resets the keyring config back to the
+      # original single-key state without preserving the rotation to version 2.
+      Application.put_env(:fahrgastrechte, BankDataCipher, configuration)
+
+      assert {:error, [:crypto]} = Health.ready()
     end
   end
 end
