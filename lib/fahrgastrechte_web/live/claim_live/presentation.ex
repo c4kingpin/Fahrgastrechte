@@ -339,6 +339,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
 
   def confidence_label(confidence), do: "#{round(confidence * 100)} % sicher"
 
+  @doc "True when a station suggestion could not be matched against a real station."
+  def suggestion_unresolved?(%{field: field, value: value})
+      when field in [:origin, :destination],
+      do: Map.get(value, "unresolved", false) == true
+
+  def suggestion_unresolved?(_suggestion), do: false
+
   def source_document_name(documents_by_id, document_id) do
     case Map.get(documents_by_id, document_id) do
       nil -> "Dokument"

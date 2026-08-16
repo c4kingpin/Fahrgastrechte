@@ -620,13 +620,33 @@ defmodule Fahrgastrechte.Rail do
   defp provider_name(%{"provider" => provider}) when is_binary(provider), do: provider
   defp provider_name(_external_id), do: "unknown"
 
-  defp external_id_for_storage(nil), do: nil
+  @doc "Converts a provider-scoped external id (`%{provider: atom, value: term}`) into a JSON-storable map."
+  @spec external_id_for_storage(map() | nil) :: map() | nil
+  def external_id_for_storage(nil), do: nil
 
-  defp external_id_for_storage(%{provider: provider, value: value}) do
+  def external_id_for_storage(%{provider: provider, value: value}) do
     %{"provider" => inspect(provider), "value" => value}
   end
 
-  defp external_id_for_storage(external_id) when is_map(external_id), do: external_id
+  def external_id_for_storage(external_id) when is_map(external_id), do: external_id
+
+  @doc """
+  Reconstructs a provider-scoped external id previously stored via
+  `external_id_for_storage/1`, resolving the provider name against the
+  currently loaded modules.
+
+  Returns `:error` if the stored shape is invalid or the provider module no
+  longer exists (e.g. the configured provider changed).
+  """
+  @spec external_id_from_storage(map() | nil) :: {:ok, map()} | :error
+  def external_id_from_storage(%{"provider" => provider_name, "value" => value})
+      when is_binary(provider_name) do
+    {:ok, %{provider: String.to_existing_atom("Elixir." <> provider_name), value: value}}
+  rescue
+    ArgumentError -> :error
+  end
+
+  def external_id_from_storage(_external_id), do: :error
 
   defp normalize_segment_attrs(attrs) do
     normalized =
