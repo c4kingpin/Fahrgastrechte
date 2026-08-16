@@ -42,8 +42,15 @@ defmodule Fahrgastrechte.TicketsTest do
       assert by_field.order_number.value == %{"text" => "000000000001"}
       assert by_field.order_number.confidence == 0.98
       assert by_field.travel_date.value == %{"date" => "2026-04-15"}
-      assert by_field.origin.value == %{"text" => "Teststadt Hbf"}
-      assert by_field.destination.value == %{"text" => "Beispielstadt Hbf"}
+      # Neither test station resolves against TestStationProvider, so the
+      # normalizer keeps the raw text but flags it unresolved.
+      assert by_field.origin.value == %{"text" => "Teststadt Hbf", "unresolved" => true}
+
+      assert by_field.destination.value == %{
+               "text" => "Beispielstadt Hbf",
+               "unresolved" => true
+             }
+
       assert by_field.product.value == %{"text" => "Flexpreis"}
       assert by_field.fare.value == %{"amount" => "129.90", "currency" => "EUR"}
 
@@ -54,12 +61,14 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert by_field.scheduled_departure.value == %{
                "station" => "Teststadt Hbf",
-               "time" => "08:04"
+               "time" => "08:04",
+               "unresolved" => true
              }
 
       assert by_field.scheduled_arrival.value == %{
                "station" => "Beispielstadt Hbf",
-               "time" => "12:10"
+               "time" => "12:10",
+               "unresolved" => true
              }
 
       assert Enum.all?(suggestions, &(&1.state == :proposed))
@@ -176,10 +185,15 @@ defmodule Fahrgastrechte.TicketsTest do
                Tickets.analyze_document(scope, claim.id, document.id)
 
       by_field = Map.new(suggestions, &{&1.field, &1})
-      assert by_field.origin.value == %{"text" => "Hannover Hbf"}
+
+      assert by_field.origin.value == %{
+               "text" => "Hannover Hbf",
+               "station_id" => %{provider: TestStationProvider, value: "8000152"}
+             }
 
       assert by_field.destination.value == %{
-               "text" => "Frankfurt(M) Flughafen Fernbf"
+               "text" => "Frankfurt(M) Flughafen Fernbf",
+               "station_id" => %{provider: TestStationProvider, value: "8070004"}
              }
     end
 

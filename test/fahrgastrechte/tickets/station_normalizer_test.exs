@@ -35,6 +35,9 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
     assert Enum.at(normalized, 1).value == %{
              "text" => "Frankfurt(M) Flughafen Fernbf"
            }
+
+    refute Map.has_key?(Enum.at(normalized, 0).value, "unresolved")
+    refute Map.has_key?(Enum.at(normalized, 1).value, "unresolved")
   end
 
   test "normalizes station names embedded in scheduled times and caches repeated text" do
@@ -62,22 +65,29 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
     refute_received {:station_search, "Berlin Hbf"}
   end
 
-  test "keeps extracted text when the provider is unavailable or has no plausible match" do
+  test "keeps extracted text but flags it unresolved when the provider is unavailable or has no plausible match" do
     suggestions = [suggestion(:origin, %{"text" => "Unklare Angabe"})]
+    expected = flag_unresolved(suggestions)
 
     assert StationNormalizer.normalize(suggestions, fn _query ->
              {:error, {:upstream, :not_configured}}
-           end) == suggestions
+           end) == expected
 
     assert StationNormalizer.normalize(suggestions, fn _query ->
              {:ok, [%{name: "Berlin Hbf"}]}
-           end) == suggestions
+           end) == expected
 
     airport = [suggestion(:destination, %{"text" => "Frankfurt(M)Flugh. mit ICE"})]
 
     assert StationNormalizer.normalize(airport, fn _query ->
              {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
-           end) == airport
+           end) == flag_unresolved(airport)
+  end
+
+  defp flag_unresolved(suggestions) do
+    Enum.map(suggestions, fn suggestion ->
+      %{suggestion | value: Map.put(suggestion.value, "unresolved", true)}
+    end)
   end
 
   defp suggestion(field, value) do

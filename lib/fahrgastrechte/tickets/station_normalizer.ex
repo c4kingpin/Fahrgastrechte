@@ -5,7 +5,16 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
   @timed_fields [:scheduled_departure, :scheduled_arrival]
   @minimum_score 60
 
-  @doc "Replaces extracted station text with the best canonical provider result."
+  @doc """
+  Replaces extracted station text with the best canonical provider result.
+
+  When the provider can't confirm a match (API error, no candidate above the
+  minimum score), the raw extracted text is kept but the suggestion is marked
+  `"unresolved" => true` instead of being silently presented as a confirmed
+  station name. When it can, `:origin`/`:destination` suggestions also carry
+  the provider's station id under `"station_id"` so callers can persist it
+  instead of re-resolving the name by text later.
+  """
   def normalize(suggestions, search_stations)
       when is_list(suggestions) and is_function(search_stations, 1) do
     {normalized, _cache} =
@@ -15,36 +24,38 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
             {suggestion, cache}
 
           station_text ->
-            {canonical_name, cache} =
-              cached_station_name(station_text, cache, search_stations)
+            {match, cache} = cached_station_match(station_text, cache, search_stations)
 
-            {put_station_text(suggestion, canonical_name || station_text), cache}
+            case match do
+              nil -> {put_station_text(suggestion, station_text, nil, unresolved: true), cache}
+              {name, id} -> {put_station_text(suggestion, name, id, unresolved: false), cache}
+            end
         end
       end)
 
     normalized
   end
 
-  defp cached_station_name(station_text, cache, search_stations) do
+  defp cached_station_match(station_text, cache, search_stations) do
     case Map.fetch(cache, station_text) do
-      {:ok, canonical_name} ->
-        {canonical_name, cache}
+      {:ok, match} ->
+        {match, cache}
 
       :error ->
-        canonical_name = find_station_name(station_text, search_stations)
-        {canonical_name, Map.put(cache, station_text, canonical_name)}
+        match = find_station_match(station_text, search_stations)
+        {match, Map.put(cache, station_text, match)}
     end
   end
 
-  defp find_station_name(station_text, search_stations) do
+  defp find_station_match(station_text, search_stations) do
     station_text
     |> search_queries()
     |> Enum.reduce_while(nil, fn query, _result ->
       case search_stations.(query) do
         {:ok, stations} when is_list(stations) ->
-          case best_station_name(station_text, query, stations) do
+          case best_station_match(station_text, query, stations) do
             nil -> {:cont, nil}
-            station_name -> {:halt, station_name}
+            match -> {:halt, match}
           end
 
         _error ->
@@ -53,15 +64,18 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
     end)
   end
 
-  defp best_station_name(source, query, stations) do
+  defp best_station_match(source, query, stations) do
     stations
     |> Enum.flat_map(fn
-      %{name: name} when is_binary(name) -> [{station_score(source, query, name), name}]
-      _station -> []
+      %{name: name} = station when is_binary(name) ->
+        [{station_score(source, query, name), name, Map.get(station, :id)}]
+
+      _station ->
+        []
     end)
     |> Enum.max_by(&elem(&1, 0), fn -> nil end)
     |> case do
-      {score, name} when score >= @minimum_score -> name
+      {score, name, id} when score >= @minimum_score -> {name, id}
       _no_match -> nil
     end
   end
@@ -172,13 +186,33 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
 
   defp station_text(_suggestion), do: nil
 
-  defp put_station_text(%{field: field, value: value} = suggestion, station_name)
-       when field in @text_fields,
-       do: %{suggestion | value: Map.put(value, "text", station_name)}
+  defp put_station_text(%{field: field, value: value} = suggestion, station_name, station_id,
+         unresolved: unresolved?
+       )
+       when field in @text_fields do
+    value =
+      value
+      |> Map.put("text", station_name)
+      |> put_unresolved(unresolved?)
+      |> put_station_id(station_id)
 
-  defp put_station_text(%{field: field, value: value} = suggestion, station_name)
+    %{suggestion | value: value}
+  end
+
+  defp put_station_text(%{field: field, value: value} = suggestion, station_name, _station_id,
+         unresolved: unresolved?
+       )
        when field in @timed_fields,
-       do: %{suggestion | value: Map.put(value, "station", station_name)}
+       do: %{
+         suggestion
+         | value: value |> Map.put("station", station_name) |> put_unresolved(unresolved?)
+       }
+
+  defp put_unresolved(value, true), do: Map.put(value, "unresolved", true)
+  defp put_unresolved(value, false), do: Map.delete(value, "unresolved")
+
+  defp put_station_id(value, nil), do: Map.delete(value, "station_id")
+  defp put_station_id(value, id), do: Map.put(value, "station_id", id)
 
   defp long_distance_ticket?(source),
     do: Regex.match?(~r/\b(?:ICE|IC|EC|ECE|RJX?|TGV|FLX)\b/u, source)

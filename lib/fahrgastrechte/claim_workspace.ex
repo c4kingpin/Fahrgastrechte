@@ -322,9 +322,8 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   @doc "Searches provider connections with the departures fallback."
   def search_connections(%Scope{} = scope, %Claim{} = claim, params) when is_map(params) do
     with {:ok, departure_at} <- parse_datetime(params["departure_at"]),
-         {:ok, [origin | _]} <- Rail.search_stations(scope, claim.id, params["origin"] || ""),
-         {:ok, [destination | _]} <-
-           Rail.search_stations(scope, claim.id, params["destination"] || "") do
+         {:ok, origin} <- resolve_station(scope, claim, :origin, params["origin"]),
+         {:ok, destination} <- resolve_station(scope, claim, :destination, params["destination"]) do
       query = %{origin: origin.id, destination: destination.id, departure_at: departure_at}
 
       case Rail.search_connections(scope, claim.id, query) do
@@ -343,8 +342,27 @@ defmodule Fahrgastrechte.ClaimWorkspace do
           {:error, reason}
       end
     else
-      {:ok, []} -> {:ok, []}
+      {:error, :station_not_found} -> {:ok, []}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Reuses the claim's already-resolved station id when the search text still
+  # matches what was resolved (the untouched auto-search/default case), so a
+  # confirmed station is never re-derived by fuzzy text match on every
+  # search. Any edited text always goes through a fresh station lookup.
+  defp resolve_station(scope, claim, field, text) do
+    with true <- text == Map.fetch!(claim, field),
+         stored when not is_nil(stored) <- Map.fetch!(claim, :"#{field}_station_id"),
+         {:ok, id} <- Rail.external_id_from_storage(stored) do
+      {:ok, %{id: id}}
+    else
+      _unresolved ->
+        case Rail.search_stations(scope, claim.id, text || "") do
+          {:ok, [station | _]} -> {:ok, station}
+          {:ok, []} -> {:error, :station_not_found}
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -481,16 +499,32 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp claim_attrs_for_suggestion(%{field: :travel_date, value: value}),
     do: present_attr("travel_date", Map.get(value, "date"))
 
-  defp claim_attrs_for_suggestion(%{field: :origin, value: value}),
-    do: present_attr("origin", Map.get(value, "text"))
+  defp claim_attrs_for_suggestion(%{field: :origin, value: value}) do
+    Map.merge(
+      present_attr("origin", Map.get(value, "text")),
+      station_id_attr("origin_station_id", value)
+    )
+  end
 
-  defp claim_attrs_for_suggestion(%{field: :destination, value: value}),
-    do: present_attr("destination", Map.get(value, "text"))
+  defp claim_attrs_for_suggestion(%{field: :destination, value: value}) do
+    Map.merge(
+      present_attr("destination", Map.get(value, "text")),
+      station_id_attr("destination_station_id", value)
+    )
+  end
 
   defp claim_attrs_for_suggestion(_suggestion), do: %{}
 
   defp present_attr(_key, value) when value in [nil, ""], do: %{}
   defp present_attr(key, value), do: %{key => value}
+
+  # Only present when StationNormalizer confirmed a match — an unresolved
+  # suggestion's raw text carries no id, so origin/destination_station_id
+  # is left absent and Claim.update_changeset/2 clears any stale one.
+  defp station_id_attr(key, %{"station_id" => id}) when not is_nil(id),
+    do: %{key => Rail.external_id_for_storage(id)}
+
+  defp station_id_attr(_key, _value), do: %{}
 
   defp normalize_transaction({:ok, result}), do: {:ok, result}
   defp normalize_transaction({:error, reason}), do: {:error, reason}

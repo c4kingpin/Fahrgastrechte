@@ -105,6 +105,38 @@ defmodule Fahrgastrechte.ClaimsTest do
       assert loaded.destination == "Hamburg Hbf"
     end
 
+    test "clears a resolved station id when its text changes without a matching new id" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      station_id = %{
+        "provider" => "Fahrgastrechte.Rail.Providers.Timetables",
+        "value" => "8000152"
+      }
+
+      assert {:ok, resolved} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"origin" => "Hannover Hbf", "origin_station_id" => station_id},
+                 claim.lock_version
+               )
+
+      assert resolved.origin == "Hannover Hbf"
+      assert resolved.origin_station_id == station_id
+
+      assert {:ok, edited} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"origin" => "Hannover+City"},
+                 resolved.lock_version
+               )
+
+      assert edited.origin == "Hannover+City"
+      assert edited.origin_station_id == nil
+    end
+
     test "dependent draft changes advance the lock and reject a stale mutation" do
       scope = scope_fixture()
       claim = claim_fixture(scope)

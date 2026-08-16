@@ -371,7 +371,12 @@ defmodule FahrgastrechteWeb.CoreComponents do
 
   # Every other input type renders as-is; the browser handles its own locale.
   def input(assigns) do
-    assigns = assign(assigns, :normalized_value, Phoenix.HTML.Form.normalize_value(assigns.type, assigns.value))
+    assigns =
+      assign(
+        assigns,
+        :normalized_value,
+        Phoenix.HTML.Form.normalize_value(assigns.type, assigns.value)
+      )
 
     ~H"""
     <div class="mb-2">

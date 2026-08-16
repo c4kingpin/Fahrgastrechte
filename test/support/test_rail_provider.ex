@@ -2,7 +2,9 @@ defmodule Fahrgastrechte.TestRailProvider do
   @behaviour Fahrgastrechte.Rail.Provider
 
   @impl true
-  def search_stations(_query, options) do
+  def search_stations(query, options) do
+    send(self(), {:test_rail_provider_search_stations, query})
+
     Keyword.get_lazy(options, :result, fn ->
       fetched_at = ~U[2026-04-15 05:55:00Z]
 
@@ -24,7 +26,8 @@ defmodule Fahrgastrechte.TestRailProvider do
   end
 
   @impl true
-  def search_connections(_query, options) do
+  def search_connections(query, options) do
+    send(self(), {:test_rail_provider_search_connections, query})
     Keyword.get(options, :result, {:ok, [journey()]})
   end
 
