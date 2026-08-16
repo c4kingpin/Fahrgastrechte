@@ -8,7 +8,7 @@
 | Vorbedingungen prüfen | `install/fahrgastrechte-install.sh --check` |
 | Aktualisieren | `update [TAG-ODER-COMMIT]` |
 | Dienst prüfen | `systemctl status fahrgastrechte` |
-| Readiness prüfen | `curl --fail http://127.0.0.1:4000/readyz` |
+| Readiness prüfen | `curl --fail -H "Host: $PHX_HOST" http://127.0.0.1:4000/readyz` |
 | Backup erzeugen | `fahrgastrechte-backup` |
 | Backup wiederherstellen | `fahrgastrechte-restore DATEI --confirm` |
 | App-Release zurückrollen | `fahrgastrechte-rollback [RELEASE]` |
@@ -16,6 +16,15 @@
 Installation und Aktualisierung sind in
 [`proxmox-lxc.md`](proxmox-lxc.md) vollständig beschrieben. Die folgenden
 Abschnitte sind das Runbook für eine bereits installierte Instanz.
+
+Die Anwendung beantwortet nur Anfragen an ihren konfigurierten Hostnamen; ein
+lokaler Aufruf ohne passenden `Host`-Header wird mit `421 Misdirected Request`
+abgewiesen. `PHX_HOST` steht in `/etc/fahrgastrechte/fahrgastrechte.env` und
+lässt sich für die Sitzung übernehmen:
+
+```bash
+export PHX_HOST="$(sed -n 's/^PHX_HOST=//p' /etc/fahrgastrechte/fahrgastrechte.env)"
+```
 
 ## Laufzeit und Persistenz
 

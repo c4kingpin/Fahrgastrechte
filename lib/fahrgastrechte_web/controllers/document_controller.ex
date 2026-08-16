@@ -15,7 +15,9 @@ defmodule FahrgastrechteWeb.DocumentController do
           )
           |> put_resp_header("cache-control", "private, no-store")
           |> put_resp_header("x-content-type-options", "nosniff")
-          |> put_resp_header("content-length", Integer.to_string(document.size_bytes))
+          # A chunked response must not carry Content-Length (RFC 9112 §6.2);
+          # proxies may otherwise truncate or drop it.
+          |> put_resp_header("content-security-policy", "sandbox; default-src 'none'")
           |> send_chunked(200)
 
         Enum.reduce_while(stream, conn, fn bytes, current_conn ->

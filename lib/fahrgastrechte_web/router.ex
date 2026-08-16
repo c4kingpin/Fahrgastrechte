@@ -3,13 +3,35 @@ defmodule FahrgastrechteWeb.Router do
 
   import FahrgastrechteWeb.UserAuth
 
+  # The application serves exactly one stylesheet and one script from its own
+  # origin and embeds nothing external, so the policy can stay strict.
+  #
+  # `style-src` is the one exception: the three progress bars in
+  # `ClaimLive.Show`, `ClaimLive.Components` and `ReferenceDataLive` set their
+  # width through an inline style attribute. Replacing them with a native
+  # `<progress>` element styled from app.css would allow dropping
+  # 'unsafe-inline' here. Script execution stays strictly same-origin.
+  @content_security_policy [
+                             "default-src 'self'",
+                             "script-src 'self'",
+                             "style-src 'self' 'unsafe-inline'",
+                             "img-src 'self' data:",
+                             "font-src 'self'",
+                             "connect-src 'self' ws: wss:",
+                             "form-action 'self'",
+                             "frame-ancestors 'none'",
+                             "base-uri 'none'",
+                             "object-src 'none'"
+                           ]
+                           |> Enum.join("; ")
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_live_flash
     plug :put_root_layout, html: {FahrgastrechteWeb.Layouts, :root}
     plug :protect_from_forgery
-    plug :put_secure_browser_headers
+    plug :put_secure_browser_headers, %{"content-security-policy" => @content_security_policy}
     plug :fetch_current_scope
   end
 

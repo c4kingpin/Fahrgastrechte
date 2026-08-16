@@ -2,6 +2,7 @@ import Config
 
 config :fahrgastrechte,
   secure_session_cookie: false,
+  development_login: true,
   development_identity: %{
     issuer: "https://development.invalid/application/fahrgastrechte",
     subject: "local-developer",
