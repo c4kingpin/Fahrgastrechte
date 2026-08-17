@@ -365,6 +365,82 @@ defmodule Fahrgastrechte.DocumentsTest do
     end
   end
 
+  describe "change_document_kind/5" do
+    test "relabels the document and invalidates a ready output atomically" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim, :ticket)
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:ok, %{document: relabeled, claim: draft}} =
+               Documents.change_document_kind(
+                 scope,
+                 claim.id,
+                 document.id,
+                 :invoice,
+                 ready.lock_version
+               )
+
+      assert relabeled.id == document.id
+      assert relabeled.kind == :invoice
+      assert draft.status == :draft
+      assert draft.generated_at == nil
+
+      assert {:ok, history} = Claims.list_status_history(scope, claim.id)
+      assert List.last(history).reason == "dependent_data_changed"
+    end
+
+    test "rejects the change when the claim already has a current document of the target kind" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+
+      {_invoice, claim} =
+        document_fixture(scope, claim, :invoice, %{
+          path: fixture_path("synthetic-invoice.pdf"),
+          original_filename: "invoice.pdf"
+        })
+
+      assert {:error, :kind_taken} =
+               Documents.change_document_kind(
+                 scope,
+                 claim.id,
+                 ticket.id,
+                 :invoice,
+                 claim.lock_version
+               )
+
+      assert {:ok, unchanged} = Documents.get_document(scope, ticket.id)
+      assert unchanged.kind == :ticket
+    end
+
+    test "reports a stale claim without changing the document" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim, :ticket)
+
+      assert {:ok, _updated_claim} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"destination" => "Bremen Hbf"},
+                 claim.lock_version
+               )
+
+      assert {:error, :stale} =
+               Documents.change_document_kind(
+                 scope,
+                 claim.id,
+                 document.id,
+                 :invoice,
+                 claim.lock_version
+               )
+
+      assert {:ok, unchanged} = Documents.get_document(scope, document.id)
+      assert unchanged.kind == :ticket
+    end
+  end
+
   describe "scope isolation and persistence" do
     test "user A cannot list, read, stream or delete user B's document" do
       first_scope = scope_fixture()
