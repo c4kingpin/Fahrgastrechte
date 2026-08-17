@@ -17,12 +17,33 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope)
 
-    assert {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+    assert {:ok, view, html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#claim-workspace")
     assert has_element?(view, "#claim-form")
     assert has_element?(view, "#document-upload-form")
     assert has_element?(view, "#ticket-suggestions")
     assert has_element?(view, "#delete-claim-button")
+    assert html =~ ~s(href="#main-content")
+    assert has_element?(view, "main#main-content")
+  end
+
+  test "exposes the disruption choice as a toggle button state", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope, %{"disruption_cause" => nil})
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(view, "#choose-delay[aria-pressed=false]")
+    assert has_element?(view, "#choose-cancellation[aria-pressed=false]")
+
+    view |> element("#choose-delay") |> render_click()
+
+    assert has_element?(view, "#choose-delay[aria-pressed=true]")
+    assert has_element?(view, "#choose-cancellation[aria-pressed=false]")
+
+    view |> element("#choose-cancellation") |> render_click()
+
+    assert has_element?(view, "#choose-delay[aria-pressed=false]")
+    assert has_element?(view, "#choose-cancellation[aria-pressed=true]")
   end
 
   test "ignores a stale station search response" do
@@ -134,6 +155,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     assert has_element?(view, "#ticket-document-card #download-ticket")
     assert has_element?(view, "#ticket-document-card #reanalyze-ticket")
+    assert has_element?(view, "#analysis-status-ticket[role=status]")
     assert has_element?(view, "#ticket-suggestions article")
     assert has_element?(view, "#claim-step-dokumente[data-state=incomplete]")
     assert has_element?(view, "#claim-step-vorschlaege[data-state=incomplete]")

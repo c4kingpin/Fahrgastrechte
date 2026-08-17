@@ -139,6 +139,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   end
 
   attr :active_step, :atom, required: true
+  attr :analysis_tokens, :map, required: true
   attr :documents_by_kind, :map, required: true
   attr :max_file_size_label, :string, required: true
   attr :step_number, :integer, required: true
@@ -287,11 +288,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   )}
                 </p>
                 <div class={["mt-3 flex flex-wrap items-center gap-2"]}>
-                  <span class={[
-                    "rounded-full px-2.5 py-1 text-[0.68rem] font-bold",
-                    analysis_style(document.analysis_status)
-                  ]}>
-                    {analysis_label(document.analysis_status)}
+                  <span
+                    id={"analysis-status-#{kind}"}
+                    role="status"
+                    aria-live="polite"
+                    class={[
+                      "rounded-full px-2.5 py-1 text-[0.68rem] font-bold",
+                      analysis_style(document.analysis_status)
+                    ]}
+                  >
+                    {analysis_status_text(document, @analysis_tokens)}
                   </span>
                 </div>
               </div>
@@ -766,6 +772,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </.form>
       </details>
 
+      <p id="connection-search-status" role="status" aria-live="polite" class="sr-only">
+        {connection_search_status_message(@connection_search_state)}
+      </p>
+
       <div
         :if={@connection_search_state == :empty}
         id="connection-search-empty"
@@ -925,6 +935,17 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
     do:
       "Die Bahndaten sind gerade nicht verfügbar. Deine Angaben bleiben erhalten; bestätige die Verbindung manuell."
 
+  defp connection_search_status_message(:idle), do: ""
+  defp connection_search_status_message(:loading), do: "Verbindungen werden geladen …"
+
+  defp connection_search_status_message(:empty),
+    do: "Keine eindeutige Verbindung gefunden."
+
+  defp connection_search_status_message(:results), do: "Verbindungen gefunden."
+
+  defp connection_search_status_message({:error, _reason} = state),
+    do: connection_search_error_message(state)
+
   attr :active_step, :atom, required: true
   attr :actual_form, :any, required: true
   attr :actual_journey, :any, required: true
@@ -970,6 +991,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           phx-click="set_disruption"
           phx-value-type="delay"
           disabled={!editable?(@claim.status)}
+          aria-pressed={if(@claim.disruption_cause == :delay, do: "true", else: "false")}
           class={[
             "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
             disruption_choice_style(@claim.disruption_cause == :delay)
@@ -985,6 +1007,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           phx-click="set_disruption"
           phx-value-type="cancellation"
           disabled={!editable?(@claim.status)}
+          aria-pressed={if(@claim.disruption_cause == :cancellation, do: "true", else: "false")}
           class={[
             "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
             disruption_choice_style(@claim.disruption_cause == :cancellation)
@@ -1149,6 +1172,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :claim, :any, required: true
   attr :claim_complete?, :boolean, required: true
   attr :documents_complete?, :boolean, required: true
+  attr :export_state, :atom, required: true
   attr :export_state_label, :any, required: true
   attr :exports_available?, :boolean, required: true
   attr :planned_complete?, :boolean, required: true
@@ -1371,6 +1395,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       >
         <.icon name="hero-document-arrow-down" class="size-5" /> Druckfertiges PDF erstellen
       </button>
+      <p id="export-status" role="status" aria-live="polite" class="sr-only">
+        {if @export_state == :generating, do: "PDF wird erstellt …"}
+      </p>
 
       <div id="claim-exports" phx-update="stream" class={["mt-6 grid gap-3"]}>
         <article
