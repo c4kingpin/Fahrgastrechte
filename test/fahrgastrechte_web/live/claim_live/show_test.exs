@@ -209,11 +209,13 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     render_click(view, "delete_document", %{"id" => other_document.id})
     render_click(view, "reanalyze_document", %{"id" => other_document.id})
     render_click(view, "change_document_kind", %{"id" => other_document.id, "kind" => "invoice"})
+    render_click(view, "confirm_manual_fallback", %{"id" => other_document.id})
 
     assert {:ok, unchanged} = Documents.get_document(scope, other_document.id)
     assert unchanged.claim_id == other_claim.id
     assert unchanged.analysis_status == :not_started
     assert unchanged.kind == :ticket
+    assert is_nil(unchanged.manual_fallback_confirmed_at)
 
     assert {:ok, %{suggestions: [suggestion | _suggestions]}} =
              Tickets.analyze_document(

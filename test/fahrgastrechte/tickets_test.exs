@@ -7,6 +7,7 @@ defmodule Fahrgastrechte.TicketsTest do
 
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
@@ -303,6 +304,58 @@ defmodule Fahrgastrechte.TicketsTest do
       assert analyzed.analysis_error == "timeout"
     end
 
+    test "confirming the manual fallback after a failed analysis unblocks the claim" do
+      set_extractor(TestFailingExtractor)
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      assert {:ok, %{document: failed}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      assert failed.analysis_status == :failed
+      assert is_nil(failed.manual_fallback_confirmed_at)
+
+      assert {:ok, confirmed} =
+               Tickets.confirm_manual_fallback(scope, claim.id, document.id, claim.lock_version)
+
+      assert confirmed.analysis_status == :failed
+      assert %DateTime{} = confirmed.manual_fallback_confirmed_at
+    end
+
+    test "confirming the manual fallback is rejected outside a failed analysis" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      assert {:ok, %{document: completed}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      assert completed.analysis_status == :completed
+
+      assert {:error, :invalid_state} =
+               Tickets.confirm_manual_fallback(scope, claim.id, document.id, claim.lock_version)
+    end
+
+    test "re-analyzing after a confirmed manual fallback requires a fresh confirmation" do
+      set_extractor(TestFailingExtractor)
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {document, claim} = document_fixture(scope, claim)
+
+      assert {:ok, %{document: _failed}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      assert {:ok, _confirmed} =
+               Tickets.confirm_manual_fallback(scope, claim.id, document.id, claim.lock_version)
+
+      assert {:ok, %{document: reanalyzed}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      assert reanalyzed.analysis_status == :failed
+      assert is_nil(reanalyzed.manual_fallback_confirmed_at)
+    end
+
     test "generated documents are never treated as ticket inputs" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
@@ -550,6 +603,32 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert {:error, :not_editable} =
                Tickets.analyze_document(scope, claim.id, document.id, sent.lock_version)
+    end
+  end
+
+  describe "PDFJobLimiter integration" do
+    test "classify_upload/1 reports :ambiguous instead of crashing when the shared limiter is busy" do
+      test_pid = self()
+
+      holders =
+        for _ <- 1..2 do
+          spawn(fn ->
+            PDFJobLimiter.with_permit(fn ->
+              send(test_pid, :holding)
+
+              receive do
+                :release -> :ok
+              end
+            end)
+          end)
+        end
+
+      assert_receive :holding
+      assert_receive :holding
+
+      assert {:error, :ambiguous} = Tickets.classify_upload(fixture_path())
+
+      Enum.each(holders, &send(&1, :release))
     end
   end
 

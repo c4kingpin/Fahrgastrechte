@@ -64,13 +64,32 @@ Die folgenden konfigurierbaren Startwerte gelten pro Eingabedokument:
 - maximal 15 MiB und 20 Seiten,
 - maximal 10 Sekunden für Prüfung, 15 Sekunden für Textgewinnung und
   30 Sekunden für Befüllung/Merge,
-- höchstens zwei gleichzeitige PDF-Jobs pro App-Instanz,
+- höchstens zwei gleichzeitige PDF-Jobs pro App-Instanz, durchgesetzt über ein
+  geteiltes Concurrency-Limit (`Fahrgastrechte.Documents.PDFJobLimiter`,
+  Default 2), das Export-Erzeugung, Ticket-Analyse und Dokument-Klassifikation
+  gemeinsam nutzen — nicht drei getrennte, jeweils unbegrenzte Pfade,
 - temporäres Verzeichnis `0700`, Dateien `0600`, atomare Umbenennung am Ende.
 
-Die Werkzeuge laufen ohne Netzwerk, mit schreibgeschütztem Original, eigenem
-temporären Verzeichnis und Betriebssystemlimits für CPU, Speicher, Prozesse
-und Dateigröße. Dateinamen und Inhalte werden nicht geloggt. Ghostscript wird
-nicht auf hochgeladene Dokumente angewendet.
+Jeder externe Befehl läuft über `Fahrgastrechte.Documents.CommandRunner`
+gewrappt in GNU `timeout`, das den Prozess nach der konfigurierten Frist samt
+Prozessgruppe beendet. Fehlt dieses Werkzeug, verweigert die Anwendung in
+Produktion den Start (`Fahrgastrechte.Documents.CommandRunner.ensure_timeout_tool!/0`,
+aufgerufen aus `Fahrgastrechte.Application.start/2`) — es gibt bewusst keinen
+stillen Fallback auf einen ungeschützten Aufruf; in Entwicklung/Test bleibt der
+Fallback bestehen, dort dann ohne Betriebssystem-seitige Zeitgrenze.
+
+CPU-, Speicher- und Prozesslimits gelten aktuell auf Ebene der gesamten
+systemd-Unit (`CPUQuota`, `MemoryMax`, `TasksMax` im Installer,
+`install/fahrgastrechte-install.sh`) — ein gemeinsames Budget für den
+Phoenix-Prozess und alle darin laufenden externen PDF-Werkzeuge zusammen,
+nicht isolierte Betriebssystemlimits pro einzelnem Werkzeugaufruf (das würde
+eine dedizierte cgroup/einen Namespace je Kommando erfordern, z. B. über
+`systemd-run --scope`, was bewusst noch nicht umgesetzt ist). Eine
+Netzwerk-Isolation einzelner PDF-Werkzeuge existiert ebenfalls nicht — die
+Anwendung selbst benötigt Netzwerkzugriff (Datenbank, Bahn-API, Authentik),
+ein `PrivateNetwork=true` auf die gesamte Unit ist daher keine Option ohne
+separate Sandkasten-Lösung pro Kommando. Dateinamen und Inhalte werden nicht
+geloggt. Ghostscript wird nicht auf hochgeladene Dokumente angewendet.
 
 ## Folgen
 
