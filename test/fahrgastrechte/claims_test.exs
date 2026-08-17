@@ -467,6 +467,41 @@ defmodule Fahrgastrechte.ClaimsTest do
     end
   end
 
+  describe "invalidate_ready_claims_for_profile_change/1" do
+    test "demotes only this user's ready claims, leaving other statuses untouched" do
+      scope = scope_fixture()
+      ready = claim_in_status(scope, :ready)
+      draft = claim_in_status(scope, :draft)
+      sent = claim_in_status(scope, :sent)
+      completed = claim_in_status(scope, :completed)
+
+      other_scope = scope_fixture()
+      other_ready = claim_in_status(other_scope, :ready)
+
+      assert :ok = Claims.invalidate_ready_claims_for_profile_change(scope)
+
+      assert {:ok, reopened} = Claims.get_claim(scope, ready.id)
+      assert reopened.status == :draft
+
+      assert {:ok, unchanged_draft} = Claims.get_claim(scope, draft.id)
+      assert unchanged_draft.status == :draft
+      assert unchanged_draft.lock_version == draft.lock_version
+
+      assert {:ok, unchanged_sent} = Claims.get_claim(scope, sent.id)
+      assert unchanged_sent.status == :sent
+
+      assert {:ok, unchanged_completed} = Claims.get_claim(scope, completed.id)
+      assert unchanged_completed.status == :completed
+
+      assert {:ok, other_unchanged} = Claims.get_claim(other_scope, other_ready.id)
+      assert other_unchanged.status == :ready
+    end
+
+    test "is a no-op without a scope" do
+      assert :ok = Claims.invalidate_ready_claims_for_profile_change(nil)
+    end
+  end
+
   describe "deletion marking" do
     test "mark_deleting/3 hides the claim from every mutation path immediately" do
       scope = scope_fixture()

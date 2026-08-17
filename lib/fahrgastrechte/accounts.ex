@@ -15,6 +15,7 @@ defmodule Fahrgastrechte.Accounts do
   alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
 
   @doc """
@@ -84,18 +85,35 @@ defmodule Fahrgastrechte.Accounts do
 
   @doc """
   Updates only the current user's profile.
+
+  If any field that ends up in the generated PDF actually changed
+  (`Profile.export_relevant_fields/0`), every currently `:ready` claim of
+  this user is demoted back to `:draft`
+  (`Claims.invalidate_ready_claims_for_profile_change/1`) so its next
+  export reflects the new data. Claims already `:sent` or `:completed`
+  are frozen snapshots and are never touched by a later profile edit.
   """
   @spec update_profile(Scope.t(), map()) ::
           {:ok, Profile.t()} | {:error, Changeset.t() | atom()}
   def update_profile(%Scope{} = scope, attrs) do
     with {:ok, profile} <- get_profile(scope) do
-      profile
-      |> Profile.changeset(attrs)
+      changeset = Profile.changeset(profile, attrs)
+
+      export_relevant_change? =
+        Enum.any?(Profile.export_relevant_fields(), &Changeset.changed?(changeset, &1))
+
+      changeset
       |> encrypt_bank_changes()
       |> Repo.update()
       |> case do
-        {:ok, updated_profile} -> decrypt_profile(updated_profile)
-        {:error, changeset} -> {:error, changeset}
+        {:ok, updated_profile} ->
+          if export_relevant_change?,
+            do: Claims.invalidate_ready_claims_for_profile_change(scope)
+
+          decrypt_profile(updated_profile)
+
+        {:error, changeset} ->
+          {:error, changeset}
       end
     end
   end
