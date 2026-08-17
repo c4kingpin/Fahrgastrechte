@@ -26,6 +26,28 @@ defmodule Fahrgastrechte.CommandRunnerTest do
     assert elapsed < 5_000, "expected the command to be cut short, took #{elapsed}ms"
   end
 
+  describe "ensure_timeout_tool!/0" do
+    test "succeeds when the configured timeout binary is available" do
+      assert :ok = CommandRunner.ensure_timeout_tool!()
+    end
+
+    test "raises when the configured timeout binary is unavailable" do
+      original = Application.get_env(:fahrgastrechte, CommandRunner, [])
+
+      Application.put_env(
+        :fahrgastrechte,
+        CommandRunner,
+        Keyword.put(original, :timeout_executable, "definitely-not-a-real-binary")
+      )
+
+      on_exit(fn -> Application.put_env(:fahrgastrechte, CommandRunner, original) end)
+
+      assert_raise RuntimeError, ~r/required external command missing/, fn ->
+        CommandRunner.ensure_timeout_tool!()
+      end
+    end
+  end
+
   @tag :external_process
   test "leaves no operating system process behind after a timeout" do
     marker = "fahrgastrechte-timeout-#{System.unique_integer([:positive])}"

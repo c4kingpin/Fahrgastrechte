@@ -4,9 +4,11 @@ defmodule Fahrgastrechte.AccountsTest do
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Accounts.Scope
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
 
   import Fahrgastrechte.AccountsFixtures
+  import Fahrgastrechte.ClaimsFixtures
 
   describe "register_identity/1" do
     test "creates a user and exactly one profile on first and repeat registration" do
@@ -170,6 +172,107 @@ defmodule Fahrgastrechte.AccountsTest do
       assert {:error, :not_authenticated} = Accounts.get_profile(user.id)
       refute function_exported?(Accounts, :get_profile, 0)
       assert %Scope{} = Scope.for_user(user)
+    end
+  end
+
+  describe "profile changes and ready claims" do
+    test "a relevant field change demotes a ready claim back to draft" do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      claim = claim_fixture(scope)
+      assert {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      assert ready.generated_at
+
+      assert {:ok, _updated} =
+               Accounts.update_profile(
+                 scope,
+                 valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+               )
+
+      assert {:ok, reopened} = Claims.get_claim(scope, claim.id)
+      assert reopened.status == :draft
+      assert reopened.generated_at == nil
+    end
+
+    test "leaves a sent claim untouched" do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      claim = claim_fixture(scope)
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      {:ok, sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+
+      assert {:ok, _updated} =
+               Accounts.update_profile(
+                 scope,
+                 valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+               )
+
+      assert {:ok, unchanged} = Claims.get_claim(scope, claim.id)
+      assert unchanged.status == :sent
+      assert unchanged.sent_at == sent.sent_at
+    end
+
+    test "leaves a completed claim untouched" do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      claim = claim_fixture(scope)
+      {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+      {:ok, sent} = Claims.transition_claim(scope, claim.id, :sent, ready.lock_version)
+      {:ok, completed} = Claims.transition_claim(scope, claim.id, :completed, sent.lock_version)
+
+      assert {:ok, _updated} =
+               Accounts.update_profile(
+                 scope,
+                 valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+               )
+
+      assert {:ok, unchanged} = Claims.get_claim(scope, claim.id)
+      assert unchanged.status == :completed
+      assert unchanged.completed_at == completed.completed_at
+    end
+
+    test "a non-relevant field change does not reset a ready claim" do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      claim = claim_fixture(scope)
+      assert {:ok, ready} = Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:ok, _updated} =
+               Accounts.update_profile(
+                 scope,
+                 valid_profile_attributes(%{
+                   "phone_number" => "+49 30 000000",
+                   "title" => "Dr."
+                 })
+               )
+
+      assert {:ok, unchanged} = Claims.get_claim(scope, claim.id)
+      assert unchanged.status == :ready
+      assert unchanged.generated_at == ready.generated_at
+    end
+
+    test "a single profile change demotes every ready claim of this user" do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+      first_claim = claim_fixture(scope, %{"origin" => "Köln Hbf"})
+      second_claim = claim_fixture(scope, %{"origin" => "München Hbf"})
+
+      {:ok, _first_ready} =
+        Claims.transition_claim(scope, first_claim.id, :ready, first_claim.lock_version)
+
+      {:ok, _second_ready} =
+        Claims.transition_claim(scope, second_claim.id, :ready, second_claim.lock_version)
+
+      assert {:ok, _updated} =
+               Accounts.update_profile(
+                 scope,
+                 valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+               )
+
+      assert {:ok, first_reopened} = Claims.get_claim(scope, first_claim.id)
+      assert {:ok, second_reopened} = Claims.get_claim(scope, second_claim.id)
+      assert first_reopened.status == :draft
+      assert second_reopened.status == :draft
     end
   end
 

@@ -6,6 +6,7 @@ defmodule Fahrgastrechte.TicketsTest do
   import Fahrgastrechte.DocumentsFixtures
 
   alias Fahrgastrechte.Claims
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
@@ -571,6 +572,32 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert {:error, :not_editable} =
                Tickets.analyze_document(scope, claim.id, document.id, sent.lock_version)
+    end
+  end
+
+  describe "PDFJobLimiter integration" do
+    test "classify_upload/1 reports :ambiguous instead of crashing when the shared limiter is busy" do
+      test_pid = self()
+
+      holders =
+        for _ <- 1..2 do
+          spawn(fn ->
+            PDFJobLimiter.with_permit(fn ->
+              send(test_pid, :holding)
+
+              receive do
+                :release -> :ok
+              end
+            end)
+          end)
+        end
+
+      assert_receive :holding
+      assert_receive :holding
+
+      assert {:error, :ambiguous} = Tickets.classify_upload(fixture_path())
+
+      Enum.each(holders, &send(&1, :release))
     end
   end
 

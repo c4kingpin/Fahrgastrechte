@@ -16,6 +16,7 @@ defmodule Fahrgastrechte.Tickets do
   alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.Document
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets.Classifier
@@ -48,7 +49,8 @@ defmodule Fahrgastrechte.Tickets do
       pages: nil
     ]
 
-    with {:ok, extraction} <- extractor.extract(path, options) do
+    with {:ok, extraction} <-
+           PDFJobLimiter.with_permit(fn -> extractor.extract(path, options) end) do
       Classifier.classify(extraction.text)
     else
       {:error, _reason} -> {:error, :ambiguous}
@@ -261,7 +263,8 @@ defmodule Fahrgastrechte.Tickets do
       document_kind: document.kind
     ]
 
-    with {:ok, extraction} <- extractor.extract(path, options),
+    with {:ok, extraction} <-
+           PDFJobLimiter.with_permit(fn -> extractor.extract(path, options) end),
          {:ok, extracted_suggestions} <- extractor.propose(extraction, options) do
       suggestions = normalize_stations(scope, claim_id, extracted_suggestions)
       persist_analysis(document, :completed, nil, suggestions)
@@ -270,7 +273,7 @@ defmodule Fahrgastrechte.Tickets do
         persist_analysis(document, :manual_required, Atom.to_string(error), [])
 
       {:error, error}
-      when error in [:invalid_pdf, :resource_limit, :timeout] ->
+      when error in [:invalid_pdf, :resource_limit, :timeout, :busy] ->
         persist_analysis(document, :failed, Atom.to_string(error), [])
 
       {:error, {:backend, _reason}} ->

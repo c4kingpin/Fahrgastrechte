@@ -204,6 +204,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
   def trip_summary_disruption(%{disruption_cause: :cancellation}, _actual_journey),
     do: disruption_label(:cancellation)
 
+  def trip_summary_disruption(%{disruption_cause: :missed_connection}, _actual_journey),
+    do: disruption_label(:missed_connection)
+
   def trip_summary_disruption(_claim, %{segments: [_ | _] = segments}) do
     case delay_minutes(List.last(segments)) do
       nil -> "Noch keine Prognose"

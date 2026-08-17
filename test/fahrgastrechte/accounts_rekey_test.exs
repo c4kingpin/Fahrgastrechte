@@ -75,6 +75,30 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
       assert {:ok, %{rekeyed: 0, skipped: 1}} = Accounts.rekey_bank_data()
     end
 
+    test "a concurrent profile update is never overwritten by a running rekey",
+         %{configuration: configuration} do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      rotate_to_version_two(configuration)
+
+      rekey_task = Task.async(fn -> Accounts.rekey_bank_data() end)
+
+      update_task =
+        Task.async(fn ->
+          Accounts.update_profile(
+            scope,
+            valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+          )
+        end)
+
+      assert {:ok, _counts} = Task.await(rekey_task, 5_000)
+      assert {:ok, _updated} = Task.await(update_task, 5_000)
+
+      assert {:ok, final} = Accounts.get_profile(scope)
+      assert final.iban == "DE02120300000000202051"
+    end
+
     test "is idempotent" do
       scope = scope_fixture()
       assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
