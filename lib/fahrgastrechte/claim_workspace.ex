@@ -118,6 +118,9 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp actual_arrival_label(%Claim{disruption_cause: :cancellation}),
     do: "Ersatzverbindung ergänzen"
 
+  defp actual_arrival_label(%Claim{disruption_cause: :missed_connection}),
+    do: "Anschlussverbindung ergänzen"
+
   defp actual_arrival_label(_claim), do: "Tatsächliche Ankunft ergänzen"
 
   defp ambiguous_direction?(workspace) do
@@ -658,6 +661,9 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp build_actual_segments(params, :cancellation, planned_journey),
     do: build_cancellation_segments(params, planned_journey)
 
+  defp build_actual_segments(params, :missed_connection, planned_journey),
+    do: build_missed_connection_segments(params, planned_journey)
+
   defp build_actual_segments(_params, _cause, _planned_journey),
     do: {:error, :missing_disruption}
 
@@ -724,6 +730,31 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     end
   end
 
+  defp build_missed_connection_segments(_params, nil), do: {:error, :missing_planned}
+
+  defp build_missed_connection_segments(params, planned_journey) do
+    with {:ok, [feeder]} <- build_delay_segment(params),
+         {:ok, onward_departure} <- parse_datetime(params["missed_connection_departure"]),
+         {:ok, onward_arrival} <- parse_datetime(params["missed_connection_arrival"]),
+         :ok <- validate_order(onward_departure, onward_arrival) do
+      onward = %{
+        origin_name: feeder.destination_name,
+        destination_name: List.last(planned_journey.segments).destination_name,
+        train_category: params["missed_connection_category"],
+        train_number: params["missed_connection_number"],
+        scheduled_departure: onward_departure,
+        scheduled_arrival: onward_arrival,
+        actual_departure: onward_departure,
+        actual_arrival: onward_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      {:ok, [feeder, onward]}
+    end
+  end
+
   defp journey_complete?(nil, _kind), do: false
 
   defp journey_complete?(journey, :planned) do
@@ -785,8 +816,33 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       "replacement_category" => "",
       "replacement_number" => "",
       "replacement_departure" => "",
-      "replacement_arrival" => ""
+      "replacement_arrival" => "",
+      "missed_connection_category" => "",
+      "missed_connection_number" => "",
+      "missed_connection_departure" => "",
+      "missed_connection_arrival" => ""
     })
+  end
+
+  defp actual_form_data(%Claim{disruption_cause: :missed_connection} = claim, planned, journey)
+       when not is_nil(journey) do
+    first = List.first(journey.segments)
+    onward = Enum.at(journey.segments, 1)
+
+    claim
+    |> actual_form_data(planned, nil)
+    |> Map.put("origin_name", first.origin_name || claim.origin || "")
+    |> Map.put("destination_name", first.destination_name || "")
+    |> Map.put("train_category", first.train_category || "")
+    |> Map.put("train_number", first.train_number || "")
+    |> Map.put("scheduled_departure", datetime_local(first.scheduled_departure))
+    |> Map.put("scheduled_arrival", datetime_local(first.scheduled_arrival))
+    |> Map.put(
+      "actual_departure",
+      datetime_local(first.actual_departure || first.estimated_departure)
+    )
+    |> Map.put("actual_arrival", datetime_local(first.actual_arrival || first.estimated_arrival))
+    |> maybe_put_missed_connection(onward)
   end
 
   defp actual_form_data(claim, planned, journey) do
@@ -824,6 +880,22 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   end
 
   defp maybe_put_replacement(data, _journey), do: data
+
+  defp maybe_put_missed_connection(data, nil), do: data
+
+  defp maybe_put_missed_connection(data, onward) do
+    data
+    |> Map.put("missed_connection_category", onward.train_category || "")
+    |> Map.put("missed_connection_number", onward.train_number || "")
+    |> Map.put(
+      "missed_connection_departure",
+      datetime_local(onward.actual_departure || onward.scheduled_departure)
+    )
+    |> Map.put(
+      "missed_connection_arrival",
+      datetime_local(onward.actual_arrival || onward.scheduled_arrival)
+    )
+  end
 
   defp connection_search_data(claim, planned) do
     planned_data = planned_form_data(claim, planned)
