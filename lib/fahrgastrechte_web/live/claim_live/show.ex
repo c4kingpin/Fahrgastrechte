@@ -9,6 +9,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Exports
   alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Tickets
+  alias Fahrgastrechte.Tickets.StationNormalizer
   alias FahrgastrechteWeb.ClaimLive.Components
 
   import FahrgastrechteWeb.ClaimLive.FormData
@@ -419,25 +420,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event(
-        "select_suggestion_candidate",
-        %{"id" => suggestion_id, "index" => index},
-        socket
-      ) do
-    with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
-         candidate when not is_nil(candidate) <-
-           Enum.at(suggestion_candidates(suggestion), String.to_integer(index)) do
-      {:noreply,
-       apply_suggestion_station(socket, suggestion_id, %{
-         name: Map.fetch!(candidate, "text"),
-         id: Map.get(candidate, "station_id")
-       })}
-    else
-      _not_found ->
-        {:noreply, put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")}
-    end
-  end
-
-  def handle_event(
         "search_suggestion_station",
         %{"id" => suggestion_id, "query" => query},
         socket
@@ -569,18 +551,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     socket =
       case {Map.get(socket.assigns.suggestion_search_tokens, suggestion_id), result} do
         {^token, {:ok, options}} ->
+          existing = Map.get(socket.assigns.suggestion_station_options, suggestion_id, [])
+
           assign(
             socket,
             :suggestion_station_options,
-            Map.put(socket.assigns.suggestion_station_options, suggestion_id, options)
+            Map.put(
+              socket.assigns.suggestion_station_options,
+              suggestion_id,
+              merge_station_options(existing, options)
+            )
           )
 
         {^token, {:error, _reason}} ->
-          assign(
-            socket,
-            :suggestion_station_options,
-            Map.put(socket.assigns.suggestion_station_options, suggestion_id, [])
-          )
+          socket
 
         _stale ->
           socket
@@ -1682,6 +1666,80 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> stream(:exports, exports, reset: true)
     |> stream(:api_sources, api_sources, reset: true)
     |> stream(:status_history, status_history, reset: true)
+    |> seed_suggestion_station_options(workspace.suggestions_by_id)
+    |> maybe_auto_search_suggestion_stations(workspace.suggestions_by_id)
+  end
+
+  # Seeds each origin/destination suggestion's live options with its
+  # already-known candidates, so the picker shows something immediately
+  # instead of an empty list while the broadened background search runs.
+  defp seed_suggestion_station_options(socket, suggestions_by_id) do
+    Enum.reduce(Map.values(suggestions_by_id), socket, fn suggestion, acc ->
+      cond do
+        suggestion.field not in [:origin, :destination] ->
+          acc
+
+        Map.has_key?(acc.assigns.suggestion_station_options, suggestion.id) ->
+          acc
+
+        true ->
+          seeded =
+            suggestion
+            |> suggestion_candidates()
+            |> Enum.map(&%{name: Map.fetch!(&1, "text"), id: Map.get(&1, "station_id")})
+
+          assign(
+            acc,
+            :suggestion_station_options,
+            Map.put(acc.assigns.suggestion_station_options, suggestion.id, seeded)
+          )
+      end
+    end)
+  end
+
+  # Proactively broadens the search for any suggestion that still has fewer
+  # than 2 options after seeding, so the user sees real alternatives instead
+  # of having to open and type into the manual search themselves. Runs once
+  # per suggestion (guarded by suggestion_search_tokens) and only once the
+  # socket is connected, so the disconnected static render doesn't spawn
+  # tasks that would just be discarded on connect.
+  defp maybe_auto_search_suggestion_stations(socket, suggestions_by_id) do
+    if connected?(socket) do
+      suggestions_by_id
+      |> Map.values()
+      |> Enum.filter(&auto_search_suggestion_station?(socket, &1))
+      |> Enum.reduce(socket, &start_auto_station_search(&2, &1))
+    else
+      socket
+    end
+  end
+
+  defp auto_search_suggestion_station?(socket, suggestion) do
+    suggestion.field in [:origin, :destination] and suggestion.state == :proposed and
+      not Map.has_key?(socket.assigns.suggestion_search_tokens, suggestion.id) and
+      length(Map.get(socket.assigns.suggestion_station_options, suggestion.id, [])) < 2
+  end
+
+  defp start_auto_station_search(socket, suggestion) do
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
+    query = StationNormalizer.broad_query(suggestion_value(suggestion))
+    token = async_token()
+
+    socket
+    |> assign(
+      :suggestion_search_tokens,
+      Map.put(socket.assigns.suggestion_search_tokens, suggestion.id, token)
+    )
+    |> start_async({:suggestion_station_options, token}, fn ->
+      {suggestion.id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
+    end)
+  end
+
+  defp merge_station_options(existing, additional) do
+    (existing ++ additional)
+    |> Enum.uniq_by(& &1.name)
+    |> Enum.take(6)
   end
 
   defp workspace_entries(workspace, key) do
