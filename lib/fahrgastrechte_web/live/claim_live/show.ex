@@ -82,6 +82,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:destination_station_options, [])
           |> assign(:suggestion_station_options, %{})
           |> assign(:suggestion_search_tokens, %{})
+          |> assign(:station_search_closed, MapSet.new())
+          |> assign(:station_search_query, %{})
+          |> assign(:station_search_pending, MapSet.new())
           |> assign(:upload_form, upload_form())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
@@ -419,6 +422,24 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  def handle_event("toggle_station_search", %{"id" => suggestion_id}, socket) do
+    closed = socket.assigns.station_search_closed
+
+    updated =
+      if MapSet.member?(closed, suggestion_id) do
+        MapSet.delete(closed, suggestion_id)
+      else
+        MapSet.put(closed, suggestion_id)
+      end
+
+    socket =
+      socket
+      |> assign(:station_search_closed, updated)
+      |> touch_suggestion_stream(suggestion_id)
+
+    {:noreply, socket}
+  end
+
   def handle_event(
         "search_suggestion_station",
         %{"id" => suggestion_id, "query" => query},
@@ -431,9 +452,18 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     socket =
       socket
       |> assign(
+        :station_search_query,
+        Map.put(socket.assigns.station_search_query, suggestion_id, query)
+      )
+      |> assign(
         :suggestion_search_tokens,
         Map.put(socket.assigns.suggestion_search_tokens, suggestion_id, token)
       )
+      |> assign(
+        :station_search_pending,
+        MapSet.put(socket.assigns.station_search_pending, suggestion_id)
+      )
+      |> touch_suggestion_stream(suggestion_id)
 
     socket =
       start_async(socket, {:suggestion_station_options, token}, fn ->
@@ -451,8 +481,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     options = Map.get(socket.assigns.suggestion_station_options, suggestion_id, [])
 
     case Enum.at(options, String.to_integer(index)) do
-      nil -> {:noreply, put_flash(socket, :error, "Der Bahnhof wurde nicht gefunden.")}
-      station -> {:noreply, apply_suggestion_station(socket, suggestion_id, station)}
+      nil ->
+        {:noreply, put_flash(socket, :error, "Der Bahnhof wurde nicht gefunden.")}
+
+      station ->
+        socket =
+          socket
+          |> apply_suggestion_station(suggestion_id, station)
+          |> assign(
+            :station_search_query,
+            Map.delete(socket.assigns.station_search_query, suggestion_id)
+          )
+
+        {:noreply, socket}
     end
   end
 
@@ -547,14 +588,18 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     {:noreply, socket}
   end
 
-  def handle_async({:suggestion_station_options, token}, {suggestion_id, result}, socket) do
+  def handle_async(
+        {:suggestion_station_options, token},
+        {:ok, {suggestion_id, result}},
+        socket
+      ) do
     socket =
       case {Map.get(socket.assigns.suggestion_search_tokens, suggestion_id), result} do
         {^token, {:ok, options}} ->
           existing = Map.get(socket.assigns.suggestion_station_options, suggestion_id, [])
 
-          assign(
-            socket,
+          socket
+          |> assign(
             :suggestion_station_options,
             Map.put(
               socket.assigns.suggestion_station_options,
@@ -562,14 +607,33 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               merge_station_options(existing, options)
             )
           )
+          |> assign(
+            :station_search_pending,
+            MapSet.delete(socket.assigns.station_search_pending, suggestion_id)
+          )
+          |> touch_suggestion_stream(suggestion_id)
 
         {^token, {:error, _reason}} ->
           socket
+          |> assign(
+            :station_search_pending,
+            MapSet.delete(socket.assigns.station_search_pending, suggestion_id)
+          )
+          |> touch_suggestion_stream(suggestion_id)
 
         _stale ->
           socket
+          |> assign(
+            :station_search_pending,
+            MapSet.delete(socket.assigns.station_search_pending, suggestion_id)
+          )
+          |> touch_suggestion_stream(suggestion_id)
       end
 
+    {:noreply, socket}
+  end
+
+  def handle_async({:suggestion_station_options, _token}, {:exit, _reason}, socket) do
     {:noreply, socket}
   end
 
@@ -832,6 +896,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               suggestion_correction_form={@suggestion_correction_form}
               suggestions_empty?={@suggestions_empty?}
               suggestion_station_options={@suggestion_station_options}
+              station_search_closed={@station_search_closed}
+              station_search_query={@station_search_query}
+              station_search_pending={@station_search_pending}
             />
 
             <Components.planned_journey
@@ -1567,6 +1634,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp find_suggestion(socket, suggestion_id) do
     Map.get(socket.assigns.suggestions_by_id, suggestion_id)
+  end
+
+  # Suggestion articles render inside `phx-update="stream"` containers, so a
+  # plain assign change (station search open/closed, typed query, pending
+  # state, live results) never reaches the client on its own -- streams only
+  # patch items that are explicitly re-inserted. Station search UI state is
+  # attached to a suggestion's own article, so re-inserting it into its
+  # (always :route_suggestions, since only origin/destination show this UI)
+  # stream is what actually pushes the change through.
+  defp touch_suggestion_stream(socket, suggestion_id) do
+    case find_suggestion(socket, suggestion_id) do
+      nil -> socket
+      suggestion -> stream_insert(socket, :route_suggestions, suggestion)
+    end
   end
 
   defp load_workspace(socket, claim) do

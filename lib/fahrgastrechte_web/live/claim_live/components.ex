@@ -553,6 +553,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :suggestion_correction_form, :any, required: true
   attr :suggestions_empty?, :boolean, required: true
   attr :suggestion_station_options, :map, required: true
+  attr :station_search_closed, :any, required: true
+  attr :station_search_query, :map, required: true
+  attr :station_search_pending, :any, required: true
 
   def suggestions(assigns) do
     ~H"""
@@ -644,6 +647,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
           suggestion_station_options={@suggestion_station_options}
+          station_search_closed={@station_search_closed}
+          station_search_query={@station_search_query}
+          station_search_pending={@station_search_pending}
         />
         <.suggestion_group
           id="booking-suggestions"
@@ -653,6 +659,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
           suggestion_station_options={@suggestion_station_options}
+          station_search_closed={@station_search_closed}
+          station_search_query={@station_search_query}
+          station_search_pending={@station_search_pending}
         />
         <.suggestion_group
           id="other-suggestions"
@@ -662,6 +671,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
           suggestion_station_options={@suggestion_station_options}
+          station_search_closed={@station_search_closed}
+          station_search_query={@station_search_query}
+          station_search_pending={@station_search_pending}
         />
 
         <.form
@@ -1582,6 +1594,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :documents_by_id, :map, required: true
   attr :editable?, :boolean, required: true
   attr :suggestion_station_options, :map, required: true
+  attr :station_search_closed, :any, required: true
+  attr :station_search_query, :map, required: true
+  attr :station_search_pending, :any, required: true
 
   def suggestion_group(assigns) do
     ~H"""
@@ -1656,65 +1671,164 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               </p>
               <div
                 :if={suggestion.field in [:origin, :destination] and suggestion.state == :proposed}
+                id={"station-search-#{suggestion.id}"}
+                phx-hook=".StationCombobox"
                 class="mt-3"
               >
-                <p
-                  :if={Map.get(@suggestion_station_options, suggestion.id, []) != []}
-                  class="text-xs font-semibold text-slate-500"
+                <button
+                  type="button"
+                  id={"station-search-toggle-#{suggestion.id}"}
+                  data-role="combobox-toggle"
+                  phx-click="toggle_station_search"
+                  phx-value-id={suggestion.id}
+                  aria-expanded={to_string(station_search_open?(@station_search_closed, suggestion.id))}
+                  aria-controls={"station-search-panel-#{suggestion.id}"}
+                  class="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700"
                 >
-                  Vorschläge
-                </p>
-                <div
-                  :if={Map.get(@suggestion_station_options, suggestion.id, []) != []}
-                  class="mt-1 flex flex-wrap gap-2"
-                >
-                  <button
-                    :for={
-                      {option, index} <-
-                        Enum.with_index(Map.get(@suggestion_station_options, suggestion.id, []))
-                    }
-                    id={"suggestion-option-#{suggestion.id}-#{index}"}
-                    type="button"
-                    phx-click="choose_suggestion_station"
-                    phx-value-id={suggestion.id}
-                    phx-value-index={index}
-                    disabled={!@editable?}
-                    class={[
-                      "inline-flex min-h-8 items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40",
-                      if(option.name == suggestion_value(suggestion),
-                        do: "border-sky-600 bg-sky-50 text-sky-800",
-                        else: "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  <.icon
+                    name={
+                      if(station_search_open?(@station_search_closed, suggestion.id),
+                        do: "hero-chevron-up",
+                        else: "hero-chevron-down"
                       )
-                    ]}
-                  >
-                    {option.name}
-                  </button>
-                </div>
-                <details
-                  id={"suggestion-search-details-#{suggestion.id}"}
-                  phx-update="ignore"
+                    }
+                    class="size-3"
+                  /> Anderen Bahnhof suchen
+                </button>
+
+                <div
+                  :if={station_search_open?(@station_search_closed, suggestion.id)}
+                  id={"station-search-panel-#{suggestion.id}"}
                   class="mt-2"
                 >
-                  <summary class="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
-                    Anderen Bahnhof suchen
-                  </summary>
                   <form
-                    id={"suggestion-search-form-#{suggestion.id}"}
+                    id={"station-search-form-#{suggestion.id}"}
                     phx-change="search_suggestion_station"
                     phx-value-id={suggestion.id}
-                    class="mt-2"
                   >
                     <input
                       type="text"
                       name="query"
-                      placeholder="Bahnhofsname eingeben …"
+                      role="combobox"
+                      data-role="combobox-input"
+                      aria-autocomplete="list"
+                      aria-expanded={
+                        to_string(Map.get(@suggestion_station_options, suggestion.id, []) != [])
+                      }
+                      aria-controls={"station-options-#{suggestion.id}"}
+                      value={station_search_query_value(@station_search_query, suggestion.id)}
                       autocomplete="off"
                       phx-debounce="350"
-                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                      disabled={!@editable?}
+                      placeholder="Bahnhofsname eingeben (mind. 2 Zeichen) …"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-slate-50"
                     />
                   </form>
-                </details>
+
+                  <p
+                    :if={station_search_pending?(@station_search_pending, suggestion.id)}
+                    class="mt-1 text-xs text-slate-400"
+                  >
+                    Suche läuft …
+                  </p>
+
+                  <ul
+                    :if={Map.get(@suggestion_station_options, suggestion.id, []) != []}
+                    id={"station-options-#{suggestion.id}"}
+                    role="listbox"
+                    aria-label="Gefundene Bahnhöfe"
+                    class="mt-1 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200"
+                  >
+                    <li
+                      :for={
+                        {option, index} <-
+                          Enum.with_index(Map.get(@suggestion_station_options, suggestion.id, []))
+                      }
+                      id={"station-option-#{suggestion.id}-#{index}"}
+                      role="option"
+                      data-role="combobox-option"
+                      aria-selected={to_string(option.name == suggestion_value(suggestion))}
+                      aria-disabled={to_string(!@editable?)}
+                      tabindex="-1"
+                      phx-click={@editable? && "choose_suggestion_station"}
+                      phx-value-id={suggestion.id}
+                      phx-value-index={index}
+                      class={[
+                        "px-3 py-2 text-sm transition",
+                        if(@editable?,
+                          do: "cursor-pointer hover:bg-slate-50",
+                          else: "cursor-not-allowed opacity-60"
+                        ),
+                        option.name == suggestion_value(suggestion) &&
+                          "bg-sky-50 font-semibold text-sky-800"
+                      ]}
+                    >
+                      {option.name}
+                    </li>
+                  </ul>
+
+                  <p
+                    :if={
+                      Map.get(@suggestion_station_options, suggestion.id, []) == [] and
+                        not station_search_pending?(@station_search_pending, suggestion.id) and
+                        String.length(
+                          String.trim(station_search_query_value(@station_search_query, suggestion.id))
+                        ) >= 2
+                    }
+                    class="mt-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"
+                  >
+                    Keine Bahnhöfe gefunden.
+                  </p>
+                </div>
               </div>
+
+              <script :type={Phoenix.LiveView.ColocatedHook} name=".StationCombobox">
+                export default {
+                  mounted() { this.bindInput() },
+                  updated() { this.bindInput() },
+                  bindInput() {
+                    const input = this.el.querySelector('[data-role="combobox-input"]')
+                    if (!input || input.dataset.comboboxBound) return
+                    input.dataset.comboboxBound = "1"
+                    input.addEventListener("keydown", (e) => this.handleKeydown(e))
+                  },
+                  handleKeydown(e) {
+                    const options = Array.from(this.el.querySelectorAll('[data-role="combobox-option"]'))
+                    if (e.key === "Escape") {
+                      e.preventDefault()
+                      this.close()
+                      return
+                    }
+                    if (options.length === 0) return
+
+                    let index = options.findIndex((o) => o.classList.contains("is-active"))
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault()
+                      this.highlight(options, Math.min(index + 1, options.length - 1))
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault()
+                      this.highlight(options, Math.max(index - 1, 0))
+                    } else if (e.key === "Enter") {
+                      if (index >= 0) {
+                        e.preventDefault()
+                        options[index].click()
+                      }
+                    }
+                  },
+                  highlight(options, index) {
+                    options.forEach((option, i) => {
+                      option.classList.toggle("is-active", i === index)
+                      option.classList.toggle("bg-sky-50", i === index)
+                    })
+                    const input = this.el.querySelector('[data-role="combobox-input"]')
+                    if (input) input.setAttribute("aria-activedescendant", options[index]?.id || "")
+                  },
+                  close() {
+                    const toggle = this.el.querySelector('[data-role="combobox-toggle"]')
+                    if (toggle && toggle.getAttribute("aria-expanded") === "true") toggle.click()
+                  }
+                }
+              </script>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
               <%= if suggestion.state == :proposed do %>
