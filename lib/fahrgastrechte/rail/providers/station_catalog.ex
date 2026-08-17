@@ -22,15 +22,14 @@ defmodule Fahrgastrechte.Rail.Providers.StationCatalog do
   @impl true
   def search_stations(query, _options) do
     normalized = query |> to_string() |> String.trim()
+    tokens = tokenize(normalized)
 
-    if normalized == "" do
+    if tokens == [] do
       {:ok, []}
     else
-      pattern = "%" <> escape_like(normalized) <> "%"
-
       stations =
         Station
-        |> where([s], ilike(s.name, ^pattern))
+        |> where(^token_conditions(tokens))
         |> order_by([s], asc: s.name)
         |> limit(^@result_limit)
         |> Repo.all()
@@ -49,6 +48,23 @@ defmodule Fahrgastrechte.Rail.Providers.StationCatalog do
 
   @impl true
   def journey(_journey_id, _options), do: {:error, :not_found}
+
+  # Word-level AND instead of one literal phrase substring: the official
+  # OpenStation catalog punctuates/spells places differently than ticket text
+  # does (e.g. catalog "Frankfurt (Main) Flughafen Regionalbahnhof" /
+  # "Frankfurt am Main Flughafen Fernbahnhof" vs. ticket text
+  # "Frankfurt(M)Flugh."), so requiring the whole phrase as one substring
+  # missed real stations. Requiring each query word separately still finds
+  # them; StationNormalizer's scoring (which already tolerates these
+  # spelling differences) picks the right one out of the wider result set.
+  defp tokenize(text), do: text |> String.split(~r/[^\p{L}\p{N}]+/u, trim: true)
+
+  defp token_conditions(tokens) do
+    Enum.reduce(tokens, dynamic(true), fn token, acc ->
+      pattern = "%" <> escape_like(token) <> "%"
+      dynamic([s], ^acc and ilike(s.name, ^pattern))
+    end)
+  end
 
   # Exact match first, then prefix matches, then everything else — the
   # manual "Anderen Bahnhof suchen" search box takes this order as-is
