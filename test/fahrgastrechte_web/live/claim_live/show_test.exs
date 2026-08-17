@@ -4,11 +4,13 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 2, document_fixture: 4]
+  import Fahrgastrechte.RailFixtures, only: [station_fixture!: 2]
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.TestTicketRouteExtractor
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.ClaimLive.Show
   alias FahrgastrechteWeb.UserAuth
@@ -175,6 +177,62 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert updated_claim.origin == "Teststadt Hbf"
     assert {:ok, updated_suggestions} = Tickets.list_suggestions(scope, document.id)
     assert Enum.find(updated_suggestions, &(&1.id == origin.id)).state == :accepted
+  end
+
+  test "manual station search box finds and applies a real catalog match", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+
+    tickets_config = Application.fetch_env!(:fahrgastrechte, Tickets)
+
+    Application.put_env(
+      :fahrgastrechte,
+      Tickets,
+      Keyword.put(tickets_config, :extractor, TestTicketRouteExtractor)
+    )
+
+    on_exit(fn -> Application.put_env(:fahrgastrechte, Tickets, tickets_config) end)
+
+    station_fixture!("Hannover Hbf", "8000152")
+    station_fixture!("Frankfurt(M) Flughafen Fernbf", "8070003")
+    station_fixture!("Frankfurt(M) Flughafen Regionalbf", "8070004")
+
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim)
+
+    assert {:ok, %{suggestions: suggestions}} =
+             Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+    destination = Enum.find(suggestions, &(&1.field == :destination))
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#suggestion-search-form-#{destination.id}", %{"query" => "Frankfurt"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(
+             view,
+             "#suggestion-option-#{destination.id}-0",
+             "Frankfurt(M) Flughafen Fernbf"
+           )
+
+    assert has_element?(
+             view,
+             "#suggestion-option-#{destination.id}-1",
+             "Frankfurt(M) Flughafen Regionalbf"
+           )
+
+    view
+    |> element("#suggestion-option-#{destination.id}-1")
+    |> render_click()
+
+    assert {:ok, [chosen]} =
+             Tickets.list_suggestions(scope, document.id)
+             |> then(fn {:ok, all} -> {:ok, Enum.filter(all, &(&1.id == destination.id))} end)
+
+    assert chosen.value["text"] == "Frankfurt(M) Flughafen Regionalbf"
   end
 
   test "deletes a private document through the coordinated UI action", %{conn: conn} do
