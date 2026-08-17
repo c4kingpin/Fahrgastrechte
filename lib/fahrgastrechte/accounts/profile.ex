@@ -18,6 +18,20 @@ defmodule Fahrgastrechte.Accounts.Profile do
     iban
     bic
   )a
+  # Fields that actually end up in a generated PDF (see form_fields/1 in
+  # Fahrgastrechte.Exports) — deliberately excludes title/country/phone_number.
+  @export_relevant_fields ~w(
+    salutation
+    first_name
+    last_name
+    street
+    house_number
+    postal_code
+    city
+    account_holder
+    iban
+    bic
+  )a
 
   @type t :: %__MODULE__{}
 
@@ -81,6 +95,7 @@ defmodule Fahrgastrechte.Accounts.Profile do
   end
 
   def required_fields, do: @required_fields
+  def export_relevant_fields, do: @export_relevant_fields
 
   defp normalize_fields(changeset) do
     Enum.reduce(

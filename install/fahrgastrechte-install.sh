@@ -237,8 +237,9 @@ set -Eeuo pipefail
 readonly APP_REPOSITORY="${APP_REPOSITORY}"
 readonly INSTALLER_BASE_URL="${INSTALLER_BASE_URL}"
 readonly INSTALLER_REF="${INSTALLER_REF}"
+readonly DEFAULT_APP_REF="${APP_REF}"
 
-desired_ref="\${1:-main}"
+desired_ref="\${1:-\$DEFAULT_APP_REF}"
 [[ "\$desired_ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/@:+-]*\$ ]] || {
   printf 'Ungültiger Git-Ref: %s\\n' "\$desired_ref" >&2
   exit 1

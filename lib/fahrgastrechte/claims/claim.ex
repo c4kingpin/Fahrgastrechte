@@ -55,6 +55,7 @@ defmodule Fahrgastrechte.Claims.Claim do
     field :generated_at, :utc_datetime_usec
     field :sent_at, :utc_datetime_usec
     field :completed_at, :utc_datetime_usec
+    field :deletion_pending_at, :utc_datetime_usec
     field :lock_version, :integer, default: 1
 
     belongs_to :user, User
