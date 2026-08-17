@@ -227,7 +227,12 @@ EOF
 }
 
 write_update_command() {
-  cat >"$UPDATE_COMMAND" <<EOF
+  local temporary_update_command
+
+  temporary_update_command="$(mktemp "${UPDATE_COMMAND}.XXXXXX")"
+  trap 'rm -f "$temporary_update_command"' RETURN
+
+  cat >"$temporary_update_command" <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
@@ -254,7 +259,9 @@ env APP_REF="\$desired_ref" \
   /usr/bin/bash "\$temporary_installer"
 EOF
 
-  chmod 0755 "$UPDATE_COMMAND"
+  chmod 0755 "$temporary_update_command"
+  mv --force "$temporary_update_command" "$UPDATE_COMMAND"
+  trap - RETURN
   ln --symbolic --force --no-dereference "$UPDATE_COMMAND" /usr/local/bin/update
 }
 
