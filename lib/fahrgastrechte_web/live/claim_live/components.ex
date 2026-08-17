@@ -1690,7 +1690,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                     {option.name}
                   </button>
                 </div>
-                <details class="mt-2">
+                <details
+                  id={"suggestion-search-details-#{suggestion.id}"}
+                  phx-update="ignore"
+                  class="mt-2"
+                >
                   <summary class="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
                     Anderen Bahnhof suchen
                   </summary>
