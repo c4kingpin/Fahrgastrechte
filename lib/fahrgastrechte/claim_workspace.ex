@@ -13,6 +13,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.ClaimWorkspace.ReadModel
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Exports
   alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Rail
@@ -420,8 +421,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     documents_started? = upload_documents != []
 
     analysis_complete? =
-      documents_complete? &&
-        Enum.all?(upload_documents, &(&1.analysis_status in [:completed, :manual_required]))
+      documents_complete? && Enum.all?(upload_documents, &document_analysis_resolved?/1)
 
     suggestions_complete? =
       analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
@@ -740,6 +740,18 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       {:ok, [cancelled, replacement]}
     end
   end
+
+  defp document_analysis_resolved?(%Document{analysis_status: status})
+       when status in [:completed, :manual_required],
+       do: true
+
+  defp document_analysis_resolved?(%Document{
+         analysis_status: :failed,
+         manual_fallback_confirmed_at: confirmed_at
+       }),
+       do: not is_nil(confirmed_at)
+
+  defp document_analysis_resolved?(%Document{}), do: false
 
   defp build_missed_connection_segments(_params, nil), do: {:error, :missing_planned}
 

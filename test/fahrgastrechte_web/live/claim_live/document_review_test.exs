@@ -3,13 +3,47 @@ defmodule FahrgastrechteWeb.ClaimLive.DocumentReviewTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
+  import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 3]
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.Document
+  alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.UserAuth
+
+  test "confirms the manual fallback for a failed analysis and it survives a reload",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim, :ticket)
+
+    document
+    |> Document.analysis_changeset(%{
+      analysis_status: :failed,
+      analysis_error: "timeout",
+      analyzed_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    })
+    |> Repo.update!()
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/dokumente")
+
+    assert has_element?(view, "#confirm-manual-fallback-ticket")
+
+    view |> element("#confirm-manual-fallback-ticket") |> render_click()
+
+    refute has_element?(view, "#confirm-manual-fallback-ticket")
+    assert has_element?(view, "#ticket-document-card", "Manuell bestätigt")
+
+    assert {:ok, confirmed} = Documents.get_document(scope, document.id)
+    assert %DateTime{} = confirmed.manual_fallback_confirmed_at
+
+    {:ok, reloaded_view, _html} = live(conn, ~p"/antraege/#{claim.id}/dokumente")
+    refute has_element?(reloaded_view, "#confirm-manual-fallback-ticket")
+    assert has_element?(reloaded_view, "#ticket-document-card", "Manuell bestätigt")
+  end
 
   test "reads ticket and invoice data before prefilling the case data step", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
