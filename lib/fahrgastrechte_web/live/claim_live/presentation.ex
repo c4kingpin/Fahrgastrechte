@@ -294,6 +294,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
   def analysis_style(:manual_required), do: "bg-amber-50 text-amber-800"
   def analysis_style(:failed), do: "bg-rose-50 text-rose-700"
 
+  @doc "Analysis status text, announced live while a run for this document is in flight."
+  def analysis_status_text(document, analysis_tokens) do
+    if Map.has_key?(analysis_tokens, document.id) do
+      "Wird ausgewertet …"
+    else
+      analysis_label(document.analysis_status)
+    end
+  end
+
   def suggestion_card_style(:proposed), do: "border-sky-200 bg-sky-50/50"
   def suggestion_card_style(:accepted), do: "border-emerald-200 bg-emerald-50/50"
   def suggestion_card_style(:rejected), do: "border-slate-200 bg-slate-50 opacity-70"
