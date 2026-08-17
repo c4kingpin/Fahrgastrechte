@@ -87,3 +87,92 @@ jobs:
 
       - name: Tests ausführen
         run: mix test
+
+  production_release_smoke:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fahrgastrechte_prod_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      MIX_ENV: prod
+      DATABASE_URL: ecto://postgres:postgres@localhost:5432/fahrgastrechte_prod_smoke
+      PHX_HOST: localhost
+      PHX_SERVER: "true"
+      PORT: "4000"
+      POOL_SIZE: "5"
+      FIELD_ENCRYPTION_KEY_VERSION: "1"
+      DOCUMENT_STORAGE_PATH: /tmp/fahrgastrechte-smoke-documents
+
+    steps:
+      - name: Repository auschecken
+        uses: actions/checkout@v7
+
+      - name: Erlang und Elixir einrichten
+        uses: erlef/setup-beam@v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Abhängigkeiten zwischenspeichern
+        uses: actions/cache@v6
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-prod-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-prod-
+
+      - name: Synthetische Production-Secrets erzeugen
+        run: |
+          echo "SECRET_KEY_BASE=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
+          echo "FIELD_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Production-Abhängigkeiten installieren
+        run: mix deps.get --only prod
+
+      - name: Ohne Warnungen für Production kompilieren
+        run: mix compile --warnings-as-errors
+
+      - name: Assets für Production bauen
+        run: mix assets.deploy
+
+      - name: Production Release bauen
+        run: mix release --overwrite
+
+      - name: Synthetische Datenbank anlegen und migrieren
+        run: |
+          mix ecto.create
+          _build/prod/rel/fahrgastrechte/bin/fahrgastrechte eval "Fahrgastrechte.Release.migrate"
+
+      - name: Release starten und /readyz prüfen
+        run: |
+          _build/prod/rel/fahrgastrechte/bin/fahrgastrechte start &
+          release_pid=$!
+          trap 'kill "$release_pid" 2>/dev/null || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent \
+              --header "Host: ${PHX_HOST}" \
+              --header 'X-Forwarded-Proto: https' \
+              http://127.0.0.1:4000/readyz >/dev/null; then
+              echo "readyz meldet Erfolg"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "readyz wurde nach 60s nicht erfolgreich" >&2
+          exit 1

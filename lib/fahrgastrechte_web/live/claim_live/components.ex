@@ -139,6 +139,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   end
 
   attr :active_step, :atom, required: true
+  attr :analysis_tokens, :map, required: true
   attr :documents_by_kind, :map, required: true
   attr :max_file_size_label, :string, required: true
   attr :step_number, :integer, required: true
@@ -287,11 +288,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   )}
                 </p>
                 <div class={["mt-3 flex flex-wrap items-center gap-2"]}>
-                  <span class={[
-                    "rounded-full px-2.5 py-1 text-[0.68rem] font-bold",
-                    analysis_style(document.analysis_status)
-                  ]}>
-                    {analysis_label(document.analysis_status)}
+                  <span
+                    id={"analysis-status-#{kind}"}
+                    role="status"
+                    aria-live="polite"
+                    class={[
+                      "rounded-full px-2.5 py-1 text-[0.68rem] font-bold",
+                      analysis_style(document)
+                    ]}
+                  >
+                    {analysis_status_text(document, @analysis_tokens)}
                   </span>
                 </div>
               </div>
@@ -316,6 +322,36 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 >
                   <.icon name="hero-arrow-path" class="size-4" /> Neu auswerten
                 </button>
+                <% other_kind = if kind == :ticket, do: :invoice, else: :ticket %>
+                <button
+                  id={"change-kind-#{kind}"}
+                  type="button"
+                  phx-click="change_document_kind"
+                  phx-value-id={document.id}
+                  phx-value-kind={other_kind}
+                  data-confirm={"Als #{document_kind_label(other_kind)} neu einordnen und neu auswerten?"}
+                  class={[
+                    "inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                  ]}
+                >
+                  <.icon name="hero-arrow-path-rounded-square" class="size-4" />
+                  Als {document_kind_label(other_kind)} einordnen
+                </button>
+                <%= if document.analysis_status == :failed and
+                       is_nil(document.manual_fallback_confirmed_at) do %>
+                  <button
+                    id={"confirm-manual-fallback-#{kind}"}
+                    type="button"
+                    phx-click="confirm_manual_fallback"
+                    phx-value-id={document.id}
+                    data-confirm="Automatische Auswertung überspringen und Angaben manuell prüfen?"
+                    class={[
+                      "inline-flex min-h-10 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300"
+                    ]}
+                  >
+                    <.icon name="hero-pencil-square" class="size-4" /> Manuell fortfahren
+                  </button>
+                <% end %>
                 <button
                   id={"delete-document-#{kind}"}
                   type="button"
@@ -770,6 +806,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </.form>
       </details>
 
+      <p id="connection-search-status" role="status" aria-live="polite" class="sr-only">
+        {connection_search_status_message(@connection_search_state)}
+      </p>
+
       <div
         :if={@connection_search_state == :empty}
         id="connection-search-empty"
@@ -929,6 +969,17 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
     do:
       "Die Bahndaten sind gerade nicht verfügbar. Deine Angaben bleiben erhalten; bestätige die Verbindung manuell."
 
+  defp connection_search_status_message(:idle), do: ""
+  defp connection_search_status_message(:loading), do: "Verbindungen werden geladen …"
+
+  defp connection_search_status_message(:empty),
+    do: "Keine eindeutige Verbindung gefunden."
+
+  defp connection_search_status_message(:results), do: "Verbindungen gefunden."
+
+  defp connection_search_status_message({:error, _reason} = state),
+    do: connection_search_error_message(state)
+
   attr :active_step, :atom, required: true
   attr :actual_form, :any, required: true
   attr :actual_journey, :any, required: true
@@ -967,13 +1018,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.step_badge state={@actual_state} />
       </div>
 
-      <div id="disruption-choice" class={["mt-6 grid grid-cols-2 gap-3"]}>
+      <div id="disruption-choice" class={["mt-6 grid gap-3 sm:grid-cols-3"]}>
         <button
           id="choose-delay"
           type="button"
           phx-click="set_disruption"
           phx-value-type="delay"
           disabled={!editable?(@claim.status)}
+          aria-pressed={if(@claim.disruption_cause == :delay, do: "true", else: "false")}
           class={[
             "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
             disruption_choice_style(@claim.disruption_cause == :delay)
@@ -989,6 +1041,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           phx-click="set_disruption"
           phx-value-type="cancellation"
           disabled={!editable?(@claim.status)}
+          aria-pressed={if(@claim.disruption_cause == :cancellation, do: "true", else: "false")}
           class={[
             "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
             disruption_choice_style(@claim.disruption_cause == :cancellation)
@@ -997,6 +1050,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           <.icon name="hero-no-symbol" class="size-6" />
           <strong class={["mt-3 block text-sm"]}>Zugausfall</strong>
           <span class={["mt-1 block text-xs opacity-75"]}>Mit Ersatzverbindung erfassen</span>
+        </button>
+        <button
+          id="choose-missed-connection"
+          type="button"
+          phx-click="set_disruption"
+          phx-value-type="missed_connection"
+          disabled={!editable?(@claim.status)}
+          class={[
+            "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+            disruption_choice_style(@claim.disruption_cause == :missed_connection)
+          ]}
+        >
+          <.icon name="hero-arrow-path-rounded-square" class="size-6" />
+          <strong class={["mt-3 block text-sm"]}>Anschluss verpasst</strong>
+          <span class={["mt-1 block text-xs opacity-75"]}>
+            Verzögerung führte zum verpassten Umstieg
+          </span>
         </button>
       </div>
 
@@ -1132,6 +1202,33 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               />
             </div>
           </div>
+
+          <div
+            :if={@claim.disruption_cause == :missed_connection}
+            id="missed-connection-fields"
+            class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+          >
+            <h3 class={["text-sm font-semibold text-amber-950"]}>
+              Tatsächliche Anschlussverbindung
+            </h3>
+            <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+              <.input
+                field={@actual_form[:missed_connection_category]}
+                label="Zuggattung Anschluss"
+              />
+              <.input field={@actual_form[:missed_connection_number]} label="Zugnummer Anschluss" />
+              <.input
+                field={@actual_form[:missed_connection_departure]}
+                type="datetime-local"
+                label="Abfahrt Anschluss"
+              />
+              <.input
+                field={@actual_form[:missed_connection_arrival]}
+                type="datetime-local"
+                label="Ankunft Anschluss"
+              />
+            </div>
+          </div>
           <button
             id="save-actual-journey"
             type="submit"
@@ -1152,9 +1249,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :actual_complete?, :boolean, required: true
   attr :claim, :any, required: true
   attr :claim_complete?, :boolean, required: true
+  attr :current_export, :any, required: true
   attr :documents_complete?, :boolean, required: true
+  attr :export_state, :atom, required: true
   attr :export_state_label, :any, required: true
   attr :exports_available?, :boolean, required: true
+  attr :latest_export_version, :any, required: true
   attr :planned_complete?, :boolean, required: true
   attr :payout_form, :any, required: true
   attr :profile_complete?, :boolean, required: true
@@ -1375,20 +1475,38 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       >
         <.icon name="hero-document-arrow-down" class="size-5" /> Druckfertiges PDF erstellen
       </button>
+      <p id="export-status" role="status" aria-live="polite" class="sr-only">
+        {if @export_state == :generating, do: "PDF wird erstellt …"}
+      </p>
 
       <div id="claim-exports" phx-update="stream" class={["mt-6 grid gap-3"]}>
         <article
           :for={{dom_id, export} <- @streams.exports}
           id={dom_id}
           class={[
-            "flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+            "flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between",
+            if(@current_export && export.id == @current_export.id,
+              do: "border-emerald-200 bg-emerald-50",
+              else: "border-amber-200 bg-amber-50"
+            )
           ]}
         >
           <div>
-            <p class={["text-sm font-semibold text-emerald-950"]}>
+            <p class={[
+              "text-sm font-semibold",
+              if(@current_export && export.id == @current_export.id,
+                do: "text-emerald-950",
+                else: "text-amber-950"
+              )
+            ]}>
               Ausgabe {export.version} · druckfertig
             </p>
-            <p class={["mt-1 text-xs text-emerald-800"]}>
+            <.export_badge
+              current_export={@current_export}
+              latest_export_version={@latest_export_version}
+              export={export}
+            />
+            <p class={["mt-1 text-xs text-slate-500"]}>
               Erstellt {format_datetime(export.inserted_at)}
             </p>
           </div>
@@ -1430,6 +1548,30 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </ol>
       </section>
     </section>
+    """
+  end
+
+  attr :current_export, :any, required: true
+  attr :latest_export_version, :any, required: true
+  attr :export, :any, required: true
+
+  defp export_badge(assigns) do
+    ~H"""
+    <p
+      :if={@current_export && @export.id == @current_export.id}
+      class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-800"
+    >
+      <.icon name="hero-check-circle" class="size-4" /> Aktuell · bereit zum Versand
+    </p>
+    <p
+      :if={is_nil(@current_export) or @export.id != @current_export.id}
+      class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-800"
+    >
+      <.icon name="hero-exclamation-triangle" class="size-4" />
+      {if @export.version == @latest_export_version,
+        do: "Veraltet – Daten wurden danach geändert",
+        else: "Veraltet"}
+    </p>
     """
   end
 

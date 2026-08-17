@@ -145,23 +145,37 @@ Updates und Betriebshinweise stehen unter
 verschlüsselte Backups, Restore, Rollback und die Betriebsabnahme sind im selben
 Dokumentationsbereich verlinkt.
 
-Die Installation wird als `root` innerhalb des LXC gestartet:
+Die Installation wird als `root` innerhalb des LXC gestartet. **Für Produktion**
+wird der Installer heruntergeladen, seine Prüfsumme kontrolliert und erst danach
+ausgeführt — gegen einen geprüften, unveränderlichen Commit-SHA statt gegen den
+sich laufend ändernden `main`-Branch (es gibt aktuell keine Release-Tags, ein
+vollständiger Commit-SHA ist der stabile Referenzpunkt):
+
+```bash
+COMMIT=<geprüfter vollständiger Commit-SHA>
+curl -fsSL -o fahrgastrechte-install.sh \
+  "https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/${COMMIT}/install/fahrgastrechte-install.sh"
+sha256sum fahrgastrechte-install.sh   # gegen eine unabhängig bestätigte Quelle prüfen
+APP_REF="$COMMIT" INSTALLER_REF="$COMMIT" PHX_HOST=fahrgastrechte.example.org \
+  bash fahrgastrechte-install.sh
+```
+
+Der folgende Einzeiler führt stattdessen ungeprüft den jeweils aktuellen Stand
+von `main` als `root` aus — **nur für Evaluierung/Entwicklung geeignet, kein
+Produktionsweg**:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
 ```
 
-Der öffentliche Hostname kann beim Start gesetzt werden:
+Danach lässt sich die Instanz im Container aktualisieren. Ohne Argument bleibt
+`update` auf dem zuletzt verwendeten Ref (ein gepinnter Commit bleibt gepinnt);
+mit Argument wechselt es gezielt:
 
 ```bash
-PHX_HOST=fahrgastrechte.example.org \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
-```
-
-Danach lässt sich die Instanz im Container mit optionalem Git-Ref aktualisieren:
-
-```bash
-update v0.2.0
+update
+# oder gezielt auf einen anderen geprüften Commit
+update <commit-sha>
 ```
 
 ## Externe Referenzen

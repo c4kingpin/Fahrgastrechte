@@ -35,7 +35,7 @@ defmodule FahrgastrechteWeb.ClaimLive.RequiredInputsTest do
     suggestions =
       Enum.flat_map(documents, fn document ->
         assert {:ok, %{suggestions: document_suggestions}} =
-                 Tickets.analyze_document(scope, claim.id, document.id)
+                 Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
 
         document_suggestions
       end)
