@@ -334,6 +334,29 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  def handle_event("confirm_manual_fallback", %{"id" => document_id}, socket) do
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, _document} <-
+           Tickets.confirm_manual_fallback(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             document_id,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> refresh_workspace()
+       |> put_flash(:info, "Die manuelle Eingabe wurde bestätigt.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(socket, :error, "Die manuelle Eingabe konnte nicht bestätigt werden.")}
+    end
+  end
+
   def handle_event("delete_document", %{"id" => document_id}, socket) do
     with {:ok, _document} <- current_claim_document(socket, document_id),
          {:ok, _claim_or_deleted} <-

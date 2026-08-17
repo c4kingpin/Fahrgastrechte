@@ -76,6 +76,36 @@ defmodule Fahrgastrechte.Tickets do
   def analyze_document(_scope, _claim_id, _document_id, _expected_lock_version),
     do: {:error, :not_authenticated}
 
+  @doc """
+  Explicitly confirms a manual fallback for a document whose automatic
+  analysis failed with a technical error.
+
+  Only permitted while `analysis_status` is `:failed` — this is a deliberate
+  escape hatch after a technical failure, not a way to skip analysis
+  proactively. Requires the claim to be editable; on a `ready` claim this
+  invalidates its output the same way `analyze_document/4` does.
+  """
+  @spec confirm_manual_fallback(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, Document.t()} | {:error, Changeset.t() | domain_error()}
+  def confirm_manual_fallback(%Scope{} = scope, claim_id, document_id, expected_lock_version) do
+    with {:ok, claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version),
+         {:ok, _claim} <- maybe_invalidate_output(scope, claim, expected_lock_version),
+         {:ok, document} <- Documents.get_claim_document(scope, claim_id, document_id) do
+      case document do
+        %Document{analysis_status: :failed} ->
+          document
+          |> Document.manual_fallback_changeset()
+          |> Repo.update()
+
+        %Document{} ->
+          {:error, :invalid_state}
+      end
+    end
+  end
+
+  def confirm_manual_fallback(_scope, _claim_id, _document_id, _expected_lock_version),
+    do: {:error, :not_authenticated}
+
   @doc "Lists persisted suggestions only for an authorized current document."
   @spec list_suggestions(Scope.t(), Ecto.UUID.t()) ::
           {:ok, [Suggestion.t()]} | {:error, domain_error()}

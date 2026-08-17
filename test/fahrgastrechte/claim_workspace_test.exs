@@ -7,6 +7,8 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
+  alias Fahrgastrechte.Documents.Document
+  alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets
 
   describe "load/2" do
@@ -38,6 +40,40 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
       assert {:error, :not_found} = ClaimWorkspace.load(foreign_scope, claim.id)
       assert {:error, :not_authenticated} = ClaimWorkspace.load(nil, claim.id)
+    end
+
+    test "a failed analysis blocks suggestions until manually confirmed, then unblocks it" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, claim} = document_fixture(scope, claim, :invoice)
+
+      now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      ticket
+      |> Document.analysis_changeset(%{
+        analysis_status: :failed,
+        analysis_error: "timeout",
+        analyzed_at: now
+      })
+      |> Repo.update!()
+
+      invoice
+      |> Document.analysis_changeset(%{
+        analysis_status: :completed,
+        analyzed_at: now
+      })
+      |> Repo.update!()
+
+      assert {:ok, blocked_workspace} = ClaimWorkspace.load(scope, claim.id)
+      assert blocked_workspace.step_states.suggestions == :incomplete
+      refute blocked_workspace.review_complete?
+
+      assert {:ok, _confirmed} =
+               Tickets.confirm_manual_fallback(scope, claim.id, ticket.id, claim.lock_version)
+
+      assert {:ok, unblocked_workspace} = ClaimWorkspace.load(scope, claim.id)
+      assert unblocked_workspace.step_states.suggestions == :confirmed
     end
   end
 

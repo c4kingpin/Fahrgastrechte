@@ -3,6 +3,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
   Labels, formatting and visual-state helpers shared by claim views.
   """
 
+  alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Rail.BerlinTime
 
   def transition_message(:draft), do: "Der Antrag ist wieder zur Bearbeitung geöffnet."
@@ -284,10 +285,22 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
   def document_kind_label(:ticket), do: "DB-Ticket"
   def document_kind_label(:invoice), do: "DB-Rechnung"
 
+  def analysis_label(%Document{analysis_status: :failed, manual_fallback_confirmed_at: at})
+      when not is_nil(at),
+      do: "Manuell bestätigt"
+
+  def analysis_label(%Document{analysis_status: status}), do: analysis_label(status)
+
   def analysis_label(:not_started), do: "Noch nicht ausgewertet"
   def analysis_label(:completed), do: "Auswertung abgeschlossen"
   def analysis_label(:manual_required), do: "Manuelle Eingabe nötig"
   def analysis_label(:failed), do: "Auswertung fehlgeschlagen"
+
+  def analysis_style(%Document{analysis_status: :failed, manual_fallback_confirmed_at: at})
+      when not is_nil(at),
+      do: "bg-amber-50 text-amber-800"
+
+  def analysis_style(%Document{analysis_status: status}), do: analysis_style(status)
 
   def analysis_style(:not_started), do: "bg-slate-100 text-slate-700"
   def analysis_style(:completed), do: "bg-emerald-50 text-emerald-700"
