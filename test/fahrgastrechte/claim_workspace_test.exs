@@ -13,6 +13,7 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
   alias Fahrgastrechte.Exports
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Repo
+  alias FahrgastrechteWeb.ClaimLive.FormData
   alias Fahrgastrechte.Tickets
 
   describe "load/2" do
@@ -354,7 +355,13 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
                )
 
       assert {:ok, workspace} = ClaimWorkspace.load(scope, updated_claim.id)
-      data = workspace.actual_form_data
+
+      data =
+        FormData.actual_form_data(
+          workspace.claim,
+          workspace.planned_journey,
+          workspace.actual_journey
+        )
 
       assert data["origin_name"] == "Berlin Hbf"
       assert data["destination_name"] == "Hannover Hbf"
