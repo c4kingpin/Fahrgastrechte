@@ -2,6 +2,7 @@ defmodule Fahrgastrechte.ClaimsTest do
   use Fahrgastrechte.DataCase, async: true
 
   alias Fahrgastrechte.Claims
+  alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.Claims.StatusHistory
   alias Fahrgastrechte.Repo
 
@@ -463,6 +464,97 @@ defmodule Fahrgastrechte.ClaimsTest do
       assert deleted.id == claim.id
       assert {:error, :not_found} = Claims.get_claim(scope, claim.id)
       assert Repo.aggregate(StatusHistory, :count) == 0
+    end
+  end
+
+  describe "deletion marking" do
+    test "mark_deleting/3 hides the claim from every mutation path immediately" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, marked} = Claims.mark_deleting(scope, claim.id, claim.lock_version)
+      assert marked.id == claim.id
+      assert marked.deletion_pending_at
+
+      # The exact race the fix closes: a concurrent request holding the
+      # pre-deletion lock_version can no longer read or mutate the claim.
+      assert {:error, :not_found} = Claims.get_claim(scope, claim.id)
+
+      assert {:error, :not_found} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"destination" => "Bremen Hbf"},
+                 claim.lock_version
+               )
+
+      assert {:error, :not_found} =
+               Claims.transition_claim(scope, claim.id, :ready, claim.lock_version)
+
+      assert {:error, :not_found} = Claims.list_status_history(scope, claim.id)
+    end
+
+    test "mark_deleting/3 rejects a stale lock_version" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:error, :stale} = Claims.mark_deleting(scope, claim.id, claim.lock_version + 1)
+      assert {:ok, ^claim} = Claims.get_claim(scope, claim.id)
+    end
+
+    test "mark_deleting/3 requires current_scope" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:error, :not_authenticated} =
+               Claims.mark_deleting(nil, claim.id, claim.lock_version)
+    end
+
+    test "a marked claim disappears from list_claims/2 and dashboard_counts/1" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, [_claim]} = Claims.list_claims(scope)
+      assert {:ok, %{total: 1}} = Claims.dashboard_counts(scope)
+
+      assert {:ok, _marked} = Claims.mark_deleting(scope, claim.id, claim.lock_version)
+
+      assert {:ok, []} = Claims.list_claims(scope)
+      assert {:ok, %{total: 0, open: 0, completed: 0}} = Claims.dashboard_counts(scope)
+    end
+
+    test "finalize_deletion/1 removes a marked claim and is idempotent" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, _marked} = Claims.mark_deleting(scope, claim.id, claim.lock_version)
+
+      assert :ok = Claims.finalize_deletion(claim.id)
+      assert Repo.get(Claim, claim.id) == nil
+
+      # Retrying (e.g. from a crash-recovery sweep) is a safe no-op.
+      assert :ok = Claims.finalize_deletion(claim.id)
+    end
+
+    test "finalize_deletion/1 never removes a claim that was not marked" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert :ok = Claims.finalize_deletion(claim.id)
+      assert {:ok, ^claim} = Claims.get_claim(scope, claim.id)
+    end
+
+    test "list_pending_deletions/0 finds marked claims across users" do
+      first_scope = scope_fixture()
+      second_scope = scope_fixture()
+      first_claim = claim_fixture(first_scope)
+      _untouched_claim = claim_fixture(second_scope)
+
+      assert {:ok, _marked} =
+               Claims.mark_deleting(first_scope, first_claim.id, first_claim.lock_version)
+
+      assert [pending] = Claims.list_pending_deletions()
+      assert pending.id == first_claim.id
     end
   end
 
