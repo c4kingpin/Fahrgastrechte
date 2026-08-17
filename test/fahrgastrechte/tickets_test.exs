@@ -6,6 +6,7 @@ defmodule Fahrgastrechte.TicketsTest do
   import Fahrgastrechte.DocumentsFixtures
 
   alias Fahrgastrechte.Claims
+  alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
@@ -225,6 +226,36 @@ defmodule Fahrgastrechte.TicketsTest do
       second_order_number = Enum.find(second_suggestions, &(&1.field == :order_number))
       assert second_order_number.id != order_number.id
       assert second_order_number.state == :proposed
+    end
+
+    test "reclassifying a misfiled document then reanalyzing yields kind-appropriate suggestions" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      {document, claim} =
+        document_fixture(scope, claim, :ticket, %{
+          path: fixture_path("synthetic-invoice.pdf"),
+          original_filename: "invoice.pdf"
+        })
+
+      assert {:ok, %{document: %{kind: :invoice}, claim: claim}} =
+               Documents.change_document_kind(
+                 scope,
+                 claim.id,
+                 document.id,
+                 :invoice,
+                 claim.lock_version
+               )
+
+      assert {:ok, %{suggestions: suggestions}} =
+               Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+      by_field = Map.new(suggestions, &{&1.field, &1})
+      assert by_field.order_number.value == %{"text" => "000000000001"}
+      assert by_field.fare.value == %{"amount" => "129.90", "currency" => "EUR"}
+      refute Map.has_key?(by_field, :origin)
+      refute Map.has_key?(by_field, :destination)
+      refute Map.has_key?(by_field, :travel_date)
     end
   end
 

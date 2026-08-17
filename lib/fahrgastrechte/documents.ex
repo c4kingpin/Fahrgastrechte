@@ -33,6 +33,7 @@ defmodule Fahrgastrechte.Documents do
           | :not_editable
           | :stale
           | :invalid_kind
+          | :kind_taken
           | :invalid_upload
           | :invalid_pdf
           | :wrong_content_type
@@ -246,6 +247,79 @@ defmodule Fahrgastrechte.Documents do
 
   def delete_document(_scope, _claim_id, _document_id, _expected_lock_version),
     do: {:error, :not_authenticated}
+
+  @doc """
+  Relabels an existing original document's kind in place, without re-uploading.
+
+  Fails with `:kind_taken` if the claim already has a different current
+  document of the target kind. Invalidates any already-generated export
+  output, same as any other document mutation.
+  """
+  @spec change_document_kind(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          atom() | String.t(),
+          pos_integer()
+        ) ::
+          {:ok, %{document: Document.t(), claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
+  def change_document_kind(
+        %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
+        document_id,
+        target_kind,
+        expected_claim_lock_version
+      ) do
+    with {:ok, parsed_kind} <- parse_kind(target_kind),
+         :ok <- validate_original_kind(parsed_kind) do
+      result =
+        Repo.transaction(fn ->
+          with {:ok, claim} <-
+                 Claims.invalidate_output(scope, claim_id, expected_claim_lock_version),
+               {:ok, document} <- get_current_claim_document(scope, claim_id, document_id),
+               :ok <- ensure_kind_available(user_id, claim_id, parsed_kind, document.id),
+               {:ok, updated} <-
+                 document |> Document.kind_changeset(%{kind: parsed_kind}) |> Repo.update() do
+            %{document: updated, claim: claim}
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+      case result do
+        {:ok, changes} -> {:ok, changes}
+        {:error, reason} -> normalize_transaction_error(reason)
+      end
+    end
+  end
+
+  def change_document_kind(
+        _scope,
+        _claim_id,
+        _document_id,
+        _target_kind,
+        _expected_claim_lock_version
+      ),
+      do: {:error, :not_authenticated}
+
+  defp validate_original_kind(kind) when kind in [:ticket, :invoice], do: :ok
+  defp validate_original_kind(_kind), do: {:error, :invalid_kind}
+
+  defp ensure_kind_available(user_id, claim_id, target_kind, document_id) do
+    conflict =
+      Repo.one(
+        from document in Document,
+          where:
+            document.claim_id == ^claim_id and document.user_id == ^user_id and
+              document.kind == ^target_kind and document.current == true and
+              document.id != ^document_id,
+          select: document.id,
+          lock: "FOR UPDATE"
+      )
+
+    if conflict, do: {:error, :kind_taken}, else: :ok
+  end
 
   @doc """
   Coordinates final claim deletion with all private files owned by C03.

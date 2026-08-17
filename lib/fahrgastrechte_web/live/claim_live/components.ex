@@ -316,6 +316,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 >
                   <.icon name="hero-arrow-path" class="size-4" /> Neu auswerten
                 </button>
+                <% other_kind = if kind == :ticket, do: :invoice, else: :ticket %>
+                <button
+                  id={"change-kind-#{kind}"}
+                  type="button"
+                  phx-click="change_document_kind"
+                  phx-value-id={document.id}
+                  phx-value-kind={other_kind}
+                  data-confirm={"Als #{document_kind_label(other_kind)} neu einordnen und neu auswerten?"}
+                  class={[
+                    "inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                  ]}
+                >
+                  <.icon name="hero-arrow-path-rounded-square" class="size-4" />
+                  Als {document_kind_label(other_kind)} einordnen
+                </button>
                 <button
                   id={"delete-document-#{kind}"}
                   type="button"

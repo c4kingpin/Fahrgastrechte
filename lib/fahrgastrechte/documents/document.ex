@@ -80,6 +80,15 @@ defmodule Fahrgastrechte.Documents.Document do
     |> validate_length(:analysis_error, max: 100)
   end
 
+  @doc "Explicit user correction of a misclassified original document's kind."
+  def kind_changeset(document, attrs) do
+    document
+    |> cast(attrs, [:kind])
+    |> validate_required([:kind])
+    |> validate_inclusion(:kind, @original_kinds)
+    |> unique_constraint([:claim_id, :kind], name: :documents_one_current_kind_per_claim)
+  end
+
   @doc false
   def replacement_changeset(document, timestamp) do
     change(document, current: false, deletion_pending_at: timestamp)

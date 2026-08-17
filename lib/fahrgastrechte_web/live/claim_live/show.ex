@@ -334,6 +334,34 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  def handle_event("change_document_kind", %{"id" => document_id, "kind" => target_kind}, socket) do
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, %{document: updated_document, claim: claim}} <-
+           Documents.change_document_kind(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             document_id,
+             target_kind,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> load_workspace(claim)
+       |> start_document_analysis(updated_document)
+       |> put_flash(:info, "Der Dokumenttyp wurde geändert. Die Auswertung läuft.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, :kind_taken} ->
+        {:noreply,
+         put_flash(socket, :error, "Für diesen Antrag gibt es bereits ein Dokument dieses Typs.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Der Dokumenttyp konnte nicht geändert werden.")}
+    end
+  end
+
   def handle_event("delete_document", %{"id" => document_id}, socket) do
     with {:ok, _document} <- current_claim_document(socket, document_id),
          {:ok, _claim_or_deleted} <-
