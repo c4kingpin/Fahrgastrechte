@@ -48,25 +48,28 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert has_element?(view, "#choose-cancellation[aria-pressed=true]")
   end
 
-  test "ignores a stale station search response" do
+  test "ignores a stale station field search response but still clears pending" do
     socket = %Phoenix.LiveView.Socket{
       assigns: %{
         __changed__: %{},
-        station_search_token: 2,
-        origin_station_options: ["Aktueller Start"],
-        destination_station_options: ["Aktuelles Ziel"]
+        station_field_tokens: %{"claim-origin" => 2},
+        station_field_options: %{"claim-origin" => [%{name: "Aktueller Treffer", id: nil}]},
+        station_field_pending: MapSet.new(["claim-origin"])
       }
     }
 
     assert {:noreply, unchanged} =
              Show.handle_async(
-               {:station_options, 1},
-               {:ok, {["Veralteter Start"], ["Veraltetes Ziel"]}},
+               {:station_field_options, 1},
+               {:ok, {"claim-origin", {:ok, [%{name: "Veralteter Treffer", id: nil}]}}},
                socket
              )
 
-    assert unchanged.assigns.origin_station_options == ["Aktueller Start"]
-    assert unchanged.assigns.destination_station_options == ["Aktuelles Ziel"]
+    assert unchanged.assigns.station_field_options == %{
+             "claim-origin" => [%{name: "Aktueller Treffer", id: nil}]
+           }
+
+    refute MapSet.member?(unchanged.assigns.station_field_pending, "claim-origin")
   end
 
   test "autosaves editable claim fields through the scoped context", %{conn: conn} do
@@ -95,6 +98,61 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert updated.disruption_cause == :cancellation
     assert updated.journey_direction == :return
     assert has_element?(view, "#claim-save-state")
+  end
+
+  test "claim form station fields offer a live combobox fed by the local catalog",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    station_fixture!("Leipzig Hbf", "8010205")
+    claim = claim_fixture(scope)
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#claim-form", claim: %{"origin" => "Leipzig"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(view, "#claim-origin-option-0", "Leipzig Hbf")
+
+    view
+    |> element("#claim-origin-option-0")
+    |> render_click()
+
+    assert {:ok, updated} = Claims.get_claim(scope, claim.id)
+    assert updated.origin == "Leipzig Hbf"
+  end
+
+  test "manual correction, planned-journey and actual-journey station fields also use the combobox",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    station_fixture!("Leipzig Hbf", "8010205")
+    claim = claim_fixture(scope)
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#suggestion-correction-form", correction: %{"origin" => "Leipzig"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(view, "#correction-origin-option-0", "Leipzig Hbf")
+
+    view
+    |> form("#planned-journey-form", planned: %{"origin_name" => "Leipzig"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(view, "#planned-origin_name-option-0", "Leipzig Hbf")
+
+    view
+    |> form("#actual-journey-form", actual: %{"origin_name" => "Leipzig"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(view, "#actual-origin_name-option-0", "Leipzig Hbf")
   end
 
   test "renders deterministic German date and 24-hour time formats", %{conn: conn} do

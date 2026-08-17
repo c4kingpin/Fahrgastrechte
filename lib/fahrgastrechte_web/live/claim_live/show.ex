@@ -75,16 +75,16 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_state, :idle)
           |> assign(:candidate_lookup, %{})
           |> assign(:export_state, :idle)
-          |> assign(:station_search_token, nil)
           |> assign(:connection_search_token, nil)
           |> assign(:analysis_tokens, %{})
-          |> assign(:origin_station_options, [])
-          |> assign(:destination_station_options, [])
           |> assign(:suggestion_station_options, %{})
           |> assign(:suggestion_search_tokens, %{})
           |> assign(:station_search_closed, MapSet.new())
           |> assign(:station_search_query, %{})
           |> assign(:station_search_pending, MapSet.new())
+          |> assign(:station_field_options, %{})
+          |> assign(:station_field_tokens, %{})
+          |> assign(:station_field_pending, MapSet.new())
           |> assign(:upload_form, upload_form())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
@@ -139,7 +139,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   @impl true
   def handle_event("claim_autosave", %{"claim" => params}, socket) do
-    {:noreply, persist_claim(socket, params, false)}
+    socket =
+      socket
+      |> persist_claim(params, false)
+      |> dispatch_form_field_searches("claim", params)
+
+    {:noreply, socket}
   end
 
   def handle_event("claim_save", %{"claim" => params}, socket) do
@@ -178,19 +183,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("suggest_stations", %{"connection_search" => params}, socket) do
-    token = async_token()
-    scope = socket.assigns.current_scope
-    claim_id = socket.assigns.claim.id
-
     socket =
       socket
       |> assign(:connection_search_form, to_form(params, as: :connection_search))
-      |> assign(:station_search_token, token)
+      |> dispatch_form_field_searches("connection", params)
 
+    {:noreply, socket}
+  end
+
+  def handle_event("correction_input", %{"correction" => params}, socket) do
     socket =
-      start_async(socket, {:station_options, token}, fn ->
-        ClaimWorkspace.station_options(scope, claim_id, params)
-      end)
+      socket
+      |> assign(:suggestion_correction_form, to_form(params, as: :correction))
+      |> dispatch_form_field_searches("correction", params)
 
     {:noreply, socket}
   end
@@ -207,6 +212,33 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       end
 
     {:noreply, socket}
+  end
+
+  def handle_event("planned_input", %{"planned" => params}, socket) do
+    socket =
+      socket
+      |> assign(:planned_form, to_form(params, as: :planned))
+      |> dispatch_form_field_searches("planned", params)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("actual_input", %{"actual" => params}, socket) do
+    socket =
+      socket
+      |> assign(:actual_form, to_form(params, as: :actual))
+      |> dispatch_form_field_searches("actual", params)
+
+    {:noreply, socket}
+  end
+
+  def handle_event("choose_station_field", %{"key" => key, "index" => index}, socket) do
+    options = Map.get(socket.assigns.station_field_options, key, [])
+
+    case Enum.at(options, String.to_integer(index)) do
+      nil -> {:noreply, put_flash(socket, :error, "Der Bahnhof wurde nicht gefunden.")}
+      station -> {:noreply, apply_station_field_choice(socket, key, station)}
+    end
   end
 
   def handle_event("search_connections", %{"connection_search" => params}, socket) do
@@ -559,28 +591,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   @impl true
-  def handle_async({:station_options, token}, result, socket) do
-    socket =
-      case {token == socket.assigns.station_search_token, result} do
-        {false, _result} ->
-          socket
-
-        {true, {:ok, {origin_options, destination_options}}} ->
-          socket
-          |> assign(:origin_station_options, origin_options)
-          |> assign(:destination_station_options, destination_options)
-          |> assign(:station_search_token, nil)
-
-        {true, _failure} ->
-          socket
-          |> assign(:origin_station_options, [])
-          |> assign(:destination_station_options, [])
-          |> assign(:station_search_token, nil)
-      end
-
-    {:noreply, socket}
-  end
-
   def handle_async(
         {:suggestion_station_options, token},
         {:ok, {suggestion_id, result}},
@@ -621,6 +631,29 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_async({:suggestion_station_options, _token}, {:exit, _reason}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_async({:station_field_options, token}, {:ok, {key, result}}, socket) do
+    socket =
+      case {Map.get(socket.assigns.station_field_tokens, key), result} do
+        {^token, {:ok, options}} ->
+          socket
+          |> assign(:station_field_options, Map.put(socket.assigns.station_field_options, key, options))
+          |> assign(:station_field_pending, MapSet.delete(socket.assigns.station_field_pending, key))
+
+        _other ->
+          assign(
+            socket,
+            :station_field_pending,
+            MapSet.delete(socket.assigns.station_field_pending, key)
+          )
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:station_field_options, _token}, {:exit, _reason}, socket) do
     {:noreply, socket}
   end
 
@@ -847,6 +880,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               save_state={@save_state}
               step_number={step_number(:claim)}
               step_states={@step_states}
+              station_field_options={@station_field_options}
+              station_field_pending={@station_field_pending}
             />
 
             <Components.documents
@@ -886,6 +921,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               station_search_closed={@station_search_closed}
               station_search_query={@station_search_query}
               station_search_pending={@station_search_pending}
+              station_field_options={@station_field_options}
+              station_field_pending={@station_field_pending}
             />
 
             <Components.planned_journey
@@ -893,13 +930,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               claim={@claim}
               connection_search_form={@connection_search_form}
               connection_search_state={@connection_search_state}
-              destination_station_options={@destination_station_options}
-              origin_station_options={@origin_station_options}
               planned_complete?={@planned_complete?}
               planned_form={@planned_form}
               planned_state={@planned_state}
               step_number={step_number(:planned)}
               streams={@streams}
+              station_field_options={@station_field_options}
+              station_field_pending={@station_field_pending}
             />
 
             <Components.actual_journey
@@ -910,6 +947,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               claim={@claim}
               step_number={step_number(:actual)}
               streams={@streams}
+              station_field_options={@station_field_options}
+              station_field_pending={@station_field_pending}
             />
 
             <Components.review
@@ -1657,6 +1696,71 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     start_async(socket, {:suggestion_station_options, token}, fn ->
       {suggestion_id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
     end)
+  end
+
+  # Station-name fields per plain-form prefix, keyed the same way as their
+  # DOM/search-state id ("<prefix>-<field>", e.g. "planned-origin_name").
+  @station_field_names %{
+    "claim" => ["origin", "destination"],
+    "correction" => ["origin", "destination"],
+    "connection" => ["origin", "destination"],
+    "planned" => ["origin_name", "destination_name", "via_name"],
+    "actual" => ["origin_name", "destination_name"]
+  }
+
+  defp dispatch_form_field_searches(socket, prefix, params) do
+    Enum.reduce(Map.fetch!(@station_field_names, prefix), socket, fn field, acc ->
+      query = Map.get(params, field, "")
+
+      if String.length(String.trim(query)) >= 2 do
+        dispatch_field_search(acc, "#{prefix}-#{field}", query)
+      else
+        acc
+      end
+    end)
+  end
+
+  defp dispatch_field_search(socket, key, query) do
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
+    token = async_token()
+
+    socket =
+      socket
+      |> assign(:station_field_tokens, Map.put(socket.assigns.station_field_tokens, key, token))
+      |> assign(:station_field_pending, MapSet.put(socket.assigns.station_field_pending, key))
+
+    start_async(socket, {:station_field_options, token}, fn ->
+      {key, ClaimWorkspace.station_search_options(scope, claim_id, query)}
+    end)
+  end
+
+  defp apply_station_field_choice(socket, key, station) do
+    [prefix, field] = String.split(key, "-", parts: 2)
+    update_form_field(socket, prefix, field, station.name)
+  end
+
+  defp update_form_field(socket, "claim", field, value) do
+    params = Map.put(socket.assigns.claim_form.params || %{}, field, value)
+    persist_claim(socket, params, false)
+  end
+
+  defp update_form_field(socket, "correction", field, value),
+    do: update_plain_form(socket, :suggestion_correction_form, :correction, field, value)
+
+  defp update_form_field(socket, "connection", field, value),
+    do: update_plain_form(socket, :connection_search_form, :connection_search, field, value)
+
+  defp update_form_field(socket, "planned", field, value),
+    do: update_plain_form(socket, :planned_form, :planned, field, value)
+
+  defp update_form_field(socket, "actual", field, value),
+    do: update_plain_form(socket, :actual_form, :actual, field, value)
+
+  defp update_plain_form(socket, assign_key, form_name, field, value) do
+    form = Map.fetch!(socket.assigns, assign_key)
+    params = Map.put(form.params || %{}, field, value)
+    assign(socket, assign_key, to_form(params, as: form_name))
   end
 
   defp load_workspace(socket, claim) do

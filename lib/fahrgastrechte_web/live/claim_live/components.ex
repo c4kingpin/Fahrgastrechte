@@ -7,12 +7,140 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
 
   import FahrgastrechteWeb.ClaimLive.Presentation
 
+  @doc """
+  A station-name text input with a live combobox of catalog matches below it.
+
+  Every station-name field in the app (claim form, manual corrections,
+  connection search, planned/actual journey) uses this so they all behave
+  identically: type at least two characters, matching stations from the
+  local catalog appear directly under the field, and picking one fills it
+  in. `@key` doubles as the DOM id prefix and as the lookup key into
+  `@station_field_options`/`@station_field_pending` (assigned in
+  `FahrgastrechteWeb.ClaimLive.Show`), and must be unique on the page.
+  """
+  attr :field, :any, required: true
+  attr :label, :string, required: true
+  attr :key, :string, required: true
+  attr :options, :list, required: true
+  attr :pending?, :boolean, default: false
+  attr :disabled?, :boolean, default: false
+  attr :placeholder, :string, default: nil
+
+  def station_field(assigns) do
+    ~H"""
+    <div class="mb-2">
+      <label for={@key} class="mb-1.5 block text-sm font-medium text-slate-700">{@label}</label>
+      <div id={"#{@key}-combobox"} phx-hook=".StationCombobox">
+        <input
+          type="text"
+          id={@key}
+          name={@field.name}
+          value={@field.value}
+          role="combobox"
+          data-role="combobox-input"
+          aria-autocomplete="list"
+          aria-expanded={to_string(@options != [])}
+          aria-controls={"#{@key}-options"}
+          autocomplete="off"
+          phx-debounce="350"
+          disabled={@disabled?}
+          placeholder={@placeholder}
+          class="scheme-light block min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-rose-600 focus:ring-4 focus:ring-rose-600/10 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500 sm:text-sm"
+        />
+        <p :if={@pending?} class="mt-1 text-xs text-slate-400">Suche läuft …</p>
+        <ul
+          :if={@options != []}
+          id={"#{@key}-options"}
+          role="listbox"
+          aria-label="Gefundene Bahnhöfe"
+          class="mt-1 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200"
+        >
+          <li
+            :for={{option, index} <- Enum.with_index(@options)}
+            id={"#{@key}-option-#{index}"}
+            role="option"
+            data-role="combobox-option"
+            tabindex="-1"
+            phx-click={!@disabled? && "choose_station_field"}
+            phx-value-key={@key}
+            phx-value-index={index}
+            class={[
+              "px-3 py-2 text-sm transition",
+              if(@disabled?,
+                do: "cursor-not-allowed opacity-60",
+                else: "cursor-pointer hover:bg-slate-50"
+              )
+            ]}
+          >
+            {option.name}
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <script :type={Phoenix.LiveView.ColocatedHook} name=".StationCombobox">
+      export default {
+        mounted() { this.bindInput() },
+        updated() { this.bindInput() },
+        bindInput() {
+          const input = this.el.querySelector('[data-role="combobox-input"]')
+          if (!input || input.dataset.comboboxBound) return
+          input.dataset.comboboxBound = "1"
+          input.addEventListener("keydown", (e) => this.handleKeydown(e))
+        },
+        handleKeydown(e) {
+          const options = Array.from(this.el.querySelectorAll('[data-role="combobox-option"]'))
+          if (e.key === "Escape") {
+            e.preventDefault()
+            this.close()
+            return
+          }
+          if (options.length === 0) return
+
+          let index = options.findIndex((o) => o.classList.contains("is-active"))
+          if (e.key === "ArrowDown") {
+            e.preventDefault()
+            this.highlight(options, Math.min(index + 1, options.length - 1))
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault()
+            this.highlight(options, Math.max(index - 1, 0))
+          } else if (e.key === "Enter") {
+            if (index >= 0) {
+              e.preventDefault()
+              options[index].click()
+            }
+          }
+        },
+        highlight(options, index) {
+          options.forEach((option, i) => {
+            option.classList.toggle("is-active", i === index)
+            option.classList.toggle("bg-sky-50", i === index)
+          })
+          const input = this.el.querySelector('[data-role="combobox-input"]')
+          if (input) input.setAttribute("aria-activedescendant", options[index]?.id || "")
+        },
+        close() {
+          const toggle = this.el.querySelector('[data-role="combobox-toggle"]')
+          if (toggle && toggle.getAttribute("aria-expanded") === "true") {
+            toggle.click()
+          } else {
+            const input = this.el.querySelector('[data-role="combobox-input"]')
+            if (input) input.blur()
+          }
+        }
+      }
+    </script>
+    """
+  end
+
   attr :active_step, :atom, required: true
   attr :claim, :any, required: true
   attr :claim_form, :any, required: true
   attr :save_state, :atom, required: true
   attr :step_number, :integer, required: true
   attr :step_states, :map, required: true
+  attr :station_field_options, :map, required: true
+  attr :station_field_pending, :any, required: true
 
   def claim_data(assigns) do
     ~H"""
@@ -116,21 +244,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
             options={[{"Hinfahrt", "outbound"}, {"Rückfahrt", "return"}]}
             disabled={!editable?(@claim.status)}
           />
-          <.input
+          <.station_field
             field={@claim_form[:origin]}
-            id="claim-origin"
+            key="claim-origin"
             label="Startbahnhof"
             placeholder="z. B. Frankfurt (Main) Hbf"
-            disabled={!editable?(@claim.status)}
-            phx-debounce="500"
+            disabled?={!editable?(@claim.status)}
+            options={Map.get(@station_field_options, "claim-origin", [])}
+            pending?={MapSet.member?(@station_field_pending, "claim-origin")}
           />
-          <.input
+          <.station_field
             field={@claim_form[:destination]}
-            id="claim-destination"
+            key="claim-destination"
             label="Zielbahnhof"
             placeholder="z. B. Berlin Hbf"
-            disabled={!editable?(@claim.status)}
-            phx-debounce="500"
+            disabled?={!editable?(@claim.status)}
+            options={Map.get(@station_field_options, "claim-destination", [])}
+            pending?={MapSet.member?(@station_field_pending, "claim-destination")}
           />
         </div>
       </.form>
@@ -556,6 +686,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :station_search_closed, :any, required: true
   attr :station_search_query, :map, required: true
   attr :station_search_pending, :any, required: true
+  attr :station_field_options, :map, required: true
+  attr :station_field_pending, :any, required: true
 
   def suggestions(assigns) do
     ~H"""
@@ -679,6 +811,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.form
           for={@suggestion_correction_form}
           id="suggestion-correction-form"
+          phx-change="correction_input"
           phx-submit="save_suggestion_corrections"
           class="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5"
         >
@@ -692,8 +825,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               type="date"
               label="Reisedatum"
             />
-            <.input field={@suggestion_correction_form[:origin]} label="Startbahnhof" />
-            <.input field={@suggestion_correction_form[:destination]} label="Zielbahnhof" />
+            <.station_field
+              field={@suggestion_correction_form[:origin]}
+              key="correction-origin"
+              label="Startbahnhof"
+              options={Map.get(@station_field_options, "correction-origin", [])}
+              pending?={MapSet.member?(@station_field_pending, "correction-origin")}
+            />
+            <.station_field
+              field={@suggestion_correction_form[:destination]}
+              key="correction-destination"
+              label="Zielbahnhof"
+              options={Map.get(@station_field_options, "correction-destination", [])}
+              pending?={MapSet.member?(@station_field_pending, "correction-destination")}
+            />
           </div>
           <button
             id="save-suggestion-corrections"
@@ -713,13 +858,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :claim, :any, required: true
   attr :connection_search_form, :any, required: true
   attr :connection_search_state, :atom, required: true
-  attr :destination_station_options, :list, required: true
-  attr :origin_station_options, :list, required: true
   attr :planned_complete?, :boolean, required: true
   attr :planned_form, :any, required: true
   attr :planned_state, :atom, required: true
   attr :step_number, :integer, required: true
   attr :streams, :any, required: true
+  attr :station_field_options, :map, required: true
+  attr :station_field_pending, :any, required: true
 
   def planned_journey(assigns) do
     ~H"""
@@ -769,28 +914,20 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           class={["border-t border-slate-200 bg-slate-50 p-4 sm:p-5"]}
         >
           <div class={["grid gap-4 sm:grid-cols-2"]}>
-            <.input
+            <.station_field
               field={@connection_search_form[:origin]}
-              id="connection-origin"
+              key="connection-origin"
               label="Startbahnhof"
-              list="origin-stations"
-              autocomplete="off"
-              phx-debounce="350"
+              options={Map.get(@station_field_options, "connection-origin", [])}
+              pending?={MapSet.member?(@station_field_pending, "connection-origin")}
             />
-            <datalist id="origin-stations">
-              <option :for={station <- @origin_station_options} value={station}></option>
-            </datalist>
-            <.input
+            <.station_field
               field={@connection_search_form[:destination]}
-              id="connection-destination"
+              key="connection-destination"
               label="Zielbahnhof"
-              list="destination-stations"
-              autocomplete="off"
-              phx-debounce="350"
+              options={Map.get(@station_field_options, "connection-destination", [])}
+              pending?={MapSet.member?(@station_field_pending, "connection-destination")}
             />
-            <datalist id="destination-stations">
-              <option :for={station <- @destination_station_options} value={station}></option>
-            </datalist>
             <.input
               field={@connection_search_form[:departure_at]}
               id="connection-departure-at"
@@ -902,12 +1039,25 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.form
           for={@planned_form}
           id="planned-journey-form"
+          phx-change="planned_input"
           phx-submit="save_planned_journey"
           class={["border-t border-slate-200 p-4 sm:p-5"]}
         >
           <div class={["grid gap-5 sm:grid-cols-2"]}>
-            <.input field={@planned_form[:origin_name]} label="Startbahnhof" />
-            <.input field={@planned_form[:destination_name]} label="Zielbahnhof" />
+            <.station_field
+              field={@planned_form[:origin_name]}
+              key="planned-origin_name"
+              label="Startbahnhof"
+              options={Map.get(@station_field_options, "planned-origin_name", [])}
+              pending?={MapSet.member?(@station_field_pending, "planned-origin_name")}
+            />
+            <.station_field
+              field={@planned_form[:destination_name]}
+              key="planned-destination_name"
+              label="Zielbahnhof"
+              options={Map.get(@station_field_options, "planned-destination_name", [])}
+              pending?={MapSet.member?(@station_field_pending, "planned-destination_name")}
+            />
             <.input field={@planned_form[:train_category]} label="Zuggattung" />
             <.input field={@planned_form[:train_number]} label="Zugnummer" />
             <.input
@@ -929,10 +1079,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               Umstieg oder weiteren Zug ergänzen
             </summary>
             <div class="grid gap-5 border-t border-slate-200 p-4 sm:grid-cols-2">
-              <.input
+              <.station_field
                 field={@planned_form[:via_name]}
+                key="planned-via_name"
                 label="Umstiegsbahnhof"
                 placeholder="Leer lassen für Direktfahrt"
+                options={Map.get(@station_field_options, "planned-via_name", [])}
+                pending?={MapSet.member?(@station_field_pending, "planned-via_name")}
               />
               <div class="hidden sm:block"></div>
               <.input
@@ -999,6 +1152,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :claim, :any, required: true
   attr :step_number, :integer, required: true
   attr :streams, :any, required: true
+  attr :station_field_options, :map, required: true
+  attr :station_field_pending, :any, required: true
 
   def actual_journey(assigns) do
     ~H"""
@@ -1163,12 +1318,25 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.form
           for={@actual_form}
           id="actual-journey-form"
+          phx-change="actual_input"
           phx-submit="save_actual_journey"
           class={["space-y-5 border-t border-slate-200 p-4 sm:p-5"]}
         >
           <div class={["grid gap-5 sm:grid-cols-2"]}>
-            <.input field={@actual_form[:origin_name]} label="Startbahnhof" />
-            <.input field={@actual_form[:destination_name]} label="Zielbahnhof" />
+            <.station_field
+              field={@actual_form[:origin_name]}
+              key="actual-origin_name"
+              label="Startbahnhof"
+              options={Map.get(@station_field_options, "actual-origin_name", [])}
+              pending?={MapSet.member?(@station_field_pending, "actual-origin_name")}
+            />
+            <.station_field
+              field={@actual_form[:destination_name]}
+              key="actual-destination_name"
+              label="Zielbahnhof"
+              options={Map.get(@station_field_options, "actual-destination_name", [])}
+              pending?={MapSet.member?(@station_field_pending, "actual-destination_name")}
+            />
             <.input field={@actual_form[:train_category]} label="Zuggattung" />
             <.input field={@actual_form[:train_number]} label="Zugnummer" />
             <.input
@@ -1781,54 +1949,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   </p>
                 </div>
               </div>
-
-              <script :type={Phoenix.LiveView.ColocatedHook} name=".StationCombobox">
-                export default {
-                  mounted() { this.bindInput() },
-                  updated() { this.bindInput() },
-                  bindInput() {
-                    const input = this.el.querySelector('[data-role="combobox-input"]')
-                    if (!input || input.dataset.comboboxBound) return
-                    input.dataset.comboboxBound = "1"
-                    input.addEventListener("keydown", (e) => this.handleKeydown(e))
-                  },
-                  handleKeydown(e) {
-                    const options = Array.from(this.el.querySelectorAll('[data-role="combobox-option"]'))
-                    if (e.key === "Escape") {
-                      e.preventDefault()
-                      this.close()
-                      return
-                    }
-                    if (options.length === 0) return
-
-                    let index = options.findIndex((o) => o.classList.contains("is-active"))
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault()
-                      this.highlight(options, Math.min(index + 1, options.length - 1))
-                    } else if (e.key === "ArrowUp") {
-                      e.preventDefault()
-                      this.highlight(options, Math.max(index - 1, 0))
-                    } else if (e.key === "Enter") {
-                      if (index >= 0) {
-                        e.preventDefault()
-                        options[index].click()
-                      }
-                    }
-                  },
-                  highlight(options, index) {
-                    options.forEach((option, i) => {
-                      option.classList.toggle("is-active", i === index)
-                      option.classList.toggle("bg-sky-50", i === index)
-                    })
-                    const input = this.el.querySelector('[data-role="combobox-input"]')
-                    if (input) input.setAttribute("aria-activedescendant", options[index]?.id || "")
-                  },
-                  close() {
-                    const toggle = this.el.querySelector('[data-role="combobox-toggle"]')
-                    if (toggle && toggle.getAttribute("aria-expanded") === "true") toggle.click()
-                  }
-                }
-              </script>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
               <%= if suggestion.state == :proposed do %>

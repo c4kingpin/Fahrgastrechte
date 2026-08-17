@@ -58,7 +58,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     |> render_change()
 
     render_async(view)
-    assert has_element?(view, "#origin-stations option[value='Teststadt Hbf']")
+    assert has_element?(view, "#connection-origin-option-0", "Teststadt Hbf")
 
     view
     |> form("#connection-search-form",
