@@ -734,6 +734,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
             <Components.documents
               active_step={@active_step}
+              analysis_tokens={@analysis_tokens}
               documents_by_kind={@documents_by_kind}
               max_file_size_label={@max_file_size_label}
               step_number={step_number(:documents)}
@@ -797,6 +798,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               claim_complete?={@claim_complete?}
               current_export={@current_export}
               documents_complete?={@documents_complete?}
+              export_state={@export_state}
               export_state_label={@export_state_label}
               exports_available?={@exports_available?}
               latest_export_version={@latest_export_version}
