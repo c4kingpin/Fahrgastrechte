@@ -71,6 +71,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     render_async(view)
     assert has_element?(view, "#connection-delay-1[data-delay-minutes='32']")
     assert has_element?(view, "#choose-connection-1")
+    assert has_element?(view, "#connection-search-status[role=status]", "Verbindungen gefunden.")
 
     view |> element("#choose-connection-1") |> render_click()
     assert has_element?(view, "#connection-results article")
@@ -249,6 +250,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
     assert has_element?(view, "#generate-export-button:not([disabled])")
+    assert has_element?(view, "#export-status[role=status]")
     assert has_element?(view, "#claim-step-dokumente[data-state=confirmed]")
     assert has_element?(view, "#claim-step-geplante-reise[data-state=confirmed]")
     assert has_element?(view, "#claim-step-tatsaechliche-reise[data-state=confirmed]")
