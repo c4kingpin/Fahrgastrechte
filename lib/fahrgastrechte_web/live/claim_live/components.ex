@@ -516,6 +516,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :streams, :any, required: true
   attr :suggestion_correction_form, :any, required: true
   attr :suggestions_empty?, :boolean, required: true
+  attr :suggestion_station_options, :map, required: true
 
   def suggestions(assigns) do
     ~H"""
@@ -606,6 +607,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.route_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestion_station_options={@suggestion_station_options}
         />
         <.suggestion_group
           id="booking-suggestions"
@@ -614,6 +616,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.booking_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestion_station_options={@suggestion_station_options}
         />
         <.suggestion_group
           id="other-suggestions"
@@ -622,6 +625,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.other_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestion_station_options={@suggestion_station_options}
         />
 
         <.form
@@ -1435,6 +1439,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :items, :any, required: true
   attr :documents_by_id, :map, required: true
   attr :editable?, :boolean, required: true
+  attr :suggestion_station_options, :map, required: true
 
   def suggestion_group(assigns) do
     ~H"""
@@ -1507,6 +1512,73 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               <p class="mt-2 text-xs leading-5 text-slate-500">
                 {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
               </p>
+              <div
+                :if={suggestion.field in [:origin, :destination] and suggestion.state == :proposed}
+                class="mt-3"
+              >
+                <div
+                  :if={length(suggestion_candidates(suggestion)) > 1}
+                  class="flex flex-wrap gap-2"
+                >
+                  <button
+                    :for={{candidate, index} <- Enum.with_index(suggestion_candidates(suggestion))}
+                    id={"suggestion-candidate-#{suggestion.id}-#{index}"}
+                    type="button"
+                    phx-click="select_suggestion_candidate"
+                    phx-value-id={suggestion.id}
+                    phx-value-index={index}
+                    disabled={!@editable?}
+                    class={[
+                      "inline-flex min-h-8 items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-40",
+                      if(Map.get(candidate, "text") == suggestion_value(suggestion),
+                        do: "border-sky-600 bg-sky-50 text-sky-800",
+                        else: "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      )
+                    ]}
+                  >
+                    {Map.get(candidate, "text")}
+                  </button>
+                </div>
+                <details class="mt-2">
+                  <summary class="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">
+                    Anderen Bahnhof suchen
+                  </summary>
+                  <form
+                    id={"suggestion-search-form-#{suggestion.id}"}
+                    phx-change="search_suggestion_station"
+                    phx-value-id={suggestion.id}
+                    class="mt-2"
+                  >
+                    <input
+                      type="text"
+                      name="query"
+                      placeholder="Bahnhofsname eingeben …"
+                      autocomplete="off"
+                      phx-debounce="350"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </form>
+                  <div
+                    :if={Map.get(@suggestion_station_options, suggestion.id, []) != []}
+                    class="mt-2 flex flex-wrap gap-2"
+                  >
+                    <button
+                      :for={
+                        {option, index} <-
+                          Enum.with_index(Map.get(@suggestion_station_options, suggestion.id, []))
+                      }
+                      id={"suggestion-search-result-#{suggestion.id}-#{index}"}
+                      type="button"
+                      phx-click="choose_suggestion_station"
+                      phx-value-id={suggestion.id}
+                      phx-value-index={index}
+                      class="inline-flex min-h-8 items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
+                    >
+                      {option.name}
+                    </button>
+                  </div>
+                </details>
+              </div>
             </div>
             <div class="flex shrink-0 flex-wrap gap-2">
               <%= if suggestion.state == :proposed do %>
