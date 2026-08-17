@@ -38,6 +38,17 @@ defmodule Fahrgastrechte.Rail.Providers.StationCatalogTest do
       assert "Frankfurt(M) Flughafen Fernbf" in names
     end
 
+    test "finds stations whose official name differs from ticket-text abbreviations" do
+      seed!("Frankfurt (Main) Flughafen Regionalbahnhof", "8070004b")
+      seed!("Frankfurt am Main Flughafen Fernbahnhof", "8070003b")
+
+      assert {:ok, stations} = StationCatalog.search_stations("Frankfurt(M) Flughafen", [])
+      names = Enum.map(stations, & &1.name)
+
+      assert "Frankfurt (Main) Flughafen Regionalbahnhof" in names
+      assert "Frankfurt am Main Flughafen Fernbahnhof" in names
+    end
+
     test "matches are case-insensitive" do
       assert {:ok, [_ | _]} = StationCatalog.search_stations("hannover hbf", [])
     end
