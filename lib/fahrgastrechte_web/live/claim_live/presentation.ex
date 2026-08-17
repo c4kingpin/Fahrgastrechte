@@ -371,6 +371,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
 
   def suggestion_unresolved?(_suggestion), do: false
 
+  @doc "Alternative station matches for an origin/destination suggestion, best guess first."
+  def suggestion_candidates(%{field: field, value: value})
+      when field in [:origin, :destination],
+      do: Map.get(value, "candidates", [])
+
+  def suggestion_candidates(_suggestion), do: []
+
   def source_document_name(documents_by_id, document_id) do
     case Map.get(documents_by_id, document_id) do
       nil -> "Dokument"
