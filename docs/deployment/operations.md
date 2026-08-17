@@ -205,12 +205,19 @@ Der vierteljährliche Restore-Test erfolgt nicht auf der Produktivinstanz:
 
 ## Upgrade, Migration und Rollback
 
-Im Container installiert ein unveränderlicher Tag oder Commit reproduzierbar:
+Im Container installiert ein unveränderlicher, vollständiger Commit-SHA
+reproduzierbar (Release-Tags gibt es aktuell nicht im Repository):
 
 ```bash
-update v0.2.0
-# oder
 update 0123456789abcdef0123456789abcdef01234567
+```
+
+Ein argumentloser `update`-Aufruf installiert erneut den zuletzt verwendeten
+Stand, statt implizit auf `main` zu wechseln — ein gepinnter Commit bleibt
+gepinnt:
+
+```bash
+update
 ```
 
 Der Ablauf ist: Quellstand holen, Betriebswerkzeuge aktualisieren,
