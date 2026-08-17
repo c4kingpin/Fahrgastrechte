@@ -4,6 +4,8 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
   @text_fields [:origin, :destination]
   @timed_fields [:scheduled_departure, :scheduled_arrival]
   @minimum_score 60
+  @candidate_floor 20
+  @max_candidates 5
 
   @doc """
   Replaces extracted station text with the best canonical provider result.
@@ -27,8 +29,15 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
             {match, cache} = cached_station_match(station_text, cache, search_stations)
 
             case match do
-              nil -> {put_station_text(suggestion, station_text, nil, unresolved: true), cache}
-              {name, id} -> {put_station_text(suggestion, name, id, unresolved: false), cache}
+              nil ->
+                {put_station_text(suggestion, station_text, nil, [], unresolved: true), cache}
+
+              {false, _best, candidates} ->
+                {put_station_text(suggestion, station_text, nil, candidates, unresolved: true),
+                 cache}
+
+              {true, {name, id}, candidates} ->
+                {put_station_text(suggestion, name, id, candidates, unresolved: false), cache}
             end
         end
       end)
@@ -48,36 +57,39 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
   end
 
   defp find_station_match(station_text, search_stations) do
-    station_text
-    |> search_queries()
-    |> Enum.reduce_while(nil, fn query, _result ->
-      case search_stations.(query) do
-        {:ok, stations} when is_list(stations) ->
-          case best_station_match(station_text, query, stations) do
-            nil -> {:cont, nil}
-            match -> {:halt, match}
-          end
+    matches =
+      station_text
+      |> search_queries()
+      |> Enum.flat_map(fn query ->
+        case search_stations.(query) do
+          {:ok, stations} when is_list(stations) -> score_stations(station_text, query, stations)
+          _error -> []
+        end
+      end)
+      |> Enum.uniq_by(fn {_score, name, _id} -> normalize_name(name) end)
+      |> Enum.filter(fn {score, _name, _id} -> score > @candidate_floor end)
+      |> Enum.sort_by(fn {score, _name, _id} -> score end, :desc)
+      |> Enum.take(@max_candidates)
 
-        _error ->
-          {:cont, nil}
-      end
-    end)
+    case matches do
+      [] ->
+        nil
+
+      [{best_score, best_name, best_id} | _rest] = matches ->
+        candidates = Enum.map(matches, fn {_score, name, id} -> {name, id} end)
+        resolved? = best_score >= @minimum_score
+        {resolved?, {best_name, best_id}, candidates}
+    end
   end
 
-  defp best_station_match(source, query, stations) do
-    stations
-    |> Enum.flat_map(fn
+  defp score_stations(source, query, stations) do
+    Enum.flat_map(stations, fn
       %{name: name} = station when is_binary(name) ->
         [{station_score(source, query, name), name, Map.get(station, :id)}]
 
       _station ->
         []
     end)
-    |> Enum.max_by(&elem(&1, 0), fn -> nil end)
-    |> case do
-      {score, name, id} when score >= @minimum_score -> {name, id}
-      _no_match -> nil
-    end
   end
 
   defp station_score(source, query, candidate) do
@@ -186,7 +198,11 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
 
   defp station_text(_suggestion), do: nil
 
-  defp put_station_text(%{field: field, value: value} = suggestion, station_name, station_id,
+  defp put_station_text(
+         %{field: field, value: value} = suggestion,
+         station_name,
+         station_id,
+         candidates,
          unresolved: unresolved?
        )
        when field in @text_fields do
@@ -195,11 +211,16 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
       |> Map.put("text", station_name)
       |> put_unresolved(unresolved?)
       |> put_station_id(station_id)
+      |> put_candidates(candidates)
 
     %{suggestion | value: value}
   end
 
-  defp put_station_text(%{field: field, value: value} = suggestion, station_name, _station_id,
+  defp put_station_text(
+         %{field: field, value: value} = suggestion,
+         station_name,
+         _station_id,
+         _candidates,
          unresolved: unresolved?
        )
        when field in @timed_fields,
@@ -213,6 +234,16 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
 
   defp put_station_id(value, nil), do: Map.delete(value, "station_id")
   defp put_station_id(value, id), do: Map.put(value, "station_id", id)
+
+  defp put_candidates(value, []), do: Map.delete(value, "candidates")
+
+  defp put_candidates(value, candidates) do
+    Map.put(
+      value,
+      "candidates",
+      Enum.map(candidates, fn {name, id} -> %{"text" => name, "station_id" => id} end)
+    )
+  end
 
   defp long_distance_ticket?(source),
     do: Regex.match?(~r/\b(?:ICE|IC|EC|ECE|RJX?|TGV|FLX)\b/u, source)

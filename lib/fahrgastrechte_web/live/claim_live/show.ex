@@ -78,6 +78,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:analysis_tokens, %{})
           |> assign(:origin_station_options, [])
           |> assign(:destination_station_options, [])
+          |> assign(:suggestion_station_options, %{})
+          |> assign(:suggestion_search_tokens, %{})
           |> assign(:upload_form, upload_form())
           |> assign(:max_file_size_label, format_bytes(max_file_size))
           |> stream(:connection_candidates, [])
@@ -364,6 +366,62 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  def handle_event(
+        "select_suggestion_candidate",
+        %{"id" => suggestion_id, "index" => index},
+        socket
+      ) do
+    with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
+         candidate when not is_nil(candidate) <-
+           Enum.at(suggestion_candidates(suggestion), String.to_integer(index)) do
+      {:noreply,
+       apply_suggestion_station(socket, suggestion_id, %{
+         name: Map.fetch!(candidate, "text"),
+         id: Map.get(candidate, "station_id")
+       })}
+    else
+      _not_found ->
+        {:noreply, put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")}
+    end
+  end
+
+  def handle_event(
+        "search_suggestion_station",
+        %{"id" => suggestion_id, "query" => query},
+        socket
+      ) do
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
+    token = async_token()
+
+    socket =
+      socket
+      |> assign(
+        :suggestion_search_tokens,
+        Map.put(socket.assigns.suggestion_search_tokens, suggestion_id, token)
+      )
+
+    socket =
+      start_async(socket, {:suggestion_station_options, token}, fn ->
+        {suggestion_id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
+      end)
+
+    {:noreply, socket}
+  end
+
+  def handle_event(
+        "choose_suggestion_station",
+        %{"id" => suggestion_id, "index" => index},
+        socket
+      ) do
+    options = Map.get(socket.assigns.suggestion_station_options, suggestion_id, [])
+
+    case Enum.at(options, String.to_integer(index)) do
+      nil -> {:noreply, put_flash(socket, :error, "Der Bahnhof wurde nicht gefunden.")}
+      station -> {:noreply, apply_suggestion_station(socket, suggestion_id, station)}
+    end
+  end
+
   def handle_event("set_suggestion_group_state", %{"topic" => topic, "state" => state}, socket)
       when topic in ["route", "booking", "other"] and state in ["accepted", "rejected"] do
     suggestions = proposed_suggestions(socket, String.to_existing_atom(topic))
@@ -450,6 +508,30 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:origin_station_options, [])
           |> assign(:destination_station_options, [])
           |> assign(:station_search_token, nil)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_async({:suggestion_station_options, token}, {suggestion_id, result}, socket) do
+    socket =
+      case {Map.get(socket.assigns.suggestion_search_tokens, suggestion_id), result} do
+        {^token, {:ok, options}} ->
+          assign(
+            socket,
+            :suggestion_station_options,
+            Map.put(socket.assigns.suggestion_station_options, suggestion_id, options)
+          )
+
+        {^token, {:error, _reason}} ->
+          assign(
+            socket,
+            :suggestion_station_options,
+            Map.put(socket.assigns.suggestion_station_options, suggestion_id, [])
+          )
+
+        _stale ->
+          socket
       end
 
     {:noreply, socket}
@@ -702,6 +784,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               streams={@streams}
               suggestion_correction_form={@suggestion_correction_form}
               suggestions_empty?={@suggestions_empty?}
+              suggestion_station_options={@suggestion_station_options}
             />
 
             <Components.planned_journey
@@ -1377,6 +1460,21 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
       {:error, _reason} ->
         put_flash(socket, :error, "Der Vorschlag konnte nicht aktualisiert werden.")
+    end
+  end
+
+  defp apply_suggestion_station(socket, suggestion_id, station) do
+    case Tickets.set_suggestion_station(
+           socket.assigns.current_scope,
+           socket.assigns.claim.id,
+           suggestion_id,
+           station
+         ) do
+      {:ok, _suggestion} ->
+        refresh_workspace(socket)
+
+      {:error, _reason} ->
+        put_flash(socket, :error, "Der Bahnhof konnte nicht übernommen werden.")
     end
   end
 

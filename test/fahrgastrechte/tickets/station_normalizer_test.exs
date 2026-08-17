@@ -30,14 +30,41 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
 
     normalized = StationNormalizer.normalize(suggestions, search_stations)
 
-    assert Enum.at(normalized, 0).value == %{"text" => "Hannover Hbf"}
+    assert Enum.at(normalized, 0).value == %{
+             "text" => "Hannover Hbf",
+             "candidates" => [
+               %{"text" => "Hannover Hbf", "station_id" => nil},
+               %{"text" => "Hannover-Linden/Fischerhof", "station_id" => nil}
+             ]
+           }
 
     assert Enum.at(normalized, 1).value == %{
-             "text" => "Frankfurt(M) Flughafen Fernbf"
+             "text" => "Frankfurt(M) Flughafen Fernbf",
+             "candidates" => [
+               %{"text" => "Frankfurt(M) Flughafen Fernbf", "station_id" => nil},
+               %{"text" => "Frankfurt(M) Flughafen Regionalbf", "station_id" => nil}
+             ]
            }
 
     refute Map.has_key?(Enum.at(normalized, 0).value, "unresolved")
     refute Map.has_key?(Enum.at(normalized, 1).value, "unresolved")
+  end
+
+  test "merges candidates found across different search query variants" do
+    suggestion = suggestion(:destination, %{"text" => "Frankfurt(M)Flugh."})
+
+    search_stations = fn
+      "Frankfurt(M) Flughafen" -> {:ok, [%{name: "Frankfurt(M) Flughafen Fernbf"}]}
+      "Frankfurt(M)Flugh." -> {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
+      _query -> {:ok, []}
+    end
+
+    [normalized] = StationNormalizer.normalize([suggestion], search_stations)
+
+    assert normalized.value["candidates"] == [
+             %{"text" => "Frankfurt(M) Flughafen Fernbf", "station_id" => nil},
+             %{"text" => "Frankfurt(M) Flughafen Regionalbf", "station_id" => nil}
+           ]
   end
 
   test "normalizes station names embedded in scheduled times and caches repeated text" do
@@ -54,7 +81,10 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
         {:ok, [%{name: "Berlin Hbf"}]}
       end)
 
-    assert Enum.at(normalized, 0).value == %{"text" => "Berlin Hbf"}
+    assert Enum.at(normalized, 0).value == %{
+             "text" => "Berlin Hbf",
+             "candidates" => [%{"text" => "Berlin Hbf", "station_id" => nil}]
+           }
 
     assert Enum.at(normalized, 1).value == %{
              "station" => "Berlin Hbf",
@@ -79,9 +109,18 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
 
     airport = [suggestion(:destination, %{"text" => "Frankfurt(M)Flugh. mit ICE"})]
 
-    assert StationNormalizer.normalize(airport, fn _query ->
-             {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
-           end) == flag_unresolved(airport)
+    [normalized_airport] =
+      StationNormalizer.normalize(airport, fn _query ->
+        {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
+      end)
+
+    assert normalized_airport.value == %{
+             "text" => "Frankfurt(M)Flugh. mit ICE",
+             "unresolved" => true,
+             "candidates" => [
+               %{"text" => "Frankfurt(M) Flughafen Regionalbf", "station_id" => nil}
+             ]
+           }
   end
 
   defp flag_unresolved(suggestions) do

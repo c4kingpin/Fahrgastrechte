@@ -172,6 +172,49 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state),
     do: {:error, :not_authenticated}
 
+  @doc """
+  Replaces a proposed origin/destination suggestion's station match.
+
+  Used when the user picks a different candidate than `StationNormalizer`'s
+  best guess, or resolves one manually via a free-text station search. Only
+  proposed suggestions can be changed this way, matching the accept/reject
+  buttons that only ever show for a `:proposed` suggestion.
+  """
+  @spec set_suggestion_station(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), %{
+          name: String.t(),
+          id: map() | nil
+        }) ::
+          {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
+  def set_suggestion_station(
+        %Scope{user: %User{id: user_id}},
+        claim_id,
+        suggestion_id,
+        %{name: name} = station
+      )
+      when is_binary(suggestion_id) and is_binary(name) do
+    case scoped_suggestion(user_id, claim_id, suggestion_id) do
+      %Suggestion{state: :proposed} = suggestion ->
+        value =
+          suggestion.value
+          |> Map.put("text", name)
+          |> put_or_delete_station_id(Map.get(station, :id))
+          |> Map.delete("unresolved")
+
+        suggestion
+        |> Suggestion.value_changeset(value)
+        |> Repo.update()
+
+      %Suggestion{} ->
+        {:error, :invalid_state}
+
+      nil ->
+        {:error, :not_found}
+    end
+  end
+
+  def set_suggestion_station(_scope, _claim_id, _suggestion_id, _station),
+    do: {:error, :not_authenticated}
+
   defp analyze_path(_scope, _claim_id, %Document{kind: kind}, _path)
        when kind not in [:ticket, :invoice],
        do: {:error, :invalid_document_kind}
@@ -207,6 +250,9 @@ defmodule Fahrgastrechte.Tickets do
         persist_analysis(document, :failed, "backend", [])
     end
   end
+
+  defp put_or_delete_station_id(value, nil), do: Map.delete(value, "station_id")
+  defp put_or_delete_station_id(value, id), do: Map.put(value, "station_id", id)
 
   defp normalize_stations(scope, claim_id, suggestions) do
     StationNormalizer.normalize(suggestions, fn query ->
