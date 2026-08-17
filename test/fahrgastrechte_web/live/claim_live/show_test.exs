@@ -206,26 +206,28 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
 
+    assert has_element?(view, "#station-search-toggle-#{destination.id}[aria-expanded=true]")
+
     view
-    |> form("#suggestion-search-form-#{destination.id}", %{"query" => "Frankfurt"})
+    |> form("#station-search-form-#{destination.id}", %{"query" => "Frankfurt"})
     |> render_change()
 
     render_async(view)
 
     assert has_element?(
              view,
-             "#suggestion-option-#{destination.id}-0",
+             "#station-option-#{destination.id}-0",
              "Frankfurt(M) Flughafen Fernbf"
            )
 
     assert has_element?(
              view,
-             "#suggestion-option-#{destination.id}-1",
+             "#station-option-#{destination.id}-1",
              "Frankfurt(M) Flughafen Regionalbf"
            )
 
     view
-    |> element("#suggestion-option-#{destination.id}-1")
+    |> element("#station-option-#{destination.id}-1")
     |> render_click()
 
     assert {:ok, [chosen]} =
@@ -233,6 +235,87 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
              |> then(fn {:ok, all} -> {:ok, Enum.filter(all, &(&1.id == destination.id))} end)
 
     assert chosen.value["text"] == "Frankfurt(M) Flughafen Regionalbf"
+  end
+
+  test "manual station search box can be collapsed and reopened without losing results",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+
+    tickets_config = Application.fetch_env!(:fahrgastrechte, Tickets)
+
+    Application.put_env(
+      :fahrgastrechte,
+      Tickets,
+      Keyword.put(tickets_config, :extractor, TestTicketRouteExtractor)
+    )
+
+    on_exit(fn -> Application.put_env(:fahrgastrechte, Tickets, tickets_config) end)
+
+    station_fixture!("Hannover Hbf", "8000152")
+    station_fixture!("Frankfurt(M) Flughafen Fernbf", "8070003")
+
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim)
+
+    assert {:ok, %{suggestions: suggestions}} =
+             Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+    destination = Enum.find(suggestions, &(&1.field == :destination))
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(view, "#station-search-panel-#{destination.id}")
+
+    view
+    |> element("#station-search-toggle-#{destination.id}")
+    |> render_click()
+
+    refute has_element?(view, "#station-search-panel-#{destination.id}")
+    assert has_element?(view, "#station-search-toggle-#{destination.id}[aria-expanded=false]")
+
+    view
+    |> element("#station-search-toggle-#{destination.id}")
+    |> render_click()
+
+    assert has_element?(view, "#station-search-panel-#{destination.id}")
+
+    assert has_element?(
+             view,
+             "#station-option-#{destination.id}-0",
+             "Frankfurt(M) Flughafen Fernbf"
+           )
+  end
+
+  test "manual station search box shows a clear empty state for no matches", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+
+    tickets_config = Application.fetch_env!(:fahrgastrechte, Tickets)
+
+    Application.put_env(
+      :fahrgastrechte,
+      Tickets,
+      Keyword.put(tickets_config, :extractor, TestTicketRouteExtractor)
+    )
+
+    on_exit(fn -> Application.put_env(:fahrgastrechte, Tickets, tickets_config) end)
+
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim)
+
+    assert {:ok, %{suggestions: suggestions}} =
+             Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+    destination = Enum.find(suggestions, &(&1.field == :destination))
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#station-search-form-#{destination.id}", %{"query" => "Nirgendwo"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(view, "#station-search-panel-#{destination.id}", "Keine Bahnhöfe gefunden.")
   end
 
   test "deletes a private document through the coordinated UI action", %{conn: conn} do
