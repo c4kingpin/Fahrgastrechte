@@ -337,7 +337,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
           {:ok, [%{name: String.t(), id: map()}]} | {:error, term()}
   def station_search_options(%Scope{} = scope, claim_id, query) do
     if is_binary(query) && String.length(String.trim(query)) >= 2 do
-      case Rail.search_stations(scope, claim_id, query) do
+      case Rail.search_stations(scope, claim_id, query, provider: Rail.Providers.StationCatalog) do
         {:ok, stations} ->
           {:ok, stations |> Enum.map(&%{name: &1.name, id: Map.get(&1, :id)}) |> Enum.take(5)}
 
@@ -388,7 +388,9 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       {:ok, %{id: id}}
     else
       _unresolved ->
-        case Rail.search_stations(scope, claim.id, text || "") do
+        case Rail.search_stations(scope, claim.id, text || "",
+               provider: Rail.Providers.StationCatalog
+             ) do
           {:ok, [station | _]} -> {:ok, station}
           {:ok, []} -> {:error, :station_not_found}
           {:error, reason} -> {:error, reason}
@@ -567,7 +569,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   defp station_options_for(scope, claim_id, query) do
     if is_binary(query) && String.length(String.trim(query)) >= 2 do
-      case Rail.search_stations(scope, claim_id, query) do
+      case Rail.search_stations(scope, claim_id, query, provider: Rail.Providers.StationCatalog) do
         {:ok, stations} -> stations |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.take(8)
         {:error, _reason} -> []
       end

@@ -4,6 +4,7 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.ExportsFixtures
+  import Fahrgastrechte.RailFixtures
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
@@ -30,6 +31,8 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
 
   test "shows an API delay on the connection and adopts it with one action", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
+    station_fixture!("Teststadt Hbf", "9999999")
+    station_fixture!("Beispielstadt Hbf", "9999998")
 
     claim =
       claim_fixture(scope, %{

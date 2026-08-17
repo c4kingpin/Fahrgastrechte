@@ -3,6 +3,7 @@ defmodule FahrgastrechteWeb.ClaimLive.AutoConnectionTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
+  import Fahrgastrechte.RailFixtures
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
@@ -27,6 +28,8 @@ defmodule FahrgastrechteWeb.ClaimLive.AutoConnectionTest do
     conn: conn
   } do
     {conn, scope} = authenticated_conn(conn)
+    station_fixture!("Teststadt Hbf", "9999999")
+    station_fixture!("Beispielstadt Hbf", "9999998")
     claim = claim_fixture(scope, %{"travel_date" => nil, "origin" => nil, "destination" => nil})
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
 
