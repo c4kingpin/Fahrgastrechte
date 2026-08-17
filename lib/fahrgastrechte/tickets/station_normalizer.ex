@@ -150,7 +150,14 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
       |> String.replace(~r/\s*Flugh\.?$/iu, " Flughafen")
       |> String.replace(~r/\s+/u, " ")
 
-    [expanded, base]
+    # Also try the bare place (trailing "Hbf"/"Regionalbf"/"Fernbf" dropped).
+    # Ticket text sometimes already is a full canonical station name, which
+    # would otherwise only ever query that one exact station and never find
+    # its siblings at the same place (e.g. the Fernbahnhof when the text says
+    # Regionalbf).
+    place = broad_query(expanded)
+
+    [expanded, base, place]
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(String.length(&1) < 3))
     |> Enum.uniq()

@@ -3,6 +3,8 @@ defmodule Fahrgastrechte.RailFixtures do
 
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Rail
+  alias Fahrgastrechte.Rail.Station
+  alias Fahrgastrechte.Repo
 
   def segment_attributes(attrs \\ %{}) do
     Map.merge(
@@ -32,5 +34,12 @@ defmodule Fahrgastrechte.RailFixtures do
       Rail.confirm_journey(scope, claim.id, kind, segments, current_claim.lock_version)
 
     journey
+  end
+
+  @doc "Seeds a row in the local station catalog searched by `Rail.Providers.StationCatalog`."
+  def station_fixture!(name, eva_number) do
+    %Station{}
+    |> Station.changeset(%{name: name, eva_number: eva_number})
+    |> Repo.insert!()
   end
 end
