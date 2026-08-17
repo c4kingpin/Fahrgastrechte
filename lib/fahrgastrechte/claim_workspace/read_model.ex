@@ -16,6 +16,7 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
     :planned_journey,
     :actual_journey,
     :exports,
+    :current_export,
     :api_sources,
     :status_history,
     :profile_complete?,
@@ -28,10 +29,6 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
     :review_complete?,
     :exports_available?,
     :step_states,
-    :planned_form_data,
-    :actual_form_data,
-    :connection_search_data,
-    :suggestion_correction_data,
     :readiness
   ]
 
@@ -47,6 +44,7 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
           planned_journey: struct() | nil,
           actual_journey: struct() | nil,
           exports: [struct()],
+          current_export: Fahrgastrechte.Exports.ExportVersion.t() | nil,
           api_sources: [struct()],
           status_history: [struct()],
           profile_complete?: boolean(),
@@ -59,10 +57,6 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
           review_complete?: boolean(),
           exports_available?: boolean(),
           step_states: map(),
-          planned_form_data: map(),
-          actual_form_data: map(),
-          connection_search_data: map(),
-          suggestion_correction_data: map(),
           readiness: {:ok, map()} | {:error, term()}
         }
 end

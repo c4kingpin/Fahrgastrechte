@@ -56,13 +56,18 @@ defmodule Fahrgastrechte.Documents.CleanupWorker do
   end
 
   defp sweep do
-    {:ok, count} = Documents.cleanup_pending_documents()
+    {:ok, document_count} = Documents.cleanup_pending_documents()
+    {:ok, claim_count} = Documents.cleanup_pending_claim_deletions()
 
-    if count > 0 do
-      Logger.info("retried #{count} pending document deletions")
+    if document_count > 0 do
+      Logger.info("retried #{document_count} pending document deletions")
     end
 
-    {:ok, count}
+    if claim_count > 0 do
+      Logger.info("retried #{claim_count} pending claim deletions")
+    end
+
+    {:ok, document_count + claim_count}
   rescue
     # A sweep must never take the worker down; the next tick tries again.
     exception ->

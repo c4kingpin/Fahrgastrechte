@@ -11,6 +11,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.ClaimLive.Components
 
+  import FahrgastrechteWeb.ClaimLive.FormData
   import FahrgastrechteWeb.ClaimLive.Presentation
 
   @upload_kinds ClaimWorkspace.upload_kinds()
@@ -276,7 +277,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("set_disruption", %{"type" => type}, socket)
-      when type in ["delay", "cancellation"] do
+      when type in ["delay", "cancellation", "missed_connection"] do
     {:noreply, persist_claim(socket, %{"disruption_cause" => type}, false)}
   end
 
@@ -331,6 +332,57 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     else
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Die Auswertung konnte nicht gestartet werden.")}
+    end
+  end
+
+  def handle_event("change_document_kind", %{"id" => document_id, "kind" => target_kind}, socket) do
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, %{document: updated_document, claim: claim}} <-
+           Documents.change_document_kind(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             document_id,
+             target_kind,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> load_workspace(claim)
+       |> start_document_analysis(updated_document)
+       |> put_flash(:info, "Der Dokumenttyp wurde geändert. Die Auswertung läuft.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, :kind_taken} ->
+        {:noreply,
+         put_flash(socket, :error, "Für diesen Antrag gibt es bereits ein Dokument dieses Typs.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Der Dokumenttyp konnte nicht geändert werden.")}
+    end
+  end
+
+  def handle_event("confirm_manual_fallback", %{"id" => document_id}, socket) do
+    with {:ok, _document} <- current_claim_document(socket, document_id),
+         {:ok, _document} <-
+           Tickets.confirm_manual_fallback(
+             socket.assigns.current_scope,
+             socket.assigns.claim.id,
+             document_id,
+             socket.assigns.claim.lock_version
+           ) do
+      {:noreply,
+       socket
+       |> refresh_workspace()
+       |> put_flash(:info, "Die manuelle Eingabe wurde bestätigt.")}
+    else
+      {:error, :stale} ->
+        {:noreply, handle_stale(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         put_flash(socket, :error, "Die manuelle Eingabe konnte nicht bestätigt werden.")}
     end
   end
 
@@ -744,10 +796,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               actual_complete?={@actual_complete?}
               claim={@claim}
               claim_complete?={@claim_complete?}
+              current_export={@current_export}
               documents_complete?={@documents_complete?}
               export_state={@export_state}
               export_state_label={@export_state_label}
               exports_available?={@exports_available?}
+              latest_export_version={@latest_export_version}
               planned_complete?={@planned_complete?}
               payout_form={@payout_form}
               profile_complete?={@profile_complete?}
@@ -1467,7 +1521,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:proposed_suggestions?, Enum.any?(suggestions, &(&1.state == :proposed)))
     |> assign(
       :suggestion_correction_form,
-      to_form(workspace.suggestion_correction_data, as: :correction)
+      to_form(suggestion_correction_data(workspace.claim), as: :correction)
     )
     |> assign(:upload_kinds, @upload_kinds)
     |> assign(:claim_complete?, workspace.claim_complete?)
@@ -1482,17 +1536,31 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:review_complete?, workspace.review_complete?)
     |> assign(:workspace_readiness, workspace.readiness)
     |> assign(:exports_available?, workspace.exports_available?)
+    |> assign(:current_export, workspace.current_export)
+    |> assign(:latest_export_version, latest_export_version(workspace.exports))
     |> assign(:step_states, workspace.step_states)
     |> assign(:steps, steps)
     |> assign(:step_paths, step_paths)
     |> assign(:planned_state, workspace.step_states.planned)
     |> assign(:actual_state, workspace.step_states.actual)
     |> assign(:export_state_label, workspace.step_states.review)
-    |> assign(:planned_form, to_form(workspace.planned_form_data, as: :planned))
-    |> assign(:actual_form, to_form(workspace.actual_form_data, as: :actual))
+    |> assign(
+      :planned_form,
+      to_form(planned_form_data(workspace.claim, workspace.planned_journey), as: :planned)
+    )
+    |> assign(
+      :actual_form,
+      to_form(
+        actual_form_data(workspace.claim, workspace.planned_journey, workspace.actual_journey),
+        as: :actual
+      )
+    )
     |> assign(
       :connection_search_form,
-      to_form(workspace.connection_search_data, as: :connection_search)
+      to_form(
+        connection_search_data(workspace.claim, workspace.planned_journey),
+        as: :connection_search
+      )
     )
     |> assign(:completed_steps, completed_steps)
     |> assign(:required_inputs, required_inputs)
@@ -1517,6 +1585,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
       _other -> []
     end
   end
+
+  defp latest_export_version([]), do: nil
+  defp latest_export_version(exports), do: List.last(exports).version
 
   defp payout_form(_scope, %{profile_complete?: true}), do: nil
   defp payout_form(_scope, %{profile_error: reason}) when not is_nil(reason), do: nil
