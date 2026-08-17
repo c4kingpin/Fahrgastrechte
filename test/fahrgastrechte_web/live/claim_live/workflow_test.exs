@@ -136,6 +136,63 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert has_element?(resumed, "#actual-journey-timeline article")
   end
 
+  test "captures a missed connection with the feeder and onward train", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#planned-journey-form",
+      planned: %{
+        "origin_name" => "Berlin Hbf",
+        "destination_name" => "Hamburg Hbf",
+        "train_category" => "ICE",
+        "train_number" => "100",
+        "scheduled_departure" => "15.07.2026, 06:00",
+        "scheduled_arrival" => "15.07.2026, 08:00"
+      }
+    )
+    |> render_submit()
+
+    assert {:ok, _planned} = Rail.get_journey(scope, claim.id, :planned)
+
+    view |> element("#choose-missed-connection") |> render_click()
+    assert has_element?(view, "#missed-connection-fields")
+
+    view
+    |> form("#actual-journey-form",
+      actual: %{
+        "origin_name" => "Berlin Hbf",
+        "destination_name" => "Hannover Hbf",
+        "train_category" => "ICE",
+        "train_number" => "100",
+        "scheduled_departure" => "15.07.2026, 06:00",
+        "scheduled_arrival" => "15.07.2026, 07:00",
+        "actual_departure" => "15.07.2026, 06:10",
+        "actual_arrival" => "15.07.2026, 07:20",
+        "missed_connection_category" => "IC",
+        "missed_connection_number" => "200",
+        "missed_connection_departure" => "15.07.2026, 08:00",
+        "missed_connection_arrival" => "15.07.2026, 09:00"
+      }
+    )
+    |> render_submit()
+
+    assert {:ok, actual_journey} = Rail.get_journey(scope, claim.id, :actual)
+    assert [feeder, onward] = actual_journey.segments
+    assert feeder.train_number == "100"
+    assert onward.train_number == "200"
+    assert onward.origin_name == "Hannover Hbf"
+
+    assert has_element?(view, "#actual-journey-timeline article", "Hannover Hbf")
+
+    {:ok, resumed, _html} = live(conn, ~p"/antraege/#{claim.id}")
+    assert has_element?(resumed, "#choose-missed-connection")
+
+    resumed_form = resumed |> form("#actual-journey-form") |> render()
+    assert resumed_form =~ "Hannover Hbf"
+  end
+
   test "persists a complete manual connection with an interchange", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope)

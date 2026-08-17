@@ -5,10 +5,12 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.DocumentsFixtures
   import Fahrgastrechte.ExportsFixtures
+  import Fahrgastrechte.RailFixtures
 
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
   alias Fahrgastrechte.Exports
+  alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Tickets
 
   describe "load/2" do
@@ -204,6 +206,128 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
       assert {:error, :not_editable} =
                ClaimWorkspace.reject_suggestions(scope, sent, [origin])
+    end
+  end
+
+  describe "confirm_actual_journey/4 — missed_connection" do
+    defp missed_connection_params do
+      %{
+        "origin_name" => "Berlin Hbf",
+        "destination_name" => "Hannover Hbf",
+        "train_category" => "ICE",
+        "train_number" => "100",
+        "scheduled_departure" => "15.07.2026, 08:00",
+        "scheduled_arrival" => "15.07.2026, 09:00",
+        "actual_departure" => "15.07.2026, 08:10",
+        "actual_arrival" => "15.07.2026, 09:20",
+        "missed_connection_category" => "IC",
+        "missed_connection_number" => "200",
+        "missed_connection_departure" => "15.07.2026, 10:00",
+        "missed_connection_arrival" => "15.07.2026, 11:00"
+      }
+    end
+
+    test "persists a feeder and an onward segment with a connection gap" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"disruption_cause" => "missed_connection"})
+
+      assert {:ok, %{claim: planned_claim, journey: planned_journey}} =
+               Rail.confirm_journey(
+                 scope,
+                 claim.id,
+                 :planned,
+                 [segment_attributes()],
+                 claim.lock_version
+               )
+
+      assert {:ok, %{journey: actual_journey}} =
+               ClaimWorkspace.confirm_actual_journey(
+                 scope,
+                 planned_claim,
+                 planned_journey,
+                 missed_connection_params()
+               )
+
+      assert [feeder, onward] = actual_journey.segments
+      assert feeder.train_number == "100"
+      assert feeder.destination_name == "Hannover Hbf"
+      assert onward.train_number == "200"
+      assert onward.origin_name == "Hannover Hbf"
+      assert onward.destination_name == "Hamburg Hbf"
+    end
+
+    test "requires a planned journey first" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"disruption_cause" => "missed_connection"})
+
+      assert {:error, :missing_planned} =
+               ClaimWorkspace.confirm_actual_journey(
+                 scope,
+                 claim,
+                 nil,
+                 missed_connection_params()
+               )
+    end
+
+    test "rejects an onward arrival before its departure" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"disruption_cause" => "missed_connection"})
+
+      assert {:ok, %{claim: planned_claim, journey: planned_journey}} =
+               Rail.confirm_journey(
+                 scope,
+                 claim.id,
+                 :planned,
+                 [segment_attributes()],
+                 claim.lock_version
+               )
+
+      invalid_params =
+        missed_connection_params()
+        |> Map.put("missed_connection_departure", "15.07.2026, 11:00")
+        |> Map.put("missed_connection_arrival", "15.07.2026, 10:00")
+
+      assert {:error, :invalid_time_order} =
+               ClaimWorkspace.confirm_actual_journey(
+                 scope,
+                 planned_claim,
+                 planned_journey,
+                 invalid_params
+               )
+    end
+
+    test "reload reconstructs the form with both legs" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope, %{"disruption_cause" => "missed_connection"})
+
+      assert {:ok, %{claim: planned_claim, journey: planned_journey}} =
+               Rail.confirm_journey(
+                 scope,
+                 claim.id,
+                 :planned,
+                 [segment_attributes()],
+                 claim.lock_version
+               )
+
+      assert {:ok, %{claim: updated_claim}} =
+               ClaimWorkspace.confirm_actual_journey(
+                 scope,
+                 planned_claim,
+                 planned_journey,
+                 missed_connection_params()
+               )
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, updated_claim.id)
+      data = workspace.actual_form_data
+
+      assert data["origin_name"] == "Berlin Hbf"
+      assert data["destination_name"] == "Hannover Hbf"
+      assert data["actual_departure"] == "2026-07-15T08:10"
+      assert data["actual_arrival"] == "2026-07-15T09:20"
+      assert data["missed_connection_category"] == "IC"
+      assert data["missed_connection_number"] == "200"
+      assert data["missed_connection_departure"] == "2026-07-15T10:00"
+      assert data["missed_connection_arrival"] == "2026-07-15T11:00"
     end
   end
 
