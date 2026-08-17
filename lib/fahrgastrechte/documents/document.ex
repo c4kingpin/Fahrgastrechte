@@ -30,6 +30,7 @@ defmodule Fahrgastrechte.Documents.Document do
     field :analysis_status, Ecto.Enum, values: @analysis_statuses, default: :not_started
     field :analysis_error, :string
     field :analyzed_at, :utc_datetime_usec
+    field :manual_fallback_confirmed_at, :utc_datetime_usec
 
     belongs_to :claim, Claim, type: :binary_id
     belongs_to :user, User
@@ -72,12 +73,35 @@ defmodule Fahrgastrechte.Documents.Document do
     |> unique_constraint([:claim_id, :kind], name: :documents_one_current_kind_per_claim)
   end
 
-  @doc false
+  @doc """
+  Applies a new automatic analysis result.
+
+  Always clears any prior explicit manual-fallback confirmation: a new result
+  (even a repeated failure) needs a fresh, deliberate confirmation rather than
+  inheriting one that applied to a previous analysis attempt.
+  """
   def analysis_changeset(document, attrs) do
     document
+    |> change(manual_fallback_confirmed_at: nil)
     |> cast(attrs, [:analysis_status, :analysis_error, :analyzed_at])
     |> validate_required([:analysis_status, :analyzed_at])
     |> validate_length(:analysis_error, max: 100)
+  end
+
+  @doc "Explicit user correction of a misclassified original document's kind."
+  def kind_changeset(document, attrs) do
+    document
+    |> cast(attrs, [:kind])
+    |> validate_required([:kind])
+    |> validate_inclusion(:kind, @original_kinds)
+    |> unique_constraint([:claim_id, :kind], name: :documents_one_current_kind_per_claim)
+  end
+
+  @doc "Explicit user confirmation to proceed manually after a failed analysis."
+  def manual_fallback_changeset(document) do
+    change(document,
+      manual_fallback_confirmed_at: DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    )
   end
 
   @doc false
