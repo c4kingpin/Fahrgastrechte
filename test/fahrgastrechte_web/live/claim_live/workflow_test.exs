@@ -275,6 +275,33 @@ defmodule FahrgastrechteWeb.ClaimLive.WorkflowTest do
     assert {:ok, _deleted} = Documents.delete_claim(scope, claim.id, completed.lock_version)
   end
 
+  test "marks the export stale once dependent data changes after generation", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = export_ready_fixture(scope)
+
+    assert {:ok, %{export: export}} = Exports.generate_export(scope, claim.id, claim.lock_version)
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+    assert has_element?(view, "#download-export-#{export.id}")
+    assert has_element?(view, "#claim-exports", "Aktuell")
+    assert has_element?(view, "#submission-checklist")
+
+    assert {:ok, ready} = Claims.get_claim(scope, claim.id)
+
+    assert {:ok, _draft} =
+             Claims.update_claim(
+               scope,
+               claim.id,
+               %{"destination" => "Bremen Hbf"},
+               ready.lock_version
+             )
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+    assert has_element?(view, "#download-export-#{export.id}")
+    assert has_element?(view, "#claim-exports", "Veraltet")
+    refute has_element?(view, "#submission-checklist")
+  end
+
   test "returns from profile completion to the originating claim", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope)

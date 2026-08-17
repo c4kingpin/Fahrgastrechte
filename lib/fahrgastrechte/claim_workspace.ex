@@ -441,7 +441,8 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
     readiness = Exports.readiness(scope, claim.id)
     review_complete? = match?({:ok, _prerequisites}, readiness) && suggestions_complete?
-    exports_available? = exports != []
+    current_export = current_export(exports, readiness)
+    exports_available? = !is_nil(current_export)
 
     review_started? =
       Enum.any?(
@@ -468,6 +469,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       planned_journey: planned_journey,
       actual_journey: actual_journey,
       exports: exports,
+      current_export: current_export,
       api_sources: api_sources,
       status_history: status_history,
       profile_complete?: profile_complete?,
@@ -487,6 +489,15 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       readiness: readiness
     }
   end
+
+  defp current_export([], _readiness), do: nil
+
+  defp current_export(exports, {:ok, prerequisites}) do
+    latest = List.last(exports)
+    if Exports.model_current?(prerequisites, latest), do: latest
+  end
+
+  defp current_export(_exports, {:error, _reason}), do: nil
 
   defp optional_journey(scope, claim_id, kind) do
     case Rail.get_journey(scope, claim_id, kind) do

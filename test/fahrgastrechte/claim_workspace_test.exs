@@ -4,10 +4,12 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
   import Fahrgastrechte.DocumentsFixtures
+  import Fahrgastrechte.ExportsFixtures
   import Fahrgastrechte.RailFixtures
 
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.ClaimWorkspace
+  alias Fahrgastrechte.Exports
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Tickets
 
@@ -40,6 +42,55 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
       assert {:error, :not_found} = ClaimWorkspace.load(foreign_scope, claim.id)
       assert {:error, :not_authenticated} = ClaimWorkspace.load(nil, claim.id)
+    end
+  end
+
+  describe "current_export" do
+    test "is nil and the review step is not confirmed when no export exists" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert workspace.current_export == nil
+      refute workspace.exports_available?
+      assert workspace.step_states.review != :confirmed
+    end
+
+    test "matches the freshly generated export and confirms the review step" do
+      scope = scope_fixture()
+      claim = export_ready_fixture(scope)
+
+      assert {:ok, %{export: export}} =
+               Exports.generate_export(scope, claim.id, claim.lock_version)
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert workspace.current_export.id == export.id
+      assert workspace.exports_available?
+      assert workspace.step_states.review == :confirmed
+    end
+
+    test "becomes nil again once dependent data changes, even though exports still exist" do
+      scope = scope_fixture()
+      claim = export_ready_fixture(scope)
+
+      assert {:ok, _result} = Exports.generate_export(scope, claim.id, claim.lock_version)
+      assert {:ok, ready} = Claims.get_claim(scope, claim.id)
+
+      assert {:ok, _draft} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"destination" => "Bremen Hbf"},
+                 ready.lock_version
+               )
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert workspace.exports != []
+      assert workspace.current_export == nil
+      refute workspace.exports_available?
     end
   end
 
