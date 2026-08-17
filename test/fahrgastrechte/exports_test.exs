@@ -224,6 +224,33 @@ defmodule Fahrgastrechte.ExportsTest do
     end
   end
 
+  describe "model_current?/2" do
+    test "is true right after generating an export and false once dependent data changes" do
+      scope = scope_fixture()
+      claim = export_ready_fixture(scope)
+
+      assert {:ok, %{export: export}} =
+               Exports.generate_export(scope, claim.id, claim.lock_version)
+
+      assert {:ok, prerequisites} = Exports.readiness(scope, claim.id)
+      assert Exports.model_current?(prerequisites, export)
+
+      assert {:ok, ready} = Claims.get_claim(scope, claim.id)
+      assert ready.status == :ready
+
+      assert {:ok, _draft} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"destination" => "Bremen Hbf"},
+                 ready.lock_version
+               )
+
+      assert {:ok, changed_prerequisites} = Exports.readiness(scope, claim.id)
+      refute Exports.model_current?(changed_prerequisites, export)
+    end
+  end
+
   describe "template manifest contract" do
     test "uses every official outcome radio value and both directions" do
       scope = scope_fixture()

@@ -1148,9 +1148,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :actual_complete?, :boolean, required: true
   attr :claim, :any, required: true
   attr :claim_complete?, :boolean, required: true
+  attr :current_export, :any, required: true
   attr :documents_complete?, :boolean, required: true
   attr :export_state_label, :any, required: true
   attr :exports_available?, :boolean, required: true
+  attr :latest_export_version, :any, required: true
   attr :planned_complete?, :boolean, required: true
   attr :payout_form, :any, required: true
   attr :profile_complete?, :boolean, required: true
@@ -1377,14 +1379,29 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           :for={{dom_id, export} <- @streams.exports}
           id={dom_id}
           class={[
-            "flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+            "flex flex-col gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between",
+            if(@current_export && export.id == @current_export.id,
+              do: "border-emerald-200 bg-emerald-50",
+              else: "border-amber-200 bg-amber-50"
+            )
           ]}
         >
           <div>
-            <p class={["text-sm font-semibold text-emerald-950"]}>
+            <p class={[
+              "text-sm font-semibold",
+              if(@current_export && export.id == @current_export.id,
+                do: "text-emerald-950",
+                else: "text-amber-950"
+              )
+            ]}>
               Ausgabe {export.version} · druckfertig
             </p>
-            <p class={["mt-1 text-xs text-emerald-800"]}>
+            <.export_badge
+              current_export={@current_export}
+              latest_export_version={@latest_export_version}
+              export={export}
+            />
+            <p class={["mt-1 text-xs text-slate-500"]}>
               Erstellt {format_datetime(export.inserted_at)}
             </p>
           </div>
@@ -1426,6 +1443,30 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </ol>
       </section>
     </section>
+    """
+  end
+
+  attr :current_export, :any, required: true
+  attr :latest_export_version, :any, required: true
+  attr :export, :any, required: true
+
+  defp export_badge(assigns) do
+    ~H"""
+    <p
+      :if={@current_export && @export.id == @current_export.id}
+      class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-800"
+    >
+      <.icon name="hero-check-circle" class="size-4" /> Aktuell · bereit zum Versand
+    </p>
+    <p
+      :if={is_nil(@current_export) or @export.id != @current_export.id}
+      class="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-800"
+    >
+      <.icon name="hero-exclamation-triangle" class="size-4" />
+      {if @export.version == @latest_export_version,
+        do: "Veraltet – Daten wurden danach geändert",
+        else: "Veraltet"}
+    </p>
     """
   end
 
