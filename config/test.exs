@@ -9,6 +9,10 @@ config :fahrgastrechte, Fahrgastrechte.Documents, max_file_size_bytes: 1024 * 10
 # Sweeps run outside the test sandbox, so tests drive the cleanup directly.
 config :fahrgastrechte, Fahrgastrechte.Documents.CleanupWorker, enabled: false
 
+# Same reasoning: the catalog sync runs outside the test sandbox, so tests
+# drive it directly via StationCatalogSyncWorker.run_now/2.
+config :fahrgastrechte, Fahrgastrechte.Rail.StationCatalogSyncWorker, enabled: false
+
 config :fahrgastrechte, Fahrgastrechte.Documents.LocalStorage,
   path: Path.join(System.tmp_dir!(), "fahrgastrechte-test-documents")
 

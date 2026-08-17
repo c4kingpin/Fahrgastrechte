@@ -344,7 +344,7 @@ defmodule Fahrgastrechte.Tickets do
 
   defp normalize_stations(scope, claim_id, suggestions) do
     StationNormalizer.normalize(suggestions, fn query ->
-      Rail.search_stations(scope, claim_id, query)
+      Rail.search_stations(scope, claim_id, query, provider: Rail.Providers.StationCatalog)
     end)
   end
 

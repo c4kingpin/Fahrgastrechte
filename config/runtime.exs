@@ -74,6 +74,13 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.Timetables,
   client_id: System.get_env("DB_CLIENT_ID"),
   api_key: System.get_env("DB_API_KEY")
 
+# Same DB API Marketplace application as Timetables (the OpenStation product
+# is subscribed under the same client credentials); kept as its own config
+# key so ops can split them later without a code change.
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.OpenStation,
+  client_id: System.get_env("DB_CLIENT_ID"),
+  api_key: System.get_env("DB_API_KEY")
+
 config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
   data_path: System.get_env("BAHNVORHERSAGE_DATA_PATH"),
   dataset_version: System.get_env("BAHNVORHERSAGE_DATASET_VERSION")

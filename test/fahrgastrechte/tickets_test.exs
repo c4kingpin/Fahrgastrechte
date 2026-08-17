@@ -8,23 +8,18 @@ defmodule Fahrgastrechte.TicketsTest do
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.PDFJobLimiter
+  alias Fahrgastrechte.Rail.Providers.StationCatalog
+  alias Fahrgastrechte.Rail.Station
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.TestFailingExtractor
   alias Fahrgastrechte.TestNoTextExtractor
-  alias Fahrgastrechte.TestStationProvider
   alias Fahrgastrechte.TestTicketRouteExtractor
   alias Fahrgastrechte.Tickets
   alias Fahrgastrechte.Tickets.PopplerExtractor
 
   setup do
     previous_config = Application.fetch_env!(:fahrgastrechte, Tickets)
-    previous_rail_config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Rail)
-
-    on_exit(fn ->
-      Application.put_env(:fahrgastrechte, Tickets, previous_config)
-      Application.put_env(:fahrgastrechte, Fahrgastrechte.Rail, previous_rail_config)
-    end)
-
+    on_exit(fn -> Application.put_env(:fahrgastrechte, Tickets, previous_config) end)
     :ok
   end
 
@@ -45,8 +40,8 @@ defmodule Fahrgastrechte.TicketsTest do
       assert by_field.order_number.value == %{"text" => "000000000001"}
       assert by_field.order_number.confidence == 0.98
       assert by_field.travel_date.value == %{"date" => "2026-04-15"}
-      # Neither test station resolves against TestStationProvider, so the
-      # normalizer keeps the raw text but flags it unresolved.
+      # Neither test station exists in the (empty, unseeded) station catalog,
+      # so the normalizer keeps the raw text but flags it unresolved.
       assert by_field.origin.value == %{"text" => "Teststadt Hbf", "unresolved" => true}
 
       assert by_field.destination.value == %{
@@ -177,9 +172,12 @@ defmodule Fahrgastrechte.TicketsTest do
       refute Map.has_key?(by_field, :travel_date)
     end
 
-    test "replaces ticket route labels with canonical station names from the rail provider" do
+    test "replaces ticket route labels with canonical station names from the local station catalog" do
       set_extractor(TestTicketRouteExtractor)
-      set_rail_provider(TestStationProvider)
+      seed_station!("Hannover-Linden/Fischerhof", "8003487")
+      seed_station!("Hannover Hbf", "8000152")
+      seed_station!("Frankfurt(M) Flughafen Regionalbf", "8070003")
+      seed_station!("Frankfurt(M) Flughafen Fernbf", "8070004")
       scope = scope_fixture()
       claim = claim_fixture(scope)
       {document, claim} = document_fixture(scope, claim)
@@ -191,30 +189,30 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert by_field.origin.value == %{
                "text" => "Hannover Hbf",
-               "station_id" => %{provider: TestStationProvider, value: "8000152"},
+               "station_id" => %{provider: StationCatalog, value: "8000152"},
                "candidates" => [
                  %{
                    "text" => "Hannover Hbf",
-                   "station_id" => %{provider: TestStationProvider, value: "8000152"}
+                   "station_id" => %{provider: StationCatalog, value: "8000152"}
                  },
                  %{
                    "text" => "Hannover-Linden/Fischerhof",
-                   "station_id" => %{provider: TestStationProvider, value: "8003487"}
+                   "station_id" => %{provider: StationCatalog, value: "8003487"}
                  }
                ]
              }
 
       assert by_field.destination.value == %{
                "text" => "Frankfurt(M) Flughafen Fernbf",
-               "station_id" => %{provider: TestStationProvider, value: "8070004"},
+               "station_id" => %{provider: StationCatalog, value: "8070004"},
                "candidates" => [
                  %{
                    "text" => "Frankfurt(M) Flughafen Fernbf",
-                   "station_id" => %{provider: TestStationProvider, value: "8070004"}
+                   "station_id" => %{provider: StationCatalog, value: "8070004"}
                  },
                  %{
                    "text" => "Frankfurt(M) Flughafen Regionalbf",
-                   "station_id" => %{provider: TestStationProvider, value: "8070003"}
+                   "station_id" => %{provider: StationCatalog, value: "8070003"}
                  }
                ]
              }
@@ -657,13 +655,9 @@ defmodule Fahrgastrechte.TicketsTest do
     Application.put_env(:fahrgastrechte, Tickets, Keyword.put(config, :extractor, module))
   end
 
-  defp set_rail_provider(module) do
-    config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Rail)
-
-    Application.put_env(
-      :fahrgastrechte,
-      Fahrgastrechte.Rail,
-      Keyword.put(config, :provider, module)
-    )
+  defp seed_station!(name, eva_number) do
+    %Station{}
+    |> Station.changeset(%{name: name, eva_number: eva_number})
+    |> Repo.insert!()
   end
 end

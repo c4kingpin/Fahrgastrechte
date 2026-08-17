@@ -21,6 +21,8 @@ defmodule Fahrgastrechte.Application do
       {Fahrgastrechte.Rail.RateLimiter, rate: 45, window_ms: 60_000, max_concurrency: 2},
       {Fahrgastrechte.Documents.CleanupWorker,
        Application.get_env(:fahrgastrechte, Fahrgastrechte.Documents.CleanupWorker, [])},
+      {Fahrgastrechte.Rail.StationCatalogSyncWorker,
+       Application.get_env(:fahrgastrechte, Fahrgastrechte.Rail.StationCatalogSyncWorker, [])},
       # Start a worker by calling: Fahrgastrechte.Worker.start_link(arg)
       # {Fahrgastrechte.Worker, arg},
       # Start to serve requests, typically the last entry

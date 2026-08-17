@@ -55,6 +55,11 @@ config :fahrgastrechte, Fahrgastrechte.Rail.Providers.BahnVorhersageArchive,
   dataset_version: nil,
   station_names: %{}
 
+config :fahrgastrechte, Fahrgastrechte.Rail.Providers.OpenStation,
+  base_url: "https://apis.deutschebahn.com/db-api-marketplace/apis/open-station/v1",
+  client_id: nil,
+  api_key: nil
+
 config :fahrgastrechte, Fahrgastrechte.Exports,
   backend: Fahrgastrechte.Exports.SystemPDFBackend,
   template_path: Path.expand("../priv/form_templates/fahrgastrechte-2025-me-08-25.pdf", __DIR__),
