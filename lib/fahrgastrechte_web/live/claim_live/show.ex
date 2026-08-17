@@ -11,6 +11,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   alias Fahrgastrechte.Tickets
   alias FahrgastrechteWeb.ClaimLive.Components
 
+  import FahrgastrechteWeb.ClaimLive.FormData
   import FahrgastrechteWeb.ClaimLive.Presentation
 
   @upload_kinds ClaimWorkspace.upload_kinds()
@@ -1465,7 +1466,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:proposed_suggestions?, Enum.any?(suggestions, &(&1.state == :proposed)))
     |> assign(
       :suggestion_correction_form,
-      to_form(workspace.suggestion_correction_data, as: :correction)
+      to_form(suggestion_correction_data(workspace.claim), as: :correction)
     )
     |> assign(:upload_kinds, @upload_kinds)
     |> assign(:claim_complete?, workspace.claim_complete?)
@@ -1486,11 +1487,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:planned_state, workspace.step_states.planned)
     |> assign(:actual_state, workspace.step_states.actual)
     |> assign(:export_state_label, workspace.step_states.review)
-    |> assign(:planned_form, to_form(workspace.planned_form_data, as: :planned))
-    |> assign(:actual_form, to_form(workspace.actual_form_data, as: :actual))
+    |> assign(
+      :planned_form,
+      to_form(planned_form_data(workspace.claim, workspace.planned_journey), as: :planned)
+    )
+    |> assign(
+      :actual_form,
+      to_form(
+        actual_form_data(workspace.claim, workspace.planned_journey, workspace.actual_journey),
+        as: :actual
+      )
+    )
     |> assign(
       :connection_search_form,
-      to_form(workspace.connection_search_data, as: :connection_search)
+      to_form(
+        connection_search_data(workspace.claim, workspace.planned_journey),
+        as: :connection_search
+      )
     )
     |> assign(:completed_steps, completed_steps)
     |> assign(:required_inputs, required_inputs)

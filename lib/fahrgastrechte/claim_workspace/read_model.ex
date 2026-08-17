@@ -28,10 +28,6 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
     :review_complete?,
     :exports_available?,
     :step_states,
-    :planned_form_data,
-    :actual_form_data,
-    :connection_search_data,
-    :suggestion_correction_data,
     :readiness
   ]
 
@@ -59,10 +55,6 @@ defmodule Fahrgastrechte.ClaimWorkspace.ReadModel do
           review_complete?: boolean(),
           exports_available?: boolean(),
           step_states: map(),
-          planned_form_data: map(),
-          actual_form_data: map(),
-          connection_search_data: map(),
-          suggestion_correction_data: map(),
           readiness: {:ok, map()} | {:error, term()}
         }
 end
