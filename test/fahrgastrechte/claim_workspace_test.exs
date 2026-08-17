@@ -428,27 +428,36 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
     test "falls back to a fresh station search when the text was edited" do
       scope = scope_fixture()
+      station_fixture!("Hannover Hbf", "8000152")
+      # Unedited default destination from ClaimsFixtures.claim_fixture/2 — its
+      # resolution still goes through a fresh StationCatalog search too, since
+      # this claim carries no destination_station_id to reuse.
+      station_fixture!("Hamburg Hbf", "8002549")
 
       claim =
         claim_fixture(scope, %{
-          "origin" => "Hannover Hbf",
+          "origin" => "Hannover Anderten-Misburg",
           "origin_station_id" => %{
             "provider" => "Fahrgastrechte.TestRailProvider",
-            "value" => "8000152"
+            "value" => "8000578"
           }
         })
 
       params = %{
-        "origin" => "Hannover+City",
+        "origin" => "Hannover Hbf",
         "destination" => claim.destination,
         "departure_at" => "2026-08-02T08:00"
       }
 
       assert {:ok, _candidates} = ClaimWorkspace.search_connections(scope, claim, params)
 
-      assert_received {:test_rail_provider_search_stations, "Hannover+City"}
+      refute_received {:test_rail_provider_search_stations, _query}
       assert_received {:test_rail_provider_search_connections, query}
-      assert query.origin == %{provider: Fahrgastrechte.TestRailProvider, value: "9999999"}
+
+      assert query.origin == %{
+               provider: Fahrgastrechte.Rail.Providers.StationCatalog,
+               value: "8000152"
+             }
     end
   end
 end
