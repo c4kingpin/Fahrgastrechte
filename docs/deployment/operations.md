@@ -109,6 +109,12 @@ Der Befehl ist idempotent und bricht ohne Änderung ab, wenn der aktive Schlüss
 fehlt. Wird Schritt 4 ausgelassen, bleiben die alten Datensätze nur so lange
 lesbar, wie der alte Schlüssel konfiguriert ist.
 
+Schritt 4 sperrt beim Umschlüsseln jedes Profil einzeln per Row-Lock innerhalb
+einer eigenen Transaktion, bevor es neu verschlüsselt wird. Eine parallele
+Profiländerung durch einen Nutzer während des laufenden Rekeys wird dadurch
+serialisiert statt überschrieben — kein Wartungsfenster mit gesperrtem Zugriff
+nötig, der Befehl kann im laufenden Betrieb ausgeführt werden.
+
 Secrets niemals als Shellargument, in Git, Tickets oder Chat kopieren. Im LXC
 die geschützte Environment-Datei mit einem lokalen Editor ändern, Berechtigungen
 danach prüfen und den Dienst neu starten:
