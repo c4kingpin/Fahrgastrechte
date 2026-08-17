@@ -33,6 +33,7 @@ defmodule Fahrgastrechte.Documents do
           | :not_editable
           | :stale
           | :invalid_kind
+          | :kind_taken
           | :invalid_upload
           | :invalid_pdf
           | :wrong_content_type
@@ -138,6 +139,15 @@ defmodule Fahrgastrechte.Documents do
 
   def get_document(%Scope{}, _document_id), do: {:error, :not_found}
   def get_document(_scope, _document_id), do: {:error, :not_authenticated}
+
+  @doc "Returns one current, non-deleting document scoped to a claim."
+  @spec get_claim_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, Document.t()} | {:error, domain_error()}
+  def get_claim_document(%Scope{} = scope, claim_id, document_id) do
+    get_current_claim_document(scope, claim_id, document_id)
+  end
+
+  def get_claim_document(_scope, _claim_id, _document_id), do: {:error, :not_authenticated}
 
   defp get_current_claim_document(
          %Scope{user: %User{id: user_id}} = scope,
@@ -248,19 +258,97 @@ defmodule Fahrgastrechte.Documents do
     do: {:error, :not_authenticated}
 
   @doc """
+  Relabels an existing original document's kind in place, without re-uploading.
+
+  Fails with `:kind_taken` if the claim already has a different current
+  document of the target kind. Invalidates any already-generated export
+  output, same as any other document mutation.
+  """
+  @spec change_document_kind(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          atom() | String.t(),
+          pos_integer()
+        ) ::
+          {:ok, %{document: Document.t(), claim: Claims.Claim.t()}}
+          | {:error, Changeset.t() | domain_error()}
+  def change_document_kind(
+        %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
+        document_id,
+        target_kind,
+        expected_claim_lock_version
+      ) do
+    with {:ok, parsed_kind} <- parse_kind(target_kind),
+         :ok <- validate_original_kind(parsed_kind) do
+      result =
+        Repo.transaction(fn ->
+          with {:ok, claim} <-
+                 Claims.invalidate_output(scope, claim_id, expected_claim_lock_version),
+               {:ok, document} <- get_current_claim_document(scope, claim_id, document_id),
+               :ok <- ensure_kind_available(user_id, claim_id, parsed_kind, document.id),
+               {:ok, updated} <-
+                 document |> Document.kind_changeset(%{kind: parsed_kind}) |> Repo.update() do
+            %{document: updated, claim: claim}
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+      case result do
+        {:ok, changes} -> {:ok, changes}
+        {:error, reason} -> normalize_transaction_error(reason)
+      end
+    end
+  end
+
+  def change_document_kind(
+        _scope,
+        _claim_id,
+        _document_id,
+        _target_kind,
+        _expected_claim_lock_version
+      ),
+      do: {:error, :not_authenticated}
+
+  defp validate_original_kind(kind) when kind in [:ticket, :invoice], do: :ok
+  defp validate_original_kind(_kind), do: {:error, :invalid_kind}
+
+  defp ensure_kind_available(user_id, claim_id, target_kind, document_id) do
+    conflict =
+      Repo.one(
+        from document in Document,
+          where:
+            document.claim_id == ^claim_id and document.user_id == ^user_id and
+              document.kind == ^target_kind and document.current == true and
+              document.id != ^document_id,
+          select: document.id,
+          lock: "FOR UPDATE"
+      )
+
+    if conflict, do: {:error, :kind_taken}, else: :ok
+  end
+
+  @doc """
   Coordinates final claim deletion with all private files owned by C03.
 
-  File removal is idempotent. The scoped claim row and all document metadata
-  are deleted only after every physical file has been removed successfully.
+  Marking the claim `deleting` (`Claims.mark_deleting/3`) closes the race
+  between the lock check and the final removal: once marked, the claim is
+  invisible to every other mutation path, so the file removal below can
+  never be followed by a stale conflict on the claim row itself. File
+  removal is idempotent; a crash after marking is finished later by
+  `cleanup_pending_claim_deletions/0`.
   """
   @spec delete_claim(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
           {:ok, Claims.Claim.t()} | {:error, Changeset.t() | domain_error()}
-  def delete_claim(%Scope{user: %User{id: user_id}} = scope, claim_id, expected_lock_version) do
-    with {:ok, claim} <- Claims.get_claim(scope, claim_id),
-         :ok <- verify_claim_lock(claim, expected_lock_version),
-         {:ok, pending_documents} <- mark_claim_documents_pending(user_id, claim_id),
-         :ok <- delete_files(pending_documents) do
-      Claims.delete_claim(scope, claim_id, expected_lock_version)
+  def delete_claim(%Scope{} = scope, claim_id, expected_lock_version) do
+    with {:ok, marked_claim} <- Claims.mark_deleting(scope, claim_id, expected_lock_version),
+         {:ok, pending_documents} <-
+           mark_claim_documents_pending(marked_claim.user_id, claim_id),
+         :ok <- delete_files(pending_documents),
+         :ok <- Claims.finalize_deletion(claim_id) do
+      {:ok, marked_claim}
     end
   end
 
@@ -515,6 +603,25 @@ defmodule Fahrgastrechte.Documents do
       Repo.all(from document in Document, where: not is_nil(document.deletion_pending_at))
 
     Enum.each(pending, &cleanup_replaced_original/1)
+
+    {:ok, length(pending)}
+  end
+
+  @doc """
+  Finishes any claim deletion left in the `deleting` state by a crash between
+  marking it (`Claims.mark_deleting/3`) and completing physical file and
+  database removal. Mirrors `cleanup_pending_documents/0`.
+  """
+  @spec cleanup_pending_claim_deletions() :: {:ok, non_neg_integer()}
+  def cleanup_pending_claim_deletions do
+    pending = Claims.list_pending_deletions()
+
+    Enum.each(pending, fn claim ->
+      with {:ok, pending_documents} <- mark_claim_documents_pending(claim.user_id, claim.id),
+           :ok <- delete_files(pending_documents) do
+        Claims.finalize_deletion(claim.id)
+      end
+    end)
 
     {:ok, length(pending)}
   end
