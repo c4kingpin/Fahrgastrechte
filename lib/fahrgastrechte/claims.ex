@@ -61,7 +61,9 @@ defmodule Fahrgastrechte.Claims do
          %Claim{} = claim <-
            Repo.one(
              from claim in Claim,
-               where: claim.id == ^parsed_id and claim.user_id == ^user_id
+               where:
+                 claim.id == ^parsed_id and claim.user_id == ^user_id and
+                   is_nil(claim.deletion_pending_at)
            ) do
       {:ok, claim}
     else
@@ -103,7 +105,7 @@ defmodule Fahrgastrechte.Claims do
       when is_map(filters) or is_list(filters) do
     query =
       from claim in Claim,
-        where: claim.user_id == ^user_id,
+        where: claim.user_id == ^user_id and is_nil(claim.deletion_pending_at),
         order_by: [desc: claim.inserted_at, desc: claim.id],
         limit: @list_limit
 
@@ -124,7 +126,7 @@ defmodule Fahrgastrechte.Claims do
     counts_by_status =
       Repo.all(
         from claim in Claim,
-          where: claim.user_id == ^user_id,
+          where: claim.user_id == ^user_id and is_nil(claim.deletion_pending_at),
           group_by: claim.status,
           select: {claim.status, count(claim.id)}
       )
@@ -301,6 +303,60 @@ defmodule Fahrgastrechte.Claims do
   end
 
   def list_status_history(_scope, _claim_id), do: {:error, :not_authenticated}
+
+  @doc """
+  Atomically marks a claim for deletion and hides it from `get_claim/2` (and
+  therefore every mutation path) from this point on.
+
+  Closes the race between checking a claim's editability and actually
+  removing it: the lock check and the visibility change happen in the same
+  `Repo.update`, so no concurrent mutation can land in between. Callers that
+  own external resources (files, etc.) should remove those before calling
+  `finalize_deletion/1`.
+  """
+  @spec mark_deleting(Scope.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, Claim.t()} | {:error, domain_error()}
+  def mark_deleting(%Scope{} = scope, claim_id, expected_lock_version) do
+    with {:ok, claim} <- get_claim(scope, claim_id),
+         :ok <- verify_lock_version(claim, expected_lock_version) do
+      claim
+      |> Changeset.change(deletion_pending_at: now())
+      |> Claim.with_optimistic_lock()
+      |> Repo.update(stale_error_field: :lock_version)
+      |> normalize_stale_result()
+    end
+  end
+
+  def mark_deleting(_scope, _claim_id, _expected_lock_version),
+    do: {:error, :not_authenticated}
+
+  @doc """
+  Removes a claim already marked for deletion (see `mark_deleting/3`).
+
+  Idempotent: matches only rows still marked `deleting`, so retrying (e.g.
+  from a crash-recovery sweep) after the row is already gone is a no-op
+  rather than an error.
+  """
+  @spec finalize_deletion(Ecto.UUID.t()) :: :ok
+  def finalize_deletion(claim_id) do
+    Repo.delete_all(
+      from claim in Claim,
+        where: claim.id == ^claim_id and not is_nil(claim.deletion_pending_at)
+    )
+
+    :ok
+  end
+
+  @doc """
+  Lists every claim currently marked for deletion, across all users.
+
+  Maintenance-only: used by the background cleanup sweep to finish
+  deletions left incomplete by a crash, never by a scoped user request.
+  """
+  @spec list_pending_deletions() :: [Claim.t()]
+  def list_pending_deletions do
+    Repo.all(from claim in Claim, where: not is_nil(claim.deletion_pending_at))
+  end
 
   @doc """
   Deletes one scoped claim using optimistic locking.
