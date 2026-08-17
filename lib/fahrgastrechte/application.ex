@@ -7,12 +7,17 @@ defmodule Fahrgastrechte.Application do
 
   @impl true
   def start(_type, _args) do
+    if Application.get_env(:fahrgastrechte, :env) == :prod do
+      Fahrgastrechte.Documents.CommandRunner.ensure_timeout_tool!()
+    end
+
     children = [
       FahrgastrechteWeb.Telemetry,
       Fahrgastrechte.Repo,
       {DNSCluster, query: Application.get_env(:fahrgastrechte, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Fahrgastrechte.PubSub},
       {Task.Supervisor, name: Fahrgastrechte.ExternalCommandSupervisor},
+      {Fahrgastrechte.Documents.PDFJobLimiter, max_concurrency: 2},
       {Fahrgastrechte.Rail.RateLimiter, rate: 45, window_ms: 60_000, max_concurrency: 2},
       {Fahrgastrechte.Documents.CleanupWorker,
        Application.get_env(:fahrgastrechte, Fahrgastrechte.Documents.CleanupWorker, [])},

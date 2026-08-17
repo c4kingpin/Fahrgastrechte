@@ -146,9 +146,12 @@ defmodule FahrgastrechteWeb.Layouts do
         </div>
       </header>
 
-      <main class={[
-        "mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10"
-      ]}>
+      <main
+        id="main-content"
+        class={[
+          "mx-auto max-w-7xl px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8 lg:pt-10"
+        ]}
+      >
         {render_slot(@inner_block)}
       </main>
 

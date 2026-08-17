@@ -5,6 +5,7 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
   alias Fahrgastrechte.Accounts
   alias Fahrgastrechte.Accounts.BankDataCipher
   alias Fahrgastrechte.Accounts.Profile
+  alias Fahrgastrechte.Health
   alias Fahrgastrechte.Repo
 
   import Fahrgastrechte.AccountsFixtures
@@ -74,6 +75,30 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
       assert {:ok, %{rekeyed: 0, skipped: 1}} = Accounts.rekey_bank_data()
     end
 
+    test "a concurrent profile update is never overwritten by a running rekey",
+         %{configuration: configuration} do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      rotate_to_version_two(configuration)
+
+      rekey_task = Task.async(fn -> Accounts.rekey_bank_data() end)
+
+      update_task =
+        Task.async(fn ->
+          Accounts.update_profile(
+            scope,
+            valid_profile_attributes(%{"iban" => "DE02120300000000202051"})
+          )
+        end)
+
+      assert {:ok, _counts} = Task.await(rekey_task, 5_000)
+      assert {:ok, _updated} = Task.await(update_task, 5_000)
+
+      assert {:ok, final} = Accounts.get_profile(scope)
+      assert final.iban == "DE02120300000000202051"
+    end
+
     test "is idempotent" do
       scope = scope_fixture()
       assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
@@ -94,6 +119,21 @@ defmodule Fahrgastrechte.AccountsRekeyTest do
 
       assert {:error, :encryption_key_unavailable} = Accounts.rekey_bank_data()
       assert Repo.get!(Profile, profile.id).iban_ciphertext == original_ciphertext
+    end
+
+    test "readiness catches an installer that reverts a completed key rotation",
+         %{configuration: configuration} do
+      scope = scope_fixture()
+      assert {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      rotate_to_version_two(configuration)
+      assert {:ok, %{rekeyed: 1}} = Accounts.rekey_bank_data()
+
+      # Simulate a buggy installer run that resets the keyring config back to the
+      # original single-key state without preserving the rotation to version 2.
+      Application.put_env(:fahrgastrechte, BankDataCipher, configuration)
+
+      assert {:error, [:crypto]} = Health.ready()
     end
   end
 end

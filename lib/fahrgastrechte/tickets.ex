@@ -13,8 +13,10 @@ defmodule Fahrgastrechte.Tickets do
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
   alias Fahrgastrechte.Claims
+  alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.Documents.Document
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Rail
   alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets.Classifier
@@ -47,24 +49,64 @@ defmodule Fahrgastrechte.Tickets do
       pages: nil
     ]
 
-    with {:ok, extraction} <- extractor.extract(path, options) do
+    with {:ok, extraction} <-
+           PDFJobLimiter.with_permit(fn -> extractor.extract(path, options) end) do
       Classifier.classify(extraction.text)
     else
       {:error, _reason} -> {:error, :ambiguous}
     end
   end
 
-  @doc "Analyzes one current ticket or invoice and replaces its previous suggestions."
-  @spec analyze_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @doc """
+  Analyzes one current ticket or invoice and replaces its previous suggestions.
+
+  Requires the claim to be editable; re-analyzing a `ready` claim invalidates
+  its output the same way any other dependent-data change does.
+  """
+  @spec analyze_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) ::
           {:ok, %{document: Document.t(), suggestions: [Suggestion.t()]}}
           | {:error, Changeset.t() | domain_error()}
-  def analyze_document(%Scope{} = scope, claim_id, document_id) do
-    Documents.with_document_path(scope, claim_id, document_id, fn path, document ->
-      analyze_path(scope, claim_id, document, path)
-    end)
+  def analyze_document(%Scope{} = scope, claim_id, document_id, expected_lock_version) do
+    with {:ok, claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version),
+         {:ok, _claim} <- maybe_invalidate_output(scope, claim, expected_lock_version) do
+      Documents.with_document_path(scope, claim_id, document_id, fn path, document ->
+        analyze_path(scope, claim_id, document, path)
+      end)
+    end
   end
 
-  def analyze_document(_scope, _claim_id, _document_id), do: {:error, :not_authenticated}
+  def analyze_document(_scope, _claim_id, _document_id, _expected_lock_version),
+    do: {:error, :not_authenticated}
+
+  @doc """
+  Explicitly confirms a manual fallback for a document whose automatic
+  analysis failed with a technical error.
+
+  Only permitted while `analysis_status` is `:failed` — this is a deliberate
+  escape hatch after a technical failure, not a way to skip analysis
+  proactively. Requires the claim to be editable; on a `ready` claim this
+  invalidates its output the same way `analyze_document/4` does.
+  """
+  @spec confirm_manual_fallback(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), pos_integer()) ::
+          {:ok, Document.t()} | {:error, Changeset.t() | domain_error()}
+  def confirm_manual_fallback(%Scope{} = scope, claim_id, document_id, expected_lock_version) do
+    with {:ok, claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version),
+         {:ok, _claim} <- maybe_invalidate_output(scope, claim, expected_lock_version),
+         {:ok, document} <- Documents.get_claim_document(scope, claim_id, document_id) do
+      case document do
+        %Document{analysis_status: :failed} ->
+          document
+          |> Document.manual_fallback_changeset()
+          |> Repo.update()
+
+        %Document{} ->
+          {:error, :invalid_state}
+      end
+    end
+  end
+
+  def confirm_manual_fallback(_scope, _claim_id, _document_id, _expected_lock_version),
+    do: {:error, :not_authenticated}
 
   @doc "Lists persisted suggestions only for an authorized current document."
   @spec list_suggestions(Scope.t(), Ecto.UUID.t()) ::
@@ -108,68 +150,90 @@ defmodule Fahrgastrechte.Tickets do
   def list_claim_suggestions(%Scope{}, _claim_id), do: {:error, :not_found}
   def list_claim_suggestions(_scope, _claim_id), do: {:error, :not_authenticated}
 
-  @doc "Marks a scoped suggestion accepted, rejected or proposed without changing its value."
+  @doc """
+  Marks a scoped suggestion accepted, rejected or proposed without changing its value.
+
+  Requires the claim to be editable; accepting/rejecting on a `ready` claim
+  invalidates its output atomically alongside the suggestion change.
+  """
   @spec set_suggestion_state(
           Scope.t(),
           Ecto.UUID.t(),
           Ecto.UUID.t(),
-          Suggestion.state() | String.t()
+          Suggestion.state() | String.t(),
+          pos_integer()
         ) ::
           {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
   def set_suggestion_state(
-        %Scope{user: %User{id: user_id}},
+        %Scope{user: %User{id: user_id}} = scope,
         claim_id,
         suggestion_id,
-        requested_state
+        requested_state,
+        expected_lock_version
       )
       when is_binary(suggestion_id) do
-    with {:ok, state} <- parse_state(requested_state),
-         %Suggestion{} = suggestion <- scoped_suggestion(user_id, claim_id, suggestion_id) do
-      suggestion
-      |> Suggestion.state_changeset(state)
-      |> Repo.update()
-    else
-      nil -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
+    with {:ok, state} <- parse_state(requested_state) do
+      Repo.transaction(fn ->
+        with {:ok, claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version),
+             {:ok, _claim} <- maybe_invalidate_output(scope, claim, expected_lock_version),
+             %Suggestion{} = suggestion <- scoped_suggestion(user_id, claim_id, suggestion_id) do
+          suggestion
+          |> Suggestion.state_changeset(state)
+          |> Repo.update!()
+        else
+          nil -> Repo.rollback(:not_found)
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
     end
   end
 
-  def set_suggestion_state(_scope, _claim_id, _suggestion_id, _state),
+  def set_suggestion_state(_scope, _claim_id, _suggestion_id, _state, _expected_lock_version),
     do: {:error, :not_authenticated}
 
-  @doc "Marks several scoped suggestions with one state in one transaction."
+  @doc """
+  Marks several scoped suggestions with one state in one transaction.
+
+  Requires the claim to be editable; accepting/rejecting on a `ready` claim
+  invalidates its output atomically alongside the suggestion changes.
+  """
   @spec set_suggestion_states(
           Scope.t(),
           Ecto.UUID.t(),
           [Ecto.UUID.t()],
-          Suggestion.state() | String.t()
+          Suggestion.state() | String.t(),
+          pos_integer()
         ) ::
           {:ok, [Suggestion.t()]} | {:error, Changeset.t() | domain_error()}
   def set_suggestion_states(
-        %Scope{user: %User{id: user_id}},
+        %Scope{user: %User{id: user_id}} = scope,
         claim_id,
         suggestion_ids,
-        requested_state
+        requested_state,
+        expected_lock_version
       )
       when is_list(suggestion_ids) do
     with {:ok, state} <- parse_state(requested_state),
-         {:ok, parsed_ids} <- cast_ids(suggestion_ids),
-         suggestions <- scoped_suggestions(user_id, claim_id, parsed_ids),
-         true <- length(suggestions) == length(Enum.uniq(parsed_ids)) do
+         {:ok, parsed_ids} <- cast_ids(suggestion_ids) do
       Repo.transaction(fn ->
-        Enum.map(suggestions, fn suggestion ->
-          suggestion
-          |> Suggestion.state_changeset(state)
-          |> Repo.update!()
-        end)
+        with {:ok, claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version),
+             {:ok, _claim} <- maybe_invalidate_output(scope, claim, expected_lock_version),
+             suggestions <- scoped_suggestions(user_id, claim_id, parsed_ids),
+             true <- length(suggestions) == length(Enum.uniq(parsed_ids)) do
+          Enum.map(suggestions, fn suggestion ->
+            suggestion
+            |> Suggestion.state_changeset(state)
+            |> Repo.update!()
+          end)
+        else
+          false -> Repo.rollback(:not_found)
+          {:error, reason} -> Repo.rollback(reason)
+        end
       end)
-    else
-      false -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
     end
   end
 
-  def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state),
+  def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state, _expected_lock_version),
     do: {:error, :not_authenticated}
 
   @doc """
@@ -178,42 +242,65 @@ defmodule Fahrgastrechte.Tickets do
   Used when the user picks a different candidate than `StationNormalizer`'s
   best guess, or resolves one manually via a free-text station search. Only
   proposed suggestions can be changed this way, matching the accept/reject
-  buttons that only ever show for a `:proposed` suggestion.
+  buttons that only ever show for a `:proposed` suggestion. Requires the
+  claim to be editable, mirroring `set_suggestion_state/5` — the suggestion
+  isn't reflected in the claim's exported data until accepted, so unlike
+  accept/reject this never needs to invalidate a `ready` claim's output.
   """
-  @spec set_suggestion_station(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t(), %{
-          name: String.t(),
-          id: map() | nil
-        }) ::
+  @spec set_suggestion_station(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          %{name: String.t(), id: map() | nil},
+          pos_integer()
+        ) ::
           {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
   def set_suggestion_station(
-        %Scope{user: %User{id: user_id}},
+        %Scope{user: %User{id: user_id}} = scope,
         claim_id,
         suggestion_id,
-        %{name: name} = station
+        %{name: name} = station,
+        expected_lock_version
       )
       when is_binary(suggestion_id) and is_binary(name) do
-    case scoped_suggestion(user_id, claim_id, suggestion_id) do
-      %Suggestion{state: :proposed} = suggestion ->
-        value =
-          suggestion.value
-          |> Map.put("text", name)
-          |> put_or_delete_station_id(Map.get(station, :id))
-          |> Map.delete("unresolved")
+    with {:ok, _claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version) do
+      case scoped_suggestion(user_id, claim_id, suggestion_id) do
+        %Suggestion{state: :proposed} = suggestion ->
+          value =
+            suggestion.value
+            |> Map.put("text", name)
+            |> put_or_delete_station_id(Map.get(station, :id))
+            |> Map.delete("unresolved")
 
-        suggestion
-        |> Suggestion.value_changeset(value)
-        |> Repo.update()
+          suggestion
+          |> Suggestion.value_changeset(value)
+          |> Repo.update()
 
-      %Suggestion{} ->
-        {:error, :invalid_state}
+        %Suggestion{} ->
+          {:error, :invalid_state}
 
-      nil ->
-        {:error, :not_found}
+        nil ->
+          {:error, :not_found}
+      end
     end
   end
 
-  def set_suggestion_station(_scope, _claim_id, _suggestion_id, _station),
-    do: {:error, :not_authenticated}
+  def set_suggestion_station(
+        _scope,
+        _claim_id,
+        _suggestion_id,
+        _station,
+        _expected_lock_version
+      ),
+      do: {:error, :not_authenticated}
+
+  # Only :draft/:ready reach this function; ensure_editable/3 already rejects
+  # :sent and :completed before either caller invokes it.
+  defp maybe_invalidate_output(_scope, %Claim{status: :draft} = claim, _expected_lock_version),
+    do: {:ok, claim}
+
+  defp maybe_invalidate_output(scope, %Claim{status: :ready} = claim, expected_lock_version),
+    do: Claims.invalidate_output(scope, claim.id, expected_lock_version)
 
   defp analyze_path(_scope, _claim_id, %Document{kind: kind}, _path)
        when kind not in [:ticket, :invoice],
@@ -234,7 +321,8 @@ defmodule Fahrgastrechte.Tickets do
       document_kind: document.kind
     ]
 
-    with {:ok, extraction} <- extractor.extract(path, options),
+    with {:ok, extraction} <-
+           PDFJobLimiter.with_permit(fn -> extractor.extract(path, options) end),
          {:ok, extracted_suggestions} <- extractor.propose(extraction, options) do
       suggestions = normalize_stations(scope, claim_id, extracted_suggestions)
       persist_analysis(document, :completed, nil, suggestions)
@@ -243,7 +331,7 @@ defmodule Fahrgastrechte.Tickets do
         persist_analysis(document, :manual_required, Atom.to_string(error), [])
 
       {:error, error}
-      when error in [:invalid_pdf, :resource_limit, :timeout] ->
+      when error in [:invalid_pdf, :resource_limit, :timeout, :busy] ->
         persist_analysis(document, :failed, Atom.to_string(error), [])
 
       {:error, {:backend, _reason}} ->
