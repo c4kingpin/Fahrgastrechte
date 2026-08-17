@@ -379,6 +379,62 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
            )
   end
 
+  test "searching a different station replaces stale results instead of being crowded out",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+
+    tickets_config = Application.fetch_env!(:fahrgastrechte, Tickets)
+
+    Application.put_env(
+      :fahrgastrechte,
+      Tickets,
+      Keyword.put(tickets_config, :extractor, TestTicketRouteExtractor)
+    )
+
+    on_exit(fn -> Application.put_env(:fahrgastrechte, Tickets, tickets_config) end)
+
+    # Six Frankfurt Flughafen-ish stations so the destination suggestion's
+    # seeded candidates alone already fill the old 6-slot merge cap -- a
+    # differently named station typed afterwards must still show up.
+    for n <- 1..6 do
+      station_fixture!("Frankfurt(M) Flughafen Gate #{n}", "807000#{n}")
+    end
+
+    station_fixture!("Frankfurt(Main)Hbf", "8000105")
+
+    claim = claim_fixture(scope)
+    {document, claim} = document_fixture(scope, claim)
+
+    assert {:ok, %{suggestions: suggestions}} =
+             Tickets.analyze_document(scope, claim.id, document.id, claim.lock_version)
+
+    destination = Enum.find(suggestions, &(&1.field == :destination))
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    view
+    |> form("#station-search-form-#{destination.id}", %{"query" => "Frankfurt(Main)Hbf"})
+    |> render_change()
+
+    render_async(view)
+
+    assert has_element?(
+             view,
+             "#station-search-panel-#{destination.id}",
+             "Frankfurt(Main)Hbf"
+           )
+
+    view
+    |> element("#station-option-#{destination.id}-0")
+    |> render_click()
+
+    assert {:ok, [chosen]} =
+             Tickets.list_suggestions(scope, document.id)
+             |> then(fn {:ok, all} -> {:ok, Enum.filter(all, &(&1.id == destination.id))} end)
+
+    assert chosen.value["text"] == "Frankfurt(Main)Hbf"
+  end
+
   test "deletes a private document through the coordinated UI action", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
     claim = claim_fixture(scope)
