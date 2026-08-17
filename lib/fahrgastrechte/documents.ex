@@ -139,6 +139,15 @@ defmodule Fahrgastrechte.Documents do
   def get_document(%Scope{}, _document_id), do: {:error, :not_found}
   def get_document(_scope, _document_id), do: {:error, :not_authenticated}
 
+  @doc "Returns one current, non-deleting document scoped to a claim."
+  @spec get_claim_document(Scope.t(), Ecto.UUID.t(), Ecto.UUID.t()) ::
+          {:ok, Document.t()} | {:error, domain_error()}
+  def get_claim_document(%Scope{} = scope, claim_id, document_id) do
+    get_current_claim_document(scope, claim_id, document_id)
+  end
+
+  def get_claim_document(_scope, _claim_id, _document_id), do: {:error, :not_authenticated}
+
   defp get_current_claim_document(
          %Scope{user: %User{id: user_id}} = scope,
          claim_id,
