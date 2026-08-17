@@ -63,18 +63,28 @@ defmodule Fahrgastrechte.Documents.CommandRunner do
     end
   end
 
+  @doc """
+  Fails fast when the OS-level `timeout` wrapper this module depends on to
+  bound external PDF-processing commands is unavailable. Called only in
+  `:prod` (see `Fahrgastrechte.Application`) — without it, `run/4` still
+  works in dev/test but loses its OS-level cutoff (see moduledoc).
+  """
+  @spec ensure_timeout_tool!() :: :ok
+  def ensure_timeout_tool! do
+    if is_nil(timeout_executable()) do
+      raise "required external command missing: #{configured_timeout_name()}"
+    end
+
+    :ok
+  end
+
   defp seconds(timeout_ms), do: :erlang.float_to_binary(timeout_ms / 1000, decimals: 3)
 
   defp timeout_executable do
-    configured =
-      :fahrgastrechte
-      |> Application.get_env(__MODULE__, [])
-      |> Keyword.get(:timeout_executable, "timeout")
-
-    case System.find_executable(configured) do
+    case System.find_executable(configured_timeout_name()) do
       nil ->
         Logger.warning(
-          "#{configured} is unavailable; external commands cannot be terminated reliably"
+          "#{configured_timeout_name()} is unavailable; external commands cannot be terminated reliably"
         )
 
         nil
@@ -82,5 +92,11 @@ defmodule Fahrgastrechte.Documents.CommandRunner do
       path ->
         path
     end
+  end
+
+  defp configured_timeout_name do
+    :fahrgastrechte
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:timeout_executable, "timeout")
   end
 end

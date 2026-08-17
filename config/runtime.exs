@@ -2,6 +2,8 @@ import Config
 
 runtime_environment = config_env()
 
+config :fahrgastrechte, :env, runtime_environment
+
 field_encryption_key =
   case {runtime_environment, System.get_env("FIELD_ENCRYPTION_KEY")} do
     {:prod, nil} ->

@@ -16,6 +16,7 @@ defmodule Fahrgastrechte.Exports do
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Exports.CoverRenderer
   alias Fahrgastrechte.Exports.ExportVersion
   alias Fahrgastrechte.Exports.Template
@@ -62,10 +63,12 @@ defmodule Fahrgastrechte.Exports do
       end
     end
 
-    case :global.trans({__MODULE__, :pdf_job}, job, [node() | Node.list()], @lock_retries) do
-      :aborted -> {:error, :busy}
-      result -> result
-    end
+    PDFJobLimiter.with_permit(fn ->
+      case :global.trans({__MODULE__, :pdf_job}, job, [node() | Node.list()], @lock_retries) do
+        :aborted -> {:error, :busy}
+        result -> result
+      end
+    end)
   end
 
   def generate_export(_scope, _claim_id, _expected_claim_lock_version),
