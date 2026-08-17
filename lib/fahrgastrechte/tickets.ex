@@ -236,6 +236,64 @@ defmodule Fahrgastrechte.Tickets do
   def set_suggestion_states(_scope, _claim_id, _suggestion_ids, _state, _expected_lock_version),
     do: {:error, :not_authenticated}
 
+  @doc """
+  Replaces a proposed origin/destination suggestion's station match.
+
+  Used when the user picks a different candidate than `StationNormalizer`'s
+  best guess, or resolves one manually via a free-text station search. Only
+  proposed suggestions can be changed this way, matching the accept/reject
+  buttons that only ever show for a `:proposed` suggestion. Requires the
+  claim to be editable, mirroring `set_suggestion_state/5` — the suggestion
+  isn't reflected in the claim's exported data until accepted, so unlike
+  accept/reject this never needs to invalidate a `ready` claim's output.
+  """
+  @spec set_suggestion_station(
+          Scope.t(),
+          Ecto.UUID.t(),
+          Ecto.UUID.t(),
+          %{name: String.t(), id: map() | nil},
+          pos_integer()
+        ) ::
+          {:ok, Suggestion.t()} | {:error, Changeset.t() | domain_error()}
+  def set_suggestion_station(
+        %Scope{user: %User{id: user_id}} = scope,
+        claim_id,
+        suggestion_id,
+        %{name: name} = station,
+        expected_lock_version
+      )
+      when is_binary(suggestion_id) and is_binary(name) do
+    with {:ok, _claim} <- Claims.ensure_editable(scope, claim_id, expected_lock_version) do
+      case scoped_suggestion(user_id, claim_id, suggestion_id) do
+        %Suggestion{state: :proposed} = suggestion ->
+          value =
+            suggestion.value
+            |> Map.put("text", name)
+            |> put_or_delete_station_id(Map.get(station, :id))
+            |> Map.delete("unresolved")
+
+          suggestion
+          |> Suggestion.value_changeset(value)
+          |> Repo.update()
+
+        %Suggestion{} ->
+          {:error, :invalid_state}
+
+        nil ->
+          {:error, :not_found}
+      end
+    end
+  end
+
+  def set_suggestion_station(
+        _scope,
+        _claim_id,
+        _suggestion_id,
+        _station,
+        _expected_lock_version
+      ),
+      do: {:error, :not_authenticated}
+
   # Only :draft/:ready reach this function; ensure_editable/3 already rejects
   # :sent and :completed before either caller invokes it.
   defp maybe_invalidate_output(_scope, %Claim{status: :draft} = claim, _expected_lock_version),
@@ -280,6 +338,9 @@ defmodule Fahrgastrechte.Tickets do
         persist_analysis(document, :failed, "backend", [])
     end
   end
+
+  defp put_or_delete_station_id(value, nil), do: Map.delete(value, "station_id")
+  defp put_or_delete_station_id(value, id), do: Map.put(value, "station_id", id)
 
   defp normalize_stations(scope, claim_id, suggestions) do
     StationNormalizer.normalize(suggestions, fn query ->

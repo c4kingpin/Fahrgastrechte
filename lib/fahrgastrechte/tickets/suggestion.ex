@@ -71,5 +71,18 @@ defmodule Fahrgastrechte.Tickets.Suggestion do
     |> validate_inclusion(:state, [:proposed, :accepted, :rejected])
   end
 
+  @doc false
+  def value_changeset(suggestion, value) do
+    suggestion
+    |> change(value: value)
+    |> validate_change(:value, fn :value, value ->
+      if is_map(value) and is_binary(Map.get(value, "text")) do
+        []
+      else
+        [value: "must have a text value"]
+      end
+    end)
+  end
+
   def fields, do: @fields
 end

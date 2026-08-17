@@ -191,12 +191,32 @@ defmodule Fahrgastrechte.TicketsTest do
 
       assert by_field.origin.value == %{
                "text" => "Hannover Hbf",
-               "station_id" => %{provider: TestStationProvider, value: "8000152"}
+               "station_id" => %{provider: TestStationProvider, value: "8000152"},
+               "candidates" => [
+                 %{
+                   "text" => "Hannover Hbf",
+                   "station_id" => %{provider: TestStationProvider, value: "8000152"}
+                 },
+                 %{
+                   "text" => "Hannover-Linden/Fischerhof",
+                   "station_id" => %{provider: TestStationProvider, value: "8003487"}
+                 }
+               ]
              }
 
       assert by_field.destination.value == %{
                "text" => "Frankfurt(M) Flughafen Fernbf",
-               "station_id" => %{provider: TestStationProvider, value: "8070004"}
+               "station_id" => %{provider: TestStationProvider, value: "8070004"},
+               "candidates" => [
+                 %{
+                   "text" => "Frankfurt(M) Flughafen Fernbf",
+                   "station_id" => %{provider: TestStationProvider, value: "8070004"}
+                 },
+                 %{
+                   "text" => "Frankfurt(M) Flughafen Regionalbf",
+                   "station_id" => %{provider: TestStationProvider, value: "8070003"}
+                 }
+               ]
              }
     end
 

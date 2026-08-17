@@ -332,6 +332,23 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     }
   end
 
+  @doc "Searches provider stations for a suggestion's manual override, name and id kept."
+  @spec station_search_options(Scope.t(), Ecto.UUID.t(), String.t()) ::
+          {:ok, [%{name: String.t(), id: map()}]} | {:error, term()}
+  def station_search_options(%Scope{} = scope, claim_id, query) do
+    if is_binary(query) && String.length(String.trim(query)) >= 2 do
+      case Rail.search_stations(scope, claim_id, query) do
+        {:ok, stations} ->
+          {:ok, stations |> Enum.map(&%{name: &1.name, id: Map.get(&1, :id)}) |> Enum.take(5)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, []}
+    end
+  end
+
   @doc "Searches provider connections with the departures fallback."
   def search_connections(%Scope{} = scope, %Claim{} = claim, params) when is_map(params) do
     with {:ok, departure_at} <- parse_datetime(params["departure_at"]),
