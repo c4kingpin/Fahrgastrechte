@@ -445,30 +445,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
         %{"id" => suggestion_id, "query" => query},
         socket
       ) do
-    scope = socket.assigns.current_scope
-    claim_id = socket.assigns.claim.id
-    token = async_token()
-
     socket =
       socket
       |> assign(
         :station_search_query,
         Map.put(socket.assigns.station_search_query, suggestion_id, query)
       )
-      |> assign(
-        :suggestion_search_tokens,
-        Map.put(socket.assigns.suggestion_search_tokens, suggestion_id, token)
-      )
-      |> assign(
-        :station_search_pending,
-        MapSet.put(socket.assigns.station_search_pending, suggestion_id)
-      )
       |> touch_suggestion_stream(suggestion_id)
 
     socket =
-      start_async(socket, {:suggestion_station_options, token}, fn ->
-        {suggestion_id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
-      end)
+      if String.length(String.trim(query)) >= 2 do
+        dispatch_station_search(socket, suggestion_id, query)
+      else
+        # Below the search minimum: leave whatever is currently shown (the
+        # ticket-derived defaults, or the last real search) in place instead
+        # of replacing it with an empty result set.
+        socket
+      end
 
     {:noreply, socket}
   end
@@ -596,16 +589,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     socket =
       case {Map.get(socket.assigns.suggestion_search_tokens, suggestion_id), result} do
         {^token, {:ok, options}} ->
-          existing = Map.get(socket.assigns.suggestion_station_options, suggestion_id, [])
-
           socket
           |> assign(
             :suggestion_station_options,
-            Map.put(
-              socket.assigns.suggestion_station_options,
-              suggestion_id,
-              merge_station_options(existing, options)
-            )
+            Map.put(socket.assigns.suggestion_station_options, suggestion_id, options)
           )
           |> assign(
             :station_search_pending,
@@ -1650,6 +1637,28 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  defp dispatch_station_search(socket, suggestion_id, query) do
+    scope = socket.assigns.current_scope
+    claim_id = socket.assigns.claim.id
+    token = async_token()
+
+    socket =
+      socket
+      |> assign(
+        :suggestion_search_tokens,
+        Map.put(socket.assigns.suggestion_search_tokens, suggestion_id, token)
+      )
+      |> assign(
+        :station_search_pending,
+        MapSet.put(socket.assigns.station_search_pending, suggestion_id)
+      )
+      |> touch_suggestion_stream(suggestion_id)
+
+    start_async(socket, {:suggestion_station_options, token}, fn ->
+      {suggestion_id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
+    end)
+  end
+
   defp load_workspace(socket, claim) do
     case ClaimWorkspace.load(socket.assigns.current_scope, claim.id) do
       {:ok, workspace} ->
@@ -1802,25 +1811,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   defp start_auto_station_search(socket, suggestion) do
-    scope = socket.assigns.current_scope
-    claim_id = socket.assigns.claim.id
     query = StationNormalizer.broad_query(suggestion_value(suggestion))
-    token = async_token()
-
-    socket
-    |> assign(
-      :suggestion_search_tokens,
-      Map.put(socket.assigns.suggestion_search_tokens, suggestion.id, token)
-    )
-    |> start_async({:suggestion_station_options, token}, fn ->
-      {suggestion.id, ClaimWorkspace.station_search_options(scope, claim_id, query)}
-    end)
-  end
-
-  defp merge_station_options(existing, additional) do
-    (existing ++ additional)
-    |> Enum.uniq_by(& &1.name)
-    |> Enum.take(6)
+    dispatch_station_search(socket, suggestion.id, query)
   end
 
   defp workspace_entries(workspace, key) do
