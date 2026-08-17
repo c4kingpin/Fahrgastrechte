@@ -373,14 +373,6 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     end)
   end
 
-  @doc "Returns station name options for both route fields."
-  def station_options(%Scope{} = scope, claim_id, params) when is_map(params) do
-    {
-      station_options_for(scope, claim_id, params["origin"]),
-      station_options_for(scope, claim_id, params["destination"])
-    }
-  end
-
   @doc "Searches provider stations for a suggestion's manual override, name and id kept."
   @spec station_search_options(Scope.t(), Ecto.UUID.t(), String.t()) ::
           {:ok, [%{name: String.t(), id: map()}]} | {:error, term()}
@@ -652,17 +644,6 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   defp normalize_transaction({:ok, result}), do: {:ok, result}
   defp normalize_transaction({:error, reason}), do: {:error, reason}
-
-  defp station_options_for(scope, claim_id, query) do
-    if is_binary(query) && String.length(String.trim(query)) >= 2 do
-      case Rail.search_stations(scope, claim_id, query, provider: Rail.Providers.StationCatalog) do
-        {:ok, stations} -> stations |> Enum.map(& &1.name) |> Enum.uniq() |> Enum.take(8)
-        {:error, _reason} -> []
-      end
-    else
-      []
-    end
-  end
 
   defp filter_candidates(candidates, params) do
     train_number = params["train_number"] |> to_string() |> String.trim()
