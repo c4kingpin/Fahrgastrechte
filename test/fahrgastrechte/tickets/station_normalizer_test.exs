@@ -55,7 +55,7 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
 
     search_stations = fn
       "Frankfurt(M) Flughafen" -> {:ok, [%{name: "Frankfurt(M) Flughafen Fernbf"}]}
-      "Frankfurt(M)Flugh." -> {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
+      "Frankfurt(M)Flugh" -> {:ok, [%{name: "Frankfurt(M) Flughafen Regionalbf"}]}
       _query -> {:ok, []}
     end
 
@@ -121,6 +121,26 @@ defmodule Fahrgastrechte.Tickets.StationNormalizerTest do
                %{"text" => "Frankfurt(M) Flughafen Regionalbf", "station_id" => nil}
              ]
            }
+  end
+
+  describe "broad_query/1" do
+    test "drops trailing bahnhof-type qualifiers to widen a resolved name to its place" do
+      assert StationNormalizer.broad_query("Frankfurt(M) Flughafen Regionalbf") ==
+               "Frankfurt(M) Flughafen"
+
+      assert StationNormalizer.broad_query("Hannover Hbf") == "Hannover"
+    end
+
+    test "strips the ticket product suffix from raw, unresolved text" do
+      assert StationNormalizer.broad_query("Hannover+City") == "Hannover"
+
+      assert StationNormalizer.broad_query("Frankfurt(M)Flugh. mit ICE") ==
+               "Frankfurt(M)Flugh"
+    end
+
+    test "leaves a plain place name unchanged" do
+      assert StationNormalizer.broad_query("Berlin") == "Berlin"
+    end
   end
 
   defp flag_unresolved(suggestions) do

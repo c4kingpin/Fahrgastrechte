@@ -143,22 +143,7 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
   end
 
   defp search_queries(station_text) do
-    without_product =
-      station_text
-      |> String.trim()
-      |> then(
-        &Regex.replace(
-          ~r/\s+(?:nur\s+)?mit\s+(?:ICE|IC|EC|ECE|RJX?|TGV|FLX)(?:\s.*)?$/iu,
-          &1,
-          ""
-        )
-      )
-
-    base =
-      without_product
-      |> then(&Regex.replace(~r/\+City(?:-Ticket)?(?:\s.*)?$/iu, &1, ""))
-      |> String.trim()
-      |> String.trim_trailing(".,;")
+    base = strip_product_and_city(station_text)
 
     expanded =
       base
@@ -170,6 +155,57 @@ defmodule Fahrgastrechte.Tickets.StationNormalizer do
     |> Enum.reject(&(String.length(&1) < 3))
     |> Enum.uniq()
   end
+
+  defp strip_product_and_city(station_text) do
+    station_text
+    |> String.trim()
+    |> then(
+      &Regex.replace(
+        ~r/\s+(?:nur\s+)?mit\s+(?:ICE|IC|EC|ECE|RJX?|TGV|FLX)(?:\s.*)?$/iu,
+        &1,
+        ""
+      )
+    )
+    |> then(&Regex.replace(~r/\+City(?:-Ticket)?(?:\s.*)?$/iu, &1, ""))
+    |> String.trim()
+    |> String.replace(~r/[.,;]+$/, "")
+  end
+
+  @station_type_words ~w(hauptbahnhof hbf fernbahnhof fernbf regionalbahnhof regionalbf bahnhof bf)
+
+  @doc """
+  Widens a station name/text to a place-only query for a proactive fallback
+  search, by dropping the ticket's product suffix and any trailing
+  bahnhof-type qualifier (e.g. "Frankfurt(M) Flughafen Regionalbf" becomes
+  "Frankfurt(M) Flughafen", "Hannover+City" becomes "Hannover").
+
+  Used when too few candidates were found for a suggestion, so the user gets
+  real alternatives to pick from instead of an empty search box.
+  """
+  @spec broad_query(String.t()) :: String.t()
+  def broad_query(text) when is_binary(text) do
+    text
+    |> strip_product_and_city()
+    |> String.split(~r/\s+/, trim: true)
+    |> drop_trailing_station_type_words()
+    |> Enum.join(" ")
+    |> case do
+      "" -> String.trim(text)
+      stripped -> stripped
+    end
+  end
+
+  defp drop_trailing_station_type_words([_first | _rest] = tokens) when length(tokens) > 1 do
+    last = tokens |> List.last() |> String.downcase() |> String.replace(~r/[.,;]+$/, "")
+
+    if last in @station_type_words do
+      tokens |> List.delete_at(-1) |> drop_trailing_station_type_words()
+    else
+      tokens
+    end
+  end
+
+  defp drop_trailing_station_type_words(tokens), do: tokens
 
   defp normalize_name(name) do
     name
