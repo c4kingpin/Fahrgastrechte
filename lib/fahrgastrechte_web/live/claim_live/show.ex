@@ -276,7 +276,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("set_disruption", %{"type" => type}, socket)
-      when type in ["delay", "cancellation"] do
+      when type in ["delay", "cancellation", "missed_connection"] do
     {:noreply, persist_claim(socket, %{"disruption_cause" => type}, false)}
   end
 

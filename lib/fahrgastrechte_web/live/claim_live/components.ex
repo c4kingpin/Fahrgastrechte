@@ -963,7 +963,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.step_badge state={@actual_state} />
       </div>
 
-      <div id="disruption-choice" class={["mt-6 grid grid-cols-2 gap-3"]}>
+      <div id="disruption-choice" class={["mt-6 grid gap-3 sm:grid-cols-3"]}>
         <button
           id="choose-delay"
           type="button"
@@ -993,6 +993,23 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           <.icon name="hero-no-symbol" class="size-6" />
           <strong class={["mt-3 block text-sm"]}>Zugausfall</strong>
           <span class={["mt-1 block text-xs opacity-75"]}>Mit Ersatzverbindung erfassen</span>
+        </button>
+        <button
+          id="choose-missed-connection"
+          type="button"
+          phx-click="set_disruption"
+          phx-value-type="missed_connection"
+          disabled={!editable?(@claim.status)}
+          class={[
+            "rounded-2xl border p-4 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700",
+            disruption_choice_style(@claim.disruption_cause == :missed_connection)
+          ]}
+        >
+          <.icon name="hero-arrow-path-rounded-square" class="size-6" />
+          <strong class={["mt-3 block text-sm"]}>Anschluss verpasst</strong>
+          <span class={["mt-1 block text-xs opacity-75"]}>
+            Verzögerung führte zum verpassten Umstieg
+          </span>
         </button>
       </div>
 
@@ -1125,6 +1142,33 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 field={@actual_form[:replacement_arrival]}
                 type="datetime-local"
                 label="Ankunft Ersatz"
+              />
+            </div>
+          </div>
+
+          <div
+            :if={@claim.disruption_cause == :missed_connection}
+            id="missed-connection-fields"
+            class={["rounded-2xl border border-amber-200 bg-amber-50 p-4 sm:p-5"]}
+          >
+            <h3 class={["text-sm font-semibold text-amber-950"]}>
+              Tatsächliche Anschlussverbindung
+            </h3>
+            <div class={["mt-4 grid gap-5 sm:grid-cols-2"]}>
+              <.input
+                field={@actual_form[:missed_connection_category]}
+                label="Zuggattung Anschluss"
+              />
+              <.input field={@actual_form[:missed_connection_number]} label="Zugnummer Anschluss" />
+              <.input
+                field={@actual_form[:missed_connection_departure]}
+                type="datetime-local"
+                label="Abfahrt Anschluss"
+              />
+              <.input
+                field={@actual_form[:missed_connection_arrival]}
+                type="datetime-local"
+                label="Ankunft Anschluss"
               />
             </div>
           </div>
