@@ -170,6 +170,78 @@ defmodule Fahrgastrechte.ExportsTest do
       assert fields["arrived_minutes"] == "15"
     end
 
+    test "supports a missed connection with a manually confirmed onward train" do
+      scope = scope_fixture()
+      {:ok, _profile} = Accounts.update_profile(scope, valid_profile_attributes())
+
+      claim =
+        claim_fixture(scope, %{
+          "journey_outcome" => "delayed_arrival",
+          "disruption_cause" => "missed_connection"
+        })
+
+      {_ticket, claim} = document_fixture(scope, claim)
+
+      {_invoice, claim} =
+        document_fixture(scope, claim, :invoice, %{
+          path: fixture_path("synthetic-invoice.pdf"),
+          original_filename: "invoice.pdf"
+        })
+
+      planned = [
+        segment_attributes(%{
+          destination_name: "Hannover Hbf",
+          scheduled_arrival: ~U[2026-07-15 08:00:00Z],
+          actual_departure: nil,
+          actual_arrival: nil
+        }),
+        segment_attributes(%{
+          origin_name: "Hannover Hbf",
+          train_number: "200",
+          scheduled_departure: ~U[2026-07-15 08:15:00Z],
+          scheduled_arrival: ~U[2026-07-15 10:00:00Z],
+          actual_departure: nil,
+          actual_arrival: nil
+        })
+      ]
+
+      {:ok, %{claim: claim}} =
+        Rail.confirm_journey(scope, claim.id, :planned, planned, claim.lock_version)
+
+      feeder =
+        segment_attributes(%{
+          destination_name: "Hannover Hbf",
+          scheduled_arrival: ~U[2026-07-15 08:00:00Z],
+          actual_arrival: ~U[2026-07-15 08:30:00Z]
+        })
+
+      onward =
+        segment_attributes(%{
+          origin_name: "Hannover Hbf",
+          train_category: "IC",
+          train_number: "202",
+          scheduled_departure: ~U[2026-07-15 08:15:00Z],
+          scheduled_arrival: ~U[2026-07-15 10:00:00Z],
+          actual_departure: ~U[2026-07-15 08:45:00Z],
+          actual_arrival: ~U[2026-07-15 10:40:00Z],
+          manual: true,
+          source: "manual"
+        })
+
+      {:ok, %{claim: claim}} =
+        Rail.confirm_journey(scope, claim.id, :actual, [feeder, onward], claim.lock_version)
+
+      assert {:ok, %{export: export}} =
+               Exports.generate_export(scope, claim.id, claim.lock_version)
+
+      cleanup_export(export)
+      assert_receive {:pdf_backend_fields, fields}
+      fields = Map.new(fields)
+      assert fields["journey"] == "Verspätung am Ziel (mind. 60 Minuten)"
+      assert fields["arrived_hours"] == "12"
+      assert fields["arrived_minutes"] == "40"
+    end
+
     test "reports structured prerequisites and keeps an incomplete claim as draft" do
       scope = scope_fixture()
       claim = claim_fixture(scope)
@@ -221,6 +293,33 @@ defmodule Fahrgastrechte.ExportsTest do
 
       assert {:error, :template_changed} =
                Exports.generate_export(scope, claim.id, claim.lock_version)
+    end
+  end
+
+  describe "model_current?/2" do
+    test "is true right after generating an export and false once dependent data changes" do
+      scope = scope_fixture()
+      claim = export_ready_fixture(scope)
+
+      assert {:ok, %{export: export}} =
+               Exports.generate_export(scope, claim.id, claim.lock_version)
+
+      assert {:ok, prerequisites} = Exports.readiness(scope, claim.id)
+      assert Exports.model_current?(prerequisites, export)
+
+      assert {:ok, ready} = Claims.get_claim(scope, claim.id)
+      assert ready.status == :ready
+
+      assert {:ok, _draft} =
+               Claims.update_claim(
+                 scope,
+                 claim.id,
+                 %{"destination" => "Bremen Hbf"},
+                 ready.lock_version
+               )
+
+      assert {:ok, changed_prerequisites} = Exports.readiness(scope, claim.id)
+      refute Exports.model_current?(changed_prerequisites, export)
     end
   end
 

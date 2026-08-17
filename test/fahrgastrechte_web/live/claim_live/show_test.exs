@@ -3,7 +3,7 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
-  import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 2]
+  import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 2, document_fixture: 4]
   import Phoenix.LiveViewTest
 
   alias Fahrgastrechte.Accounts.Scope
@@ -230,10 +230,14 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     render_click(view, "delete_document", %{"id" => other_document.id})
     render_click(view, "reanalyze_document", %{"id" => other_document.id})
+    render_click(view, "change_document_kind", %{"id" => other_document.id, "kind" => "invoice"})
+    render_click(view, "confirm_manual_fallback", %{"id" => other_document.id})
 
     assert {:ok, unchanged} = Documents.get_document(scope, other_document.id)
     assert unchanged.claim_id == other_claim.id
     assert unchanged.analysis_status == :not_started
+    assert unchanged.kind == :ticket
+    assert is_nil(unchanged.manual_fallback_confirmed_at)
 
     assert {:ok, %{suggestions: [suggestion | _suggestions]}} =
              Tickets.analyze_document(
@@ -250,6 +254,34 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     assert {:ok, unchanged_suggestions} = Tickets.list_suggestions(scope, other_document.id)
     assert Enum.find(unchanged_suggestions, &(&1.id == suggestion.id)).state == :proposed
+  end
+
+  test "corrects a misclassified document's kind and reanalyzes it in place", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+
+    {document, claim} =
+      document_fixture(scope, claim, :ticket, %{
+        path: fixture_path("synthetic-invoice.pdf"),
+        original_filename: "invoice.pdf"
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}/dokumente")
+
+    assert has_element?(view, "#ticket-document-card #change-kind-ticket")
+
+    view |> element("#change-kind-ticket") |> render_click()
+    render_async(view)
+
+    assert has_element?(view, "#invoice-document-card #download-invoice")
+    refute has_element?(view, "#ticket-document-card #download-ticket")
+
+    assert {:ok, relabeled} = Documents.get_document(scope, document.id)
+    assert relabeled.kind == :invoice
+    assert relabeled.analysis_status == :completed
+
+    assert {:ok, suggestions} = Tickets.list_suggestions(scope, document.id)
+    assert Enum.any?(suggestions, &(&1.field == :order_number))
   end
 
   test "a manipulated suggestion event cannot mutate a sent claim", %{conn: conn} do

@@ -15,6 +15,7 @@ defmodule Fahrgastrechte.Accounts do
   alias Fahrgastrechte.Accounts.Profile
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
+  alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Repo
 
   @doc """
@@ -84,18 +85,35 @@ defmodule Fahrgastrechte.Accounts do
 
   @doc """
   Updates only the current user's profile.
+
+  If any field that ends up in the generated PDF actually changed
+  (`Profile.export_relevant_fields/0`), every currently `:ready` claim of
+  this user is demoted back to `:draft`
+  (`Claims.invalidate_ready_claims_for_profile_change/1`) so its next
+  export reflects the new data. Claims already `:sent` or `:completed`
+  are frozen snapshots and are never touched by a later profile edit.
   """
   @spec update_profile(Scope.t(), map()) ::
           {:ok, Profile.t()} | {:error, Changeset.t() | atom()}
   def update_profile(%Scope{} = scope, attrs) do
     with {:ok, profile} <- get_profile(scope) do
-      profile
-      |> Profile.changeset(attrs)
+      changeset = Profile.changeset(profile, attrs)
+
+      export_relevant_change? =
+        Enum.any?(Profile.export_relevant_fields(), &Changeset.changed?(changeset, &1))
+
+      changeset
       |> encrypt_bank_changes()
       |> Repo.update()
       |> case do
-        {:ok, updated_profile} -> decrypt_profile(updated_profile)
-        {:error, changeset} -> {:error, changeset}
+        {:ok, updated_profile} ->
+          if export_relevant_change?,
+            do: Claims.invalidate_ready_claims_for_profile_change(scope)
+
+          decrypt_profile(updated_profile)
+
+        {:error, changeset} ->
+          {:error, changeset}
       end
     end
   end
@@ -203,21 +221,43 @@ defmodule Fahrgastrechte.Accounts do
   Run this after rotating `FIELD_ENCRYPTION_KEY`, with the previous key still
   configured in `FIELD_ENCRYPTION_KEYS`. The operation is idempotent and skips
   profiles without stored bank data.
+
+  Each profile is re-encrypted under its own `SELECT ... FOR UPDATE` transaction,
+  so a concurrent `update_profile/2` on the same row is serialized against the
+  rekey instead of being silently overwritten by it: whichever transaction
+  commits last always sees the other's already-committed result. Safe to run
+  against a live, in-use instance — no maintenance window required.
   """
   @spec rekey_bank_data() ::
           {:ok, %{rekeyed: non_neg_integer(), skipped: non_neg_integer()}}
           | {:error, :encryption_key_unavailable | {:profile, integer(), term()}}
   def rekey_bank_data do
     with {:ok, active_version} <- BankDataCipher.active_key_version() do
-      Profile
+      from(p in Profile, select: p.id)
       |> Repo.all()
-      |> Enum.reduce_while({:ok, %{rekeyed: 0, skipped: 0}}, fn profile, {:ok, counts} ->
-        case rekey_profile(profile, active_version) do
+      |> Enum.reduce_while({:ok, %{rekeyed: 0, skipped: 0}}, fn id, {:ok, counts} ->
+        case rekey_profile_locked(id, active_version) do
           :skipped -> {:cont, {:ok, %{counts | skipped: counts.skipped + 1}}}
           :rekeyed -> {:cont, {:ok, %{counts | rekeyed: counts.rekeyed + 1}}}
-          {:error, reason} -> {:halt, {:error, {:profile, profile.id, reason}}}
+          {:error, reason} -> {:halt, {:error, {:profile, id, reason}}}
         end
       end)
+    end
+  end
+
+  defp rekey_profile_locked(id, active_version) do
+    Repo.transaction(fn ->
+      from(p in Profile, where: p.id == ^id, lock: "FOR UPDATE")
+      |> Repo.one!()
+      |> rekey_profile(active_version)
+      |> case do
+        {:error, reason} -> Repo.rollback(reason)
+        result -> result
+      end
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, reason} -> {:error, reason}
     end
   end
 

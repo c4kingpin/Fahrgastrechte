@@ -14,7 +14,9 @@ defmodule Fahrgastrechte.Exports do
   alias Fahrgastrechte.Accounts.Scope
   alias Fahrgastrechte.Accounts.User
   alias Fahrgastrechte.Claims
+  alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.PDFJobLimiter
   alias Fahrgastrechte.Exports.CoverRenderer
   alias Fahrgastrechte.Exports.ExportVersion
   alias Fahrgastrechte.Exports.Template
@@ -61,10 +63,12 @@ defmodule Fahrgastrechte.Exports do
       end
     end
 
-    case :global.trans({__MODULE__, :pdf_job}, job, [node() | Node.list()], @lock_retries) do
-      :aborted -> {:error, :busy}
-      result -> result
-    end
+    PDFJobLimiter.with_permit(fn ->
+      case :global.trans({__MODULE__, :pdf_job}, job, [node() | Node.list()], @lock_retries) do
+        :aborted -> {:error, :busy}
+        result -> result
+      end
+    end)
   end
 
   def generate_export(_scope, _claim_id, _expected_claim_lock_version),
@@ -132,17 +136,31 @@ defmodule Fahrgastrechte.Exports do
   defp build_model(scope, claim_id, expected_lock_version) do
     with {:ok, prerequisites} <- readiness(scope, claim_id),
          :ok <- editable_claim(prerequisites.claim, expected_lock_version) do
-      {:ok,
-       %{
-         claim: prerequisites.claim,
-         profile: prerequisites.profile,
-         rail: prerequisites.rail,
-         ticket: prerequisites.documents.ticket,
-         ticket_order_number: prerequisites.ticket_values.order_number,
-         invoice: prerequisites.documents.invoice,
-         created_on: Date.utc_today()
-       }}
+      {:ok, Map.put(content_model(prerequisites), :created_on, Date.utc_today())}
     end
+  end
+
+  defp content_model(prerequisites) do
+    %{
+      claim: prerequisites.claim,
+      profile: prerequisites.profile,
+      rail: prerequisites.rail,
+      ticket: prerequisites.documents.ticket,
+      ticket_order_number: prerequisites.ticket_values.order_number,
+      invoice: prerequisites.documents.invoice
+    }
+  end
+
+  @doc """
+  Whether an export version's stored model hash still matches the claim's
+  current data, given an already-loaded `readiness/2` result.
+
+  Excludes the render date (`created_on`), which describes when the PDF was
+  generated, not the claim's actual content.
+  """
+  @spec model_current?(map(), ExportVersion.t()) :: boolean()
+  def model_current?(prerequisites, %ExportVersion{} = export) do
+    prerequisites |> content_model() |> model_digest() == export.model_sha256
   end
 
   defp collect_readiness(results, scope) do
@@ -321,7 +339,7 @@ defmodule Fahrgastrechte.Exports do
       template_version: template.version,
       template_source: template.source,
       template_sha256: template.sha256,
-      model_sha256: model_digest(model),
+      model_sha256: model_digest(Map.delete(model, :created_on)),
       cover_document_id: documents.generated_cover.id,
       form_document_id: documents.generated_form.id,
       bundle_document_id: documents.generated_bundle.id
@@ -414,6 +432,11 @@ defmodule Fahrgastrechte.Exports do
 
   defp model_digest(model) do
     model
+    # Only the claim's user-editable content fields, not lifecycle bookkeeping
+    # (status, lock_version, generated_at/sent_at/completed_at, ...) — those
+    # change on their own as a claim moves ready -> sent -> completed without
+    # its actual content changing, and must not flip the digest.
+    |> Map.update!(:claim, &Map.take(&1, Claim.editable_fields()))
     |> :erlang.term_to_binary([:deterministic])
     |> then(&:crypto.hash(:sha256, &1))
   end

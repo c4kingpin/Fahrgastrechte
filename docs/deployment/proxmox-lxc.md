@@ -14,28 +14,45 @@ praktische Freigabe wird mit der
 
 ## Schnellinstallation
 
-Als `root` in der Shell des LXC:
+### Produktionsinstallation (gepinnter Commit)
+
+Als `root` in der Shell des LXC: Installer herunterladen, Prüfsumme
+kontrollieren, erst danach ausführen — gegen einen geprüften, unveränderlichen
+Commit-SHA statt gegen den sich laufend ändernden `main`-Branch. Es gibt
+aktuell keine Release-Tags im Repository; ein vollständiger Commit-SHA ist der
+heute nutzbare stabile Referenzpunkt:
+
+```bash
+COMMIT=<geprüfter vollständiger Commit-SHA>
+curl -fsSL -o fahrgastrechte-install.sh \
+  "https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/${COMMIT}/install/fahrgastrechte-install.sh"
+sha256sum fahrgastrechte-install.sh   # gegen eine unabhängig bestätigte Quelle prüfen
+PHX_HOST=fahrgastrechte.example.org \
+APP_REF="$COMMIT" \
+INSTALLER_REF="$COMMIT" \
+  bash fahrgastrechte-install.sh
+```
+
+`APP_REF` bestimmt den ausgecheckten Anwendungsstand, `INSTALLER_REF` den Stand
+des Installer-Scripts selbst, das jedes künftige `update` erneut herunterlädt
+— beide sollten auf denselben geprüften Commit zeigen.
+
+### Schnellstart für Evaluierung
+
+Der folgende Einzeiler führt ungeprüft den jeweils aktuellen Stand von `main`
+als `root` aus — **nur für Evaluierung/Entwicklung geeignet, kein
+Produktionsweg**:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
 ```
 
-Der öffentliche Phoenix-Hostname ist standardmäßig
-`fahrgastrechte.local`. Für eine produktive Installation sollte er direkt beim
-Start gesetzt werden:
+Der öffentliche Phoenix-Hostname ist standardmäßig `fahrgastrechte.local` und
+kann direkt beim Start gesetzt werden:
 
 ```bash
 PHX_HOST=fahrgastrechte.example.org \
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)"
-```
-
-Ein bestimmter Branch, Tag oder Commit lässt sich über `APP_REF` installieren:
-
-```bash
-PHX_HOST=fahrgastrechte.example.org \
-APP_REF=v0.2.0 \
-INSTALLER_REF=v0.2.0 \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/v0.2.0/install/fahrgastrechte-install.sh)"
 ```
 
 Vor der Installation können die Voraussetzungen ohne Änderungen geprüft werden:
@@ -44,10 +61,11 @@ Vor der Installation können die Voraussetzungen ohne Änderungen geprüft werde
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/c4kingpin/Fahrgastrechte/main/install/fahrgastrechte-install.sh)" -- --check
 ```
 
-> Ein `curl | bash`-Einzeiler führt den heruntergeladenen Stand als `root` aus.
-> Für reproduzierbare Produktionsinstallationen sollten ein geprüfter
-> Release-Tag oder vollständiger Commit-SHA verwendet und das Script vor der
-> Ausführung kontrolliert werden.
+> Ein `curl | bash`-Einzeiler führt den heruntergeladenen Stand ungeprüft als
+> `root` aus. Für Produktion immer den Weg oben verwenden: Installer
+> herunterladen, `sha256sum` gegen eine unabhängig bestätigte Quelle
+> vergleichen, erst danach mit einem geprüften, vollständigen Commit-SHA als
+> `APP_REF`/`INSTALLER_REF` ausführen.
 
 ## Aufbau des Deployments
 
@@ -102,16 +120,19 @@ Installer-Ausgabe offengelegt.
 
 ## Updates
 
-Innerhalb des Containers installiert `update` den aktuellen Stand von `main`:
+Innerhalb des Containers installiert ein argumentloser `update`-Aufruf erneut
+den zuletzt verwendeten Stand: ein gepinnter Commit bleibt gepinnt (echtes
+No-Op), ein bewusst verfolgter Branch wie `main` aktualisiert sich auf dessen
+neuesten Commit:
 
 ```bash
 update
 ```
 
-Ein Branch, Tag oder Commit kann explizit angegeben werden:
+Ein anderer Commit kann explizit angegeben werden:
 
 ```bash
-update v0.2.0
+update <commit-sha>
 ```
 
 Repository, externer Hostname, Datenbankzugang und Verschlüsselungs-Secrets werden
@@ -122,9 +143,9 @@ ausgeführte Datenbankmigrationen können dabei nicht automatisch zurückgerollt
 werden. Vor jeder Migration wird automatisch ein verschlüsseltes Backup
 erstellt; ein manueller Rollback erzeugt ebenfalls zuerst ein Backup.
 
-Für Releases ausschließlich einen geprüften Tag oder vollständigen Commit-SHA
-verwenden. Proxmox-Snapshot und extern repliziertes Backup bleiben zusätzliche
-Schutzschichten.
+Für Releases ausschließlich einen geprüften, vollständigen Commit-SHA
+verwenden (Release-Tags gibt es aktuell nicht im Repository). Proxmox-Snapshot
+und extern repliziertes Backup bleiben zusätzliche Schutzschichten.
 
 ## Netzwerk und TLS
 

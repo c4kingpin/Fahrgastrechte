@@ -13,6 +13,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   alias Fahrgastrechte.Claims.Claim
   alias Fahrgastrechte.ClaimWorkspace.ReadModel
   alias Fahrgastrechte.Documents
+  alias Fahrgastrechte.Documents.Document
   alias Fahrgastrechte.Exports
   alias Fahrgastrechte.GermanDateTime
   alias Fahrgastrechte.Rail
@@ -117,6 +118,9 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   defp actual_arrival_label(%Claim{disruption_cause: :cancellation}),
     do: "Ersatzverbindung ergänzen"
+
+  defp actual_arrival_label(%Claim{disruption_cause: :missed_connection}),
+    do: "Anschlussverbindung ergänzen"
 
   defp actual_arrival_label(_claim), do: "Tatsächliche Ankunft ergänzen"
 
@@ -417,8 +421,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     documents_started? = upload_documents != []
 
     analysis_complete? =
-      documents_complete? &&
-        Enum.all?(upload_documents, &(&1.analysis_status in [:completed, :manual_required]))
+      documents_complete? && Enum.all?(upload_documents, &document_analysis_resolved?/1)
 
     suggestions_complete? =
       analysis_complete? && Enum.all?(suggestions, &(&1.state != :proposed))
@@ -438,7 +441,8 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
     readiness = Exports.readiness(scope, claim.id)
     review_complete? = match?({:ok, _prerequisites}, readiness) && suggestions_complete?
-    exports_available? = exports != []
+    current_export = current_export(exports, readiness)
+    exports_available? = !is_nil(current_export)
 
     review_started? =
       Enum.any?(
@@ -465,6 +469,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       planned_journey: planned_journey,
       actual_journey: actual_journey,
       exports: exports,
+      current_export: current_export,
       api_sources: api_sources,
       status_history: status_history,
       profile_complete?: profile_complete?,
@@ -477,13 +482,18 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       review_complete?: review_complete?,
       exports_available?: exports_available?,
       step_states: step_states,
-      planned_form_data: planned_form_data(claim, planned_journey),
-      actual_form_data: actual_form_data(claim, planned_journey, actual_journey),
-      connection_search_data: connection_search_data(claim, planned_journey),
-      suggestion_correction_data: suggestion_correction_data(claim),
       readiness: readiness
     }
   end
+
+  defp current_export([], _readiness), do: nil
+
+  defp current_export(exports, {:ok, prerequisites}) do
+    latest = List.last(exports)
+    if Exports.model_current?(prerequisites, latest), do: latest
+  end
+
+  defp current_export(_exports, {:error, _reason}), do: nil
 
   defp optional_journey(scope, claim_id, kind) do
     case Rail.get_journey(scope, claim_id, kind) do
@@ -658,6 +668,9 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp build_actual_segments(params, :cancellation, planned_journey),
     do: build_cancellation_segments(params, planned_journey)
 
+  defp build_actual_segments(params, :missed_connection, planned_journey),
+    do: build_missed_connection_segments(params, planned_journey)
+
   defp build_actual_segments(_params, _cause, _planned_journey),
     do: {:error, :missing_disruption}
 
@@ -724,6 +737,43 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     end
   end
 
+  defp document_analysis_resolved?(%Document{analysis_status: status})
+       when status in [:completed, :manual_required],
+       do: true
+
+  defp document_analysis_resolved?(%Document{
+         analysis_status: :failed,
+         manual_fallback_confirmed_at: confirmed_at
+       }),
+       do: not is_nil(confirmed_at)
+
+  defp document_analysis_resolved?(%Document{}), do: false
+
+  defp build_missed_connection_segments(_params, nil), do: {:error, :missing_planned}
+
+  defp build_missed_connection_segments(params, planned_journey) do
+    with {:ok, [feeder]} <- build_delay_segment(params),
+         {:ok, onward_departure} <- parse_datetime(params["missed_connection_departure"]),
+         {:ok, onward_arrival} <- parse_datetime(params["missed_connection_arrival"]),
+         :ok <- validate_order(onward_departure, onward_arrival) do
+      onward = %{
+        origin_name: feeder.destination_name,
+        destination_name: List.last(planned_journey.segments).destination_name,
+        train_category: params["missed_connection_category"],
+        train_number: params["missed_connection_number"],
+        scheduled_departure: onward_departure,
+        scheduled_arrival: onward_arrival,
+        actual_departure: onward_departure,
+        actual_arrival: onward_arrival,
+        cancelled: false,
+        source: "manual",
+        manual: true
+      }
+
+      {:ok, [feeder, onward]}
+    end
+  end
+
   defp journey_complete?(nil, _kind), do: false
 
   defp journey_complete?(journey, :planned) do
@@ -737,111 +787,6 @@ defmodule Fahrgastrechte.ClaimWorkspace do
   defp actual_journey_complete?(_claim, journey) do
     journey.segments != [] &&
       Enum.any?(journey.segments, &(&1.actual_arrival || &1.estimated_arrival))
-  end
-
-  defp planned_form_data(claim, nil) do
-    %{
-      "origin_name" => claim.origin || "",
-      "destination_name" => claim.destination || "",
-      "train_category" => "",
-      "train_number" => "",
-      "scheduled_departure" => default_departure(claim),
-      "scheduled_arrival" => "",
-      "via_name" => "",
-      "transfer_arrival" => "",
-      "transfer_departure" => "",
-      "second_category" => "",
-      "second_number" => ""
-    }
-  end
-
-  defp planned_form_data(_claim, journey) do
-    first = List.first(journey.segments)
-    last = List.last(journey.segments)
-    second = Enum.at(journey.segments, 1)
-
-    %{
-      "origin_name" => first.origin_name || "",
-      "destination_name" => last.destination_name || "",
-      "train_category" => first.train_category || "",
-      "train_number" => first.train_number || "",
-      "scheduled_departure" => datetime_local(first.scheduled_departure),
-      "scheduled_arrival" => datetime_local(last.scheduled_arrival),
-      "via_name" => if(second, do: first.destination_name || "", else: ""),
-      "transfer_arrival" => if(second, do: datetime_local(first.scheduled_arrival), else: ""),
-      "transfer_departure" =>
-        if(second, do: datetime_local(second.scheduled_departure), else: ""),
-      "second_category" => if(second, do: second.train_category || "", else: ""),
-      "second_number" => if(second, do: second.train_number || "", else: "")
-    }
-  end
-
-  defp actual_form_data(claim, planned, nil) do
-    planned_data = planned_form_data(claim, planned)
-
-    Map.merge(planned_data, %{
-      "actual_departure" => "",
-      "actual_arrival" => "",
-      "replacement_category" => "",
-      "replacement_number" => "",
-      "replacement_departure" => "",
-      "replacement_arrival" => ""
-    })
-  end
-
-  defp actual_form_data(claim, planned, journey) do
-    first = List.first(journey.segments)
-    last = List.last(journey.segments)
-
-    claim
-    |> actual_form_data(planned, nil)
-    |> Map.put("origin_name", first.origin_name || claim.origin || "")
-    |> Map.put("destination_name", last.destination_name || claim.destination || "")
-    |> Map.put("train_category", first.train_category || "")
-    |> Map.put("train_number", first.train_number || "")
-    |> Map.put("scheduled_departure", datetime_local(first.scheduled_departure))
-    |> Map.put("scheduled_arrival", datetime_local(first.scheduled_arrival))
-    |> Map.put(
-      "actual_departure",
-      datetime_local(first.actual_departure || first.estimated_departure)
-    )
-    |> Map.put("actual_arrival", datetime_local(last.actual_arrival || last.estimated_arrival))
-    |> maybe_put_replacement(journey)
-  end
-
-  defp maybe_put_replacement(data, %{segments: [_first, replacement | _rest]}) do
-    data
-    |> Map.put("replacement_category", replacement.train_category || "")
-    |> Map.put("replacement_number", replacement.train_number || "")
-    |> Map.put(
-      "replacement_departure",
-      datetime_local(replacement.actual_departure || replacement.scheduled_departure)
-    )
-    |> Map.put(
-      "replacement_arrival",
-      datetime_local(replacement.actual_arrival || replacement.scheduled_arrival)
-    )
-  end
-
-  defp maybe_put_replacement(data, _journey), do: data
-
-  defp connection_search_data(claim, planned) do
-    planned_data = planned_form_data(claim, planned)
-
-    %{
-      "origin" => claim.origin || "",
-      "destination" => claim.destination || "",
-      "departure_at" => planned_data["scheduled_departure"],
-      "train_number" => planned_data["train_number"]
-    }
-  end
-
-  defp suggestion_correction_data(claim) do
-    %{
-      "travel_date" => if(claim.travel_date, do: Date.to_iso8601(claim.travel_date), else: ""),
-      "origin" => claim.origin || "",
-      "destination" => claim.destination || ""
-    }
   end
 
   defp suggestion_topic(%{field: field})
@@ -860,17 +805,6 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     do: :booking
 
   defp suggestion_topic(_suggestion), do: :other
-
-  defp default_departure(%{travel_date: %Date{} = date}), do: "#{Date.to_iso8601(date)}T08:00"
-  defp default_departure(_claim), do: ""
-
-  defp datetime_local(nil), do: ""
-
-  defp datetime_local(%DateTime{} = datetime) do
-    datetime
-    |> BerlinTime.to_local_naive()
-    |> Calendar.strftime("%Y-%m-%dT%H:%M")
-  end
 
   defp claim_started?(claim) do
     Enum.any?(
