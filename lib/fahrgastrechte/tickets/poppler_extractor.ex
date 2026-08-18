@@ -13,7 +13,15 @@ defmodule Fahrgastrechte.Tickets.PopplerExtractor do
     pages = Keyword.fetch!(options, :pages)
 
     case CommandRunner.run(executable, ["-layout", "-enc", "UTF-8", pdf_path, "-"], timeout) do
-      {:ok, text} ->
+      {:ok, raw_text} ->
+        # Some PDF generators emit compatibility glyphs (e.g. fullwidth digits)
+        # that render identically to plain ASCII but are different codepoints,
+        # which silently broke equality checks between documents (an order
+        # number extracted from the ticket compared as "different" from the
+        # same number extracted from the invoice). NFKC folds those back to
+        # their canonical form.
+        text = normalize_text(raw_text)
+
         cond do
           byte_size(text) > max_text_bytes -> {:error, :resource_limit}
           String.trim(text) == "" -> {:error, :no_text}
@@ -44,6 +52,14 @@ defmodule Fahrgastrechte.Tickets.PopplerExtractor do
       |> Enum.uniq_by(& &1.field)
 
     {:ok, suggestions}
+  end
+
+  @doc "Folds Unicode compatibility glyphs (e.g. fullwidth digits) to their canonical form."
+  def normalize_text(text) do
+    case :unicode.characters_to_nfkc_binary(text) do
+      normalized when is_binary(normalized) -> normalized
+      _invalid -> text
+    end
   end
 
   defp line_suggestions("", _page, _kind), do: []
