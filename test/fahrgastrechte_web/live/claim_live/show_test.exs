@@ -3,7 +3,8 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
-  import Fahrgastrechte.DocumentsFixtures, only: [document_fixture: 2, document_fixture: 4]
+  import Fahrgastrechte.DocumentsFixtures,
+    only: [document_fixture: 2, document_fixture: 3, document_fixture: 4]
   import Fahrgastrechte.RailFixtures, only: [station_fixture!: 2]
   import Phoenix.LiveViewTest
 
@@ -11,7 +12,9 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
   alias Fahrgastrechte.Claims
   alias Fahrgastrechte.Documents
   alias Fahrgastrechte.TestTicketRouteExtractor
+  alias Fahrgastrechte.Repo
   alias Fahrgastrechte.Tickets
+  alias Fahrgastrechte.Tickets.Suggestion
   alias FahrgastrechteWeb.ClaimLive.Show
   alias FahrgastrechteWeb.UserAuth
 
@@ -177,6 +180,32 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert updated_claim.origin == "Teststadt Hbf"
     assert {:ok, updated_suggestions} = Tickets.list_suggestions(scope, document.id)
     assert Enum.find(updated_suggestions, &(&1.id == origin.id)).state == :accepted
+  end
+
+  test "merges a fare recognized in both ticket and invoice into one card with candidates",
+       %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {ticket, claim} = document_fixture(scope, claim, :ticket)
+    {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+    ticket_fare = insert_fare_suggestion!(ticket, "19.90", 0.9)
+    invoice_fare = insert_fare_suggestion!(invoice, "21.40", 0.7)
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(view, "#booking-suggestions #booking_suggestions-#{ticket_fare.id}")
+    refute has_element?(view, "#booking-suggestions #booking_suggestions-#{invoice_fare.id}")
+    assert has_element?(view, "#choose-suggestion-candidate-#{ticket_fare.id}")
+    assert has_element?(view, "#choose-suggestion-candidate-#{invoice_fare.id}")
+
+    view
+    |> element("#choose-suggestion-candidate-#{invoice_fare.id}")
+    |> render_click()
+
+    assert {:ok, updated_suggestions} = Tickets.list_claim_suggestions(scope, claim.id)
+    assert Enum.find(updated_suggestions, &(&1.id == invoice_fare.id)).state == :accepted
+    assert Enum.find(updated_suggestions, &(&1.id == ticket_fare.id)).state == :rejected
   end
 
   test "manual station search box finds and applies a real catalog match", %{conn: conn} do
@@ -472,5 +501,18 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
   defp fixture_path(filename) do
     Path.expand("../../../fixtures/c00/#{filename}", __DIR__)
+  end
+
+  defp insert_fare_suggestion!(document, amount, confidence) do
+    %Suggestion{document_id: document.id}
+    |> Suggestion.changeset(%{
+      field: :fare,
+      value: %{"amount" => amount, "currency" => "EUR"},
+      confidence: confidence,
+      source_page: 1,
+      source_excerpt: "Fahrpreis: #{amount} EUR",
+      state: :proposed
+    })
+    |> Repo.insert!()
   end
 end

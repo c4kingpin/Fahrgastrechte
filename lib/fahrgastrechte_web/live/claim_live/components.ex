@@ -551,6 +551,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :step_states, :map, required: true
   attr :streams, :any, required: true
   attr :suggestion_correction_form, :any, required: true
+  attr :suggestions_by_id, :map, required: true
+  attr :suggestion_duplicates, :map, required: true
   attr :suggestions_empty?, :boolean, required: true
   attr :suggestion_station_options, :map, required: true
   attr :station_search_closed, :any, required: true
@@ -646,6 +648,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.route_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestions_by_id={@suggestions_by_id}
+          suggestion_duplicates={@suggestion_duplicates}
           suggestion_station_options={@suggestion_station_options}
           station_search_closed={@station_search_closed}
           station_search_query={@station_search_query}
@@ -658,6 +662,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.booking_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestions_by_id={@suggestions_by_id}
+          suggestion_duplicates={@suggestion_duplicates}
           suggestion_station_options={@suggestion_station_options}
           station_search_closed={@station_search_closed}
           station_search_query={@station_search_query}
@@ -670,6 +676,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           items={@streams.other_suggestions}
           documents_by_id={@documents_by_id}
           editable?={editable?(@claim.status)}
+          suggestions_by_id={@suggestions_by_id}
+          suggestion_duplicates={@suggestion_duplicates}
           suggestion_station_options={@suggestion_station_options}
           station_search_closed={@station_search_closed}
           station_search_query={@station_search_query}
@@ -1593,6 +1601,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
   attr :items, :any, required: true
   attr :documents_by_id, :map, required: true
   attr :editable?, :boolean, required: true
+  attr :suggestions_by_id, :map, required: true
+  attr :suggestion_duplicates, :map, required: true
   attr :suggestion_station_options, :map, required: true
   attr :station_search_closed, :any, required: true
   attr :station_search_query, :map, required: true
@@ -1643,14 +1653,25 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
             suggestion_card_style(suggestion.state)
           ]}
         >
+          <% duplicates =
+            suggestion_duplicate_siblings(@suggestion_duplicates, @suggestions_by_id, suggestion) %>
           <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
                   {suggestion_field_label(suggestion.field)}
                 </span>
-                <span class="rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm">
+                <span
+                  :if={duplicates == []}
+                  class="rounded-full bg-white px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500 shadow-sm"
+                >
                   {confidence_label(suggestion.confidence)}
+                </span>
+                <span
+                  :if={duplicates != []}
+                  class="rounded-full bg-sky-50 px-2 py-0.5 text-[0.68rem] font-semibold text-sky-700"
+                >
+                  {length(duplicates) + 1} unterschiedliche Werte gefunden
                 </span>
                 <span
                   :if={suggestion_unresolved?(suggestion)}
@@ -1659,16 +1680,57 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   <.icon name="hero-exclamation-triangle" class="size-3" /> Kein Bahnhof gefunden
                 </span>
               </div>
-              <p class="mt-2 text-sm font-semibold text-slate-950">{suggestion_value(suggestion)}</p>
+              <p
+                :if={duplicates == []}
+                class="mt-2 text-sm font-semibold text-slate-950"
+              >
+                {suggestion_value(suggestion)}
+              </p>
               <p
                 :if={suggestion_unresolved?(suggestion)}
                 class="mt-1 text-xs leading-5 text-amber-800"
               >
                 Dieser Text konnte nicht gegen einen echten Bahnhof abgeglichen werden. Bitte vor dem Übernehmen prüfen und ggf. korrigieren.
               </p>
-              <p class="mt-2 text-xs leading-5 text-slate-500">
+              <p :if={duplicates == []} class="mt-2 text-xs leading-5 text-slate-500">
                 {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
               </p>
+              <div :if={duplicates != []} class="mt-2 space-y-2">
+                <p class="text-xs leading-5 text-slate-500">
+                  Diese Angabe wurde in mehreren Dokumenten unterschiedlich erkannt. Bitte den passenden Wert auswählen.
+                </p>
+                <button
+                  :for={candidate <- [suggestion | duplicates]}
+                  type="button"
+                  id={"choose-suggestion-candidate-#{candidate.id}"}
+                  phx-click="choose_suggestion_candidate"
+                  phx-value-id={candidate.id}
+                  disabled={!@editable?}
+                  class="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm transition hover:border-sky-300 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span class="min-w-0">
+                    <span class="block font-semibold text-slate-950">
+                      {suggestion_value(candidate)}
+                    </span>
+                    <span class="block text-xs text-slate-500">
+                      {source_document_name(@documents_by_id, candidate.document_id)} · Seite {candidate.source_page}: „{candidate.source_excerpt}“
+                    </span>
+                  </span>
+                  <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[0.68rem] font-semibold text-slate-500">
+                    {confidence_label(candidate.confidence)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  id={"reject-suggestion-duplicates-#{suggestion.id}"}
+                  phx-click="reject_suggestion_duplicates"
+                  phx-value-id={suggestion.id}
+                  disabled={!@editable?}
+                  class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 disabled:opacity-40"
+                >
+                  <.icon name="hero-x-mark" class="size-4" /> Alle verwerfen
+                </button>
+              </div>
               <div
                 :if={suggestion.field in [:origin, :destination] and suggestion.state == :proposed}
                 id={"station-search-#{suggestion.id}"}
@@ -1830,7 +1892,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 }
               </script>
             </div>
-            <div class="flex shrink-0 flex-wrap gap-2">
+            <div :if={duplicates == []} class="flex shrink-0 flex-wrap gap-2">
               <%= if suggestion.state == :proposed do %>
                 <button
                   id={"accept-suggestion-#{suggestion.id}"}

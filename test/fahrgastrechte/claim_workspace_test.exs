@@ -15,6 +15,7 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
   alias Fahrgastrechte.Repo
   alias FahrgastrechteWeb.ClaimLive.FormData
   alias Fahrgastrechte.Tickets
+  alias Fahrgastrechte.Tickets.Suggestion
 
   describe "load/2" do
     test "builds one checked snapshot for the scoped workspace" do
@@ -128,6 +129,72 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       assert workspace.exports != []
       assert workspace.current_export == nil
       refute workspace.exports_available?
+    end
+  end
+
+  describe "duplicate suggestions" do
+    test "load/2 merges same-field proposed suggestions from different documents into one visible entry" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+      ticket_fare = insert_fare_suggestion!(ticket, "19.90", 0.9)
+      invoice_fare = insert_fare_suggestion!(invoice, "21.40", 0.7)
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [ticket_fare.id]
+
+      assert Map.get(workspace.suggestion_duplicates, ticket_fare.id) == %{
+               representative?: true,
+               sibling_ids: [invoice_fare.id]
+             }
+
+      assert Map.get(workspace.suggestion_duplicates, invoice_fare.id) == %{
+               representative?: false,
+               sibling_ids: [ticket_fare.id]
+             }
+    end
+
+    test "does not merge suggestions once one of them has already been resolved" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, claim} = document_fixture(scope, claim, :invoice)
+
+      ticket_fare = insert_fare_suggestion!(ticket, "19.90", 0.9)
+      invoice_fare = insert_fare_suggestion!(invoice, "21.40", 0.7)
+
+      assert {:ok, _result} = ClaimWorkspace.reject_suggestions(scope, claim, [invoice_fare])
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert Enum.sort(Enum.map(workspace.suggestion_groups.booking, & &1.id)) ==
+               Enum.sort([ticket_fare.id, invoice_fare.id])
+
+      assert workspace.suggestion_duplicates == %{}
+    end
+  end
+
+  describe "accept_suggestion_choice/4" do
+    test "accepts the chosen value and rejects its duplicate siblings" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, claim} = document_fixture(scope, claim, :invoice)
+
+      ticket_fare = insert_fare_suggestion!(ticket, "19.90", 0.9)
+      invoice_fare = insert_fare_suggestion!(invoice, "21.40", 0.7)
+
+      assert {:ok, %{suggestions: updated}} =
+               ClaimWorkspace.accept_suggestion_choice(scope, claim, invoice_fare, [ticket_fare])
+
+      assert Enum.find(updated, &(&1.id == invoice_fare.id)).state == :accepted
+      assert Enum.find(updated, &(&1.id == ticket_fare.id)).state == :rejected
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+      assert workspace.suggestion_duplicates == %{}
     end
   end
 
@@ -459,5 +526,18 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
                value: "8000152"
              }
     end
+  end
+
+  defp insert_fare_suggestion!(document, amount, confidence) do
+    %Suggestion{document_id: document.id}
+    |> Suggestion.changeset(%{
+      field: :fare,
+      value: %{"amount" => amount, "currency" => "EUR"},
+      confidence: confidence,
+      source_page: 1,
+      source_excerpt: "Fahrpreis: #{amount} EUR",
+      state: :proposed
+    })
+    |> Repo.insert!()
   end
 end
