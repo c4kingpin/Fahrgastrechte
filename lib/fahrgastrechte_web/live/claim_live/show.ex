@@ -498,11 +498,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("choose_suggestion_candidate", %{"id" => suggestion_id}, socket) do
-    {:noreply, choose_suggestion_candidate(socket, suggestion_id)}
-  end
-
-  def handle_event("reject_suggestion_duplicates", %{"id" => suggestion_id}, socket) do
-    {:noreply, reject_suggestion_duplicates(socket, suggestion_id)}
+    {:noreply, accept_suggestion(socket, suggestion_id)}
   end
 
   def handle_event("set_suggestion_group_state", %{"topic" => topic, "state" => state}, socket)
@@ -1557,33 +1553,11 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     ClaimWorkspace.proposed_suggestions(socket.assigns.suggestions_by_id, topic)
   end
 
+  # Accepting a suggestion that has duplicate siblings (same field, another
+  # document) resolves the whole group: the chosen value is accepted and its
+  # siblings are rejected in the same transaction, so an identical or
+  # conflicting duplicate never lingers as a separate open question.
   defp accept_suggestion(socket, suggestion_id) do
-    with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
-         {:ok, %{claim: claim}} <-
-           ClaimWorkspace.accept_suggestions(
-             socket.assigns.current_scope,
-             socket.assigns.claim,
-             [suggestion]
-           ) do
-      socket
-      |> load_workspace(claim)
-      |> put_flash(:info, suggestion_accept_message(suggestion.field))
-    else
-      nil ->
-        put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
-
-      {:error, :stale} ->
-        handle_stale(socket)
-
-      {:error, :not_editable} ->
-        put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
-
-      {:error, _reason} ->
-        put_flash(socket, :error, "Der Vorschlag konnte nicht übernommen werden.")
-    end
-  end
-
-  defp choose_suggestion_candidate(socket, suggestion_id) do
     case find_suggestion(socket, suggestion_id) do
       nil ->
         put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
@@ -1614,36 +1588,6 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
-  defp reject_suggestion_duplicates(socket, suggestion_id) do
-    case find_suggestion(socket, suggestion_id) do
-      nil ->
-        put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
-
-      suggestion ->
-        siblings = duplicate_siblings(socket, suggestion_id)
-
-        case ClaimWorkspace.reject_suggestions(
-               socket.assigns.current_scope,
-               socket.assigns.claim,
-               [suggestion | siblings]
-             ) do
-          {:ok, _result} ->
-            socket
-            |> refresh_workspace()
-            |> put_flash(:info, "Die erkannten Werte wurden verworfen.")
-
-          {:error, :stale} ->
-            handle_stale(socket)
-
-          {:error, :not_editable} ->
-            put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
-
-          {:error, _reason} ->
-            put_flash(socket, :error, "Die Vorschläge konnten nicht aktualisiert werden.")
-        end
-    end
-  end
-
   defp duplicate_siblings(socket, suggestion_id) do
     case Map.get(socket.assigns.suggestion_duplicates, suggestion_id) do
       nil ->
@@ -1658,11 +1602,12 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp update_suggestion_state(socket, suggestion_id, _state) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
+         siblings = duplicate_siblings(socket, suggestion_id),
          {:ok, _result} <-
            ClaimWorkspace.reject_suggestions(
              socket.assigns.current_scope,
              socket.assigns.claim,
-             [suggestion]
+             [suggestion | siblings]
            ) do
       socket
       |> refresh_workspace()
