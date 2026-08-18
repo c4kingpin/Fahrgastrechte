@@ -497,6 +497,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  def handle_event("choose_suggestion_candidate", %{"id" => suggestion_id}, socket) do
+    {:noreply, choose_suggestion_candidate(socket, suggestion_id)}
+  end
+
+  def handle_event("reject_suggestion_duplicates", %{"id" => suggestion_id}, socket) do
+    {:noreply, reject_suggestion_duplicates(socket, suggestion_id)}
+  end
+
   def handle_event("set_suggestion_group_state", %{"topic" => topic, "state" => state}, socket)
       when topic in ["route", "booking", "other"] and state in ["accepted", "rejected"] do
     suggestions = proposed_suggestions(socket, String.to_existing_atom(topic))
@@ -894,6 +902,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
               step_states={@step_states}
               streams={@streams}
               suggestion_correction_form={@suggestion_correction_form}
+              suggestions_by_id={@suggestions_by_id}
+              suggestion_duplicates={@suggestion_duplicates}
               suggestions_empty?={@suggestions_empty?}
               suggestion_station_options={@suggestion_station_options}
               station_search_closed={@station_search_closed}
@@ -1573,6 +1583,79 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     end
   end
 
+  defp choose_suggestion_candidate(socket, suggestion_id) do
+    case find_suggestion(socket, suggestion_id) do
+      nil ->
+        put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
+
+      suggestion ->
+        siblings = duplicate_siblings(socket, suggestion_id)
+
+        case ClaimWorkspace.accept_suggestion_choice(
+               socket.assigns.current_scope,
+               socket.assigns.claim,
+               suggestion,
+               siblings
+             ) do
+          {:ok, %{claim: claim}} ->
+            socket
+            |> load_workspace(claim)
+            |> put_flash(:info, suggestion_accept_message(suggestion.field))
+
+          {:error, :stale} ->
+            handle_stale(socket)
+
+          {:error, :not_editable} ->
+            put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
+
+          {:error, _reason} ->
+            put_flash(socket, :error, "Der Vorschlag konnte nicht übernommen werden.")
+        end
+    end
+  end
+
+  defp reject_suggestion_duplicates(socket, suggestion_id) do
+    case find_suggestion(socket, suggestion_id) do
+      nil ->
+        put_flash(socket, :error, "Der Vorschlag wurde nicht gefunden.")
+
+      suggestion ->
+        siblings = duplicate_siblings(socket, suggestion_id)
+
+        case ClaimWorkspace.reject_suggestions(
+               socket.assigns.current_scope,
+               socket.assigns.claim,
+               [suggestion | siblings]
+             ) do
+          {:ok, _result} ->
+            socket
+            |> refresh_workspace()
+            |> put_flash(:info, "Die erkannten Werte wurden verworfen.")
+
+          {:error, :stale} ->
+            handle_stale(socket)
+
+          {:error, :not_editable} ->
+            put_flash(socket, :error, "Dieser Antrag muss vor Änderungen erneut geöffnet werden.")
+
+          {:error, _reason} ->
+            put_flash(socket, :error, "Die Vorschläge konnten nicht aktualisiert werden.")
+        end
+    end
+  end
+
+  defp duplicate_siblings(socket, suggestion_id) do
+    case Map.get(socket.assigns.suggestion_duplicates, suggestion_id) do
+      nil ->
+        []
+
+      %{sibling_ids: sibling_ids} ->
+        sibling_ids
+        |> Enum.map(&find_suggestion(socket, &1))
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
   defp update_suggestion_state(socket, suggestion_id, _state) do
     with suggestion when not is_nil(suggestion) <- find_suggestion(socket, suggestion_id),
          {:ok, _result} <-
@@ -1687,6 +1770,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
     |> assign(:documents_by_kind, workspace.documents_by_kind)
     |> assign(:documents_by_id, workspace.documents_by_id)
     |> assign(:suggestions_by_id, workspace.suggestions_by_id)
+    |> assign(:suggestion_duplicates, workspace.suggestion_duplicates)
     |> assign(:suggestions_empty?, suggestions == [])
     |> assign(:proposed_suggestions?, Enum.any?(suggestions, &(&1.state == :proposed)))
     |> assign(

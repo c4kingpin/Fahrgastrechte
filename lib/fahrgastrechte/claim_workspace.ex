@@ -213,6 +213,49 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   def reject_suggestions(_scope, _claim, _suggestions), do: {:error, :not_found}
 
+  @doc """
+  Accepts one suggestion chosen among duplicate values, rejecting the rest.
+
+  Used when a field (e.g. the fare) was extracted from both the ticket and
+  the invoice: the user picks the correct value and its duplicate siblings
+  are rejected in the same transaction so they stop showing as open questions.
+  """
+  @spec accept_suggestion_choice(Scope.t(), Claim.t(), struct(), [struct()]) ::
+          {:ok, %{claim: Claim.t(), suggestions: [struct()]}} | {:error, term()}
+  def accept_suggestion_choice(%Scope{} = scope, %Claim{} = claim, suggestion, siblings)
+      when is_list(siblings) do
+    attrs = claim_attrs_for_suggestions([suggestion])
+
+    Repo.transaction(fn ->
+      with {:ok, updated_claim} <- maybe_update_claim(scope, claim, attrs),
+           {:ok, accepted} <-
+             Tickets.set_suggestion_states(
+               scope,
+               claim.id,
+               [suggestion.id],
+               :accepted,
+               updated_claim.lock_version
+             ),
+           {:ok, rejected} <- reject_siblings(scope, claim.id, Enum.map(siblings, & &1.id)),
+           {:ok, final_claim} <- Claims.get_claim(scope, claim.id) do
+        %{claim: final_claim, suggestions: accepted ++ rejected}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+    |> normalize_transaction()
+  end
+
+  def accept_suggestion_choice(_scope, _claim, _suggestion, _siblings), do: {:error, :not_found}
+
+  defp reject_siblings(_scope, _claim_id, []), do: {:ok, []}
+
+  defp reject_siblings(scope, claim_id, sibling_ids) do
+    with {:ok, current_claim} <- Claims.get_claim(scope, claim_id) do
+      Tickets.set_suggestion_states(scope, claim_id, sibling_ids, :rejected, current_claim.lock_version)
+    end
+  end
+
   @doc "Confirms one provider candidate as planned and actual journey atomically."
   @spec confirm_connection(Scope.t(), Claim.t(), map()) ::
           {:ok, %{claim: Claim.t(), planned_journey: struct(), actual_journey: struct()}}
@@ -429,10 +472,14 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     documents_by_kind = Map.new(documents, &{&1.kind, &1})
     documents_by_id = Map.new(documents, &{&1.id, &1})
     suggestions_by_id = Map.new(suggestions, &{&1.id, &1})
+    suggestion_duplicates = build_suggestion_duplicates(suggestions)
+
+    visible_suggestions =
+      Enum.reject(suggestions, &hidden_duplicate?(&1, suggestion_duplicates))
 
     suggestion_groups =
       %{route: [], booking: [], other: []}
-      |> Map.merge(Enum.group_by(suggestions, &suggestion_topic/1))
+      |> Map.merge(Enum.group_by(visible_suggestions, &suggestion_topic/1))
 
     claim_complete? = claim_complete?(claim)
     claim_started? = claim_started?(claim)
@@ -485,6 +532,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       documents_by_id: documents_by_id,
       suggestions_by_id: suggestions_by_id,
       suggestion_groups: suggestion_groups,
+      suggestion_duplicates: suggestion_duplicates,
       planned_journey: planned_journey,
       actual_journey: actual_journey,
       exports: exports,
@@ -503,6 +551,34 @@ defmodule Fahrgastrechte.ClaimWorkspace do
       step_states: step_states,
       readiness: readiness
     }
+  end
+
+  @doc false
+  # Fields extracted from both ticket and invoice can yield two still-proposed
+  # suggestions for the same field. Rather than showing them as separate
+  # cards, one representative (highest confidence) stays visible and carries
+  # the others as selectable candidates; see `suggestion_duplicate_candidates/2`.
+  defp build_suggestion_duplicates(suggestions) do
+    suggestions
+    |> Enum.filter(&(&1.state == :proposed))
+    |> Enum.group_by(& &1.field)
+    |> Enum.filter(fn {_field, group} -> length(group) > 1 end)
+    |> Enum.flat_map(fn {_field, group} ->
+      ids = group |> Enum.sort_by(&{-&1.confidence, &1.id}) |> Enum.map(& &1.id)
+      representative_id = List.first(ids)
+
+      Enum.map(ids, fn id ->
+        {id, %{representative?: id == representative_id, sibling_ids: ids -- [id]}}
+      end)
+    end)
+    |> Map.new()
+  end
+
+  defp hidden_duplicate?(suggestion, suggestion_duplicates) do
+    case Map.get(suggestion_duplicates, suggestion.id) do
+      nil -> false
+      %{representative?: representative?} -> !representative?
+    end
   end
 
   defp current_export([], _readiness), do: nil
