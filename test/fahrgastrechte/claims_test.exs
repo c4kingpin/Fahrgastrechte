@@ -421,6 +421,27 @@ defmodule Fahrgastrechte.ClaimsTest do
       assert {:error, :not_authenticated} = Claims.dashboard_counts(nil)
     end
 
+    test "most_recent_claim/1 returns the last edited claim, not the last created one" do
+      scope = scope_fixture()
+      other_scope = scope_fixture()
+
+      older = claim_fixture(scope, %{"origin" => "Berlin Hbf"})
+      _newer = claim_fixture(scope, %{"origin" => "München Hbf"})
+      _foreign = claim_fixture(other_scope, %{"origin" => "Köln Hbf"})
+
+      {:ok, edited_older} =
+        Claims.update_claim(scope, older.id, %{"travel_date" => "2026-09-01"}, older.lock_version)
+
+      assert {:ok, ^edited_older} = Claims.most_recent_claim(scope)
+      assert {:error, :not_authenticated} = Claims.most_recent_claim(nil)
+    end
+
+    test "most_recent_claim/1 is nil for a user without claims" do
+      scope = scope_fixture()
+
+      assert {:ok, nil} = Claims.most_recent_claim(scope)
+    end
+
     test "filters only scoped claims by status, date, route and claim number" do
       scope = scope_fixture()
       other_scope = scope_fixture()

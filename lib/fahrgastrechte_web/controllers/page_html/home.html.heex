@@ -1,46 +1,179 @@
 <Layouts.app flash={@flash} current_scope={@current_scope} current_section={:home}>
-  <div id="home-page" class="space-y-16 pb-12 sm:space-y-24 sm:pb-20">
-    <section
-      id="preview-hero"
-      class="relative overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-10 text-white shadow-[0_30px_80px_-32px_rgba(15,23,42,0.55)] sm:px-10 sm:py-14 lg:px-14 lg:py-16"
-    >
-      <div class="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-rose-600/30 blur-3xl">
-      </div>
-      <div class="pointer-events-none absolute -bottom-36 left-1/3 size-80 rounded-full bg-sky-400/10 blur-3xl">
-      </div>
-
-      <div class="relative grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+  <div id="home-page" class="space-y-10 pb-12 sm:space-y-14 sm:pb-20">
+    <%= if @current_scope do %>
+      <section
+        id="dashboard-header"
+        class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+      >
         <div>
-          <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">
-            <span class="relative flex size-2">
-              <span class="absolute inline-flex size-full animate-ping rounded-full bg-rose-400 opacity-60"></span>
-              <span class="relative inline-flex size-2 rounded-full bg-rose-400"></span>
-            </span>
-            Deine digitale Antragshilfe
-          </div>
-
-          <h1 class="mt-7 max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-balance sm:text-5xl lg:text-6xl">
-            Fahrgastrechte. <span class="text-rose-400">Einfach vorbereitet.</span>
-          </h1>
-          <p class="mt-6 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-            Von Ticket und Rechnung bis zum druckfertigen Antrag: Alle Angaben,
-            Unterlagen und nächsten Schritte an einem sicheren Ort.
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
+            Dein Bereich
           </p>
+          <h1 class="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+            Alles auf einen Blick
+          </h1>
+        </div>
+        <.link
+          id="all-claims-link"
+          navigate={~p"/antraege"}
+          class="inline-flex min-h-10 w-fit items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-white hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+        >
+          Alle Anträge ansehen <.icon name="hero-arrow-right" class="size-4" />
+        </.link>
+      </section>
 
-          <div class="mt-8 flex flex-col gap-3 sm:flex-row">
-            <%= if @current_scope do %>
-              <.link
-                id="claims-cta"
-                href={~p"/antraege"}
-                class="group inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-950/30 transition duration-200 hover:-translate-y-0.5 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
-              >
-                Meine Anträge
-                <.icon
-                  name="hero-arrow-right"
-                  class="size-4 transition-transform group-hover:translate-x-0.5"
-                />
-              </.link>
-            <% else %>
+      <%= if @most_recent_claim do %>
+        <section
+          id="continue-claim"
+          class="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+        >
+          <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div class="min-w-0">
+              <p class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
+                Weiter geht's
+              </p>
+              <div class="mt-2 flex flex-wrap items-center gap-2">
+                <span class="truncate text-lg font-semibold text-slate-950">
+                  {@most_recent_claim.claim_number}
+                </span>
+                <span class={[
+                  "rounded-full px-2.5 py-1 text-[0.68rem] font-bold uppercase tracking-wide",
+                  status_style(@most_recent_claim.status, :light)
+                ]}>
+                  {status_label(@most_recent_claim.status)}
+                </span>
+              </div>
+              <p class="mt-2 text-sm font-medium text-slate-700">
+                {route_label(@most_recent_claim)}
+              </p>
+              <p class="mt-1 text-xs text-slate-500">
+                Zuletzt bearbeitet am {format_datetime(@most_recent_claim.updated_at)}
+              </p>
+            </div>
+            <.link
+              id="continue-claim-cta"
+              navigate={~p"/antraege/#{@most_recent_claim.id}"}
+              class="group inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-950/30 transition hover:-translate-y-0.5 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+            >
+              {continue_cta_label(@most_recent_claim.status)}
+              <.icon
+                name="hero-arrow-right"
+                class="size-4 transition-transform group-hover:translate-x-0.5"
+              />
+            </.link>
+          </div>
+        </section>
+      <% else %>
+        <section
+          id="continue-claim-empty"
+          class="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center sm:p-10"
+        >
+          <span class="mx-auto flex size-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+            <.icon name="hero-inbox" class="size-6" />
+          </span>
+          <h2 class="mt-4 text-lg font-semibold text-slate-950">Noch kein Antrag angelegt</h2>
+          <p class="mx-auto mt-1 max-w-md text-sm text-slate-500">
+            Lege deinen ersten Fall an und lade Ticket sowie Rechnung geschützt hoch.
+          </p>
+          <.link
+            id="start-first-claim-link"
+            navigate={~p"/antraege"}
+            class="group mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-rose-950/30 transition hover:-translate-y-0.5 hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400"
+          >
+            Ersten Antrag anlegen
+            <.icon
+              name="hero-arrow-right"
+              class="size-4 transition-transform group-hover:translate-x-0.5"
+            />
+          </.link>
+        </section>
+      <% end %>
+
+      <section
+        :if={@profile_completeness && not @profile_completeness.complete?}
+        id="profile-nudge"
+        class="flex flex-col gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div class="flex items-start gap-3">
+          <span class="shrink-0 rounded-xl bg-white p-2.5 text-amber-700">
+            <.icon name="hero-exclamation-circle" class="size-5" />
+          </span>
+          <div>
+            <p class="text-sm font-semibold text-amber-900">Profil vervollständigen</p>
+            <p class="mt-1 text-sm leading-6 text-amber-800">
+              Noch {length(@profile_completeness.missing_fields)} Angaben offen, die für einen Antrag benötigt werden.
+            </p>
+          </div>
+        </div>
+        <.link
+          id="profile-nudge-link"
+          navigate={~p"/profil"}
+          class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
+        >
+          Profil öffnen <.icon name="hero-arrow-right" class="size-4" />
+        </.link>
+      </section>
+
+      <section id="status-overview" aria-labelledby="status-heading">
+        <p
+          id="status-heading"
+          class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700"
+        >
+          In Zahlen
+        </p>
+
+        <div class="mt-4 grid gap-4 sm:grid-cols-3">
+          <article
+            :for={
+              {icon, color, value, title, note} <- [
+                {"hero-document-text", "bg-rose-50 text-rose-700", @dashboard_counts.total,
+                 "Anträge", "Alle sicher gespeicherten Fälle"},
+                {"hero-clock", "bg-amber-50 text-amber-700", @dashboard_counts.open, "Offen",
+                 "Entwürfe und laufende Anträge"},
+                {"hero-check-badge", "bg-emerald-50 text-emerald-700",
+                 @dashboard_counts.completed, "Erledigt", "Abgeschlossene Fälle erscheinen hier"}
+              ]
+            }
+            class="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <div class="flex items-center justify-between">
+              <span class={["rounded-xl p-2.5", color]}><.icon name={icon} class="size-5" /></span>
+              <span class="text-2xl font-semibold tracking-tight text-slate-950">{value}</span>
+            </div>
+            <h3 class="mt-5 text-sm font-semibold text-slate-950">{title}</h3>
+            <p class="mt-1 text-sm text-slate-500">{note}</p>
+          </article>
+        </div>
+      </section>
+    <% else %>
+      <section
+        id="preview-hero"
+        class="relative overflow-hidden rounded-[2rem] bg-slate-950 px-6 py-10 text-white shadow-[0_30px_80px_-32px_rgba(15,23,42,0.55)] sm:px-10 sm:py-14 lg:px-14 lg:py-16"
+      >
+        <div class="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-rose-600/30 blur-3xl">
+        </div>
+        <div class="pointer-events-none absolute -bottom-36 left-1/3 size-80 rounded-full bg-sky-400/10 blur-3xl">
+        </div>
+
+        <div class="relative grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
+          <div>
+            <div class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">
+              <span class="relative flex size-2">
+                <span class="absolute inline-flex size-full animate-ping rounded-full bg-rose-400 opacity-60"></span>
+                <span class="relative inline-flex size-2 rounded-full bg-rose-400"></span>
+              </span>
+              Deine digitale Antragshilfe
+            </div>
+
+            <h1 class="mt-7 max-w-2xl text-4xl font-semibold leading-[1.05] tracking-[-0.04em] text-balance sm:text-5xl lg:text-6xl">
+              Fahrgastrechte. <span class="text-rose-400">Einfach vorbereitet.</span>
+            </h1>
+            <p class="mt-6 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
+              Von Ticket und Rechnung bis zum druckfertigen Antrag: Alle Angaben,
+              Unterlagen und nächsten Schritte an einem sicheren Ort.
+            </p>
+
+            <div class="mt-8 flex flex-col gap-3 sm:flex-row">
               <.link
                 id="login-cta"
                 href={~p"/anmelden"}
@@ -48,237 +181,181 @@
               >
                 Sicher anmelden <.icon name="hero-arrow-right" class="size-4" />
               </.link>
-            <% end %>
-            <a
-              href="#ablauf"
-              class="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
-              So funktioniert’s
-            </a>
-          </div>
+              <a
+                href="#ablauf"
+                class="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-100 transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                So funktioniert’s
+              </a>
+            </div>
 
-          <div class="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs font-medium text-slate-400">
-            <span class="inline-flex items-center gap-2">
-              <.icon name="hero-shield-check" class="size-4 text-emerald-400" />
-              Persönlich & geschützt
-            </span>
-            <span class="inline-flex items-center gap-2">
-              <.icon name="hero-pencil-square" class="size-4 text-sky-400" />
-              Jederzeit bearbeitbar
-            </span>
-            <span class="inline-flex items-center gap-2">
-              <.icon name="hero-document-check" class="size-4 text-amber-300" />
-              Druckfertige Ausgabe
-            </span>
-          </div>
-        </div>
-
-        <div id="claim-preview" class="relative mx-auto w-full max-w-lg">
-          <div class="absolute -inset-3 rotate-2 rounded-[2rem] bg-gradient-to-br from-rose-500/20 to-sky-400/10">
-          </div>
-          <div class="relative overflow-hidden rounded-3xl border border-white/10 bg-white text-slate-950 shadow-2xl">
-            <div class="flex items-start justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Antrag</span>
-                  <span class="rounded-full bg-amber-50 px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide text-amber-700">Entwurf</span>
-                </div>
-                <p class="mt-2 font-semibold">Frankfurt → Berlin</p>
-                <p class="mt-1 text-sm text-slate-500">12. Juli 2026 · ICE 772</p>
-              </div>
-              <span class="rounded-2xl bg-slate-100 p-3 text-slate-700">
-                <.icon name="hero-ticket" class="size-5" />
+            <div class="mt-9 flex flex-wrap gap-x-6 gap-y-3 text-xs font-medium text-slate-400">
+              <span class="inline-flex items-center gap-2">
+                <.icon name="hero-shield-check" class="size-4 text-emerald-400" />
+                Persönlich & geschützt
+              </span>
+              <span class="inline-flex items-center gap-2">
+                <.icon name="hero-pencil-square" class="size-4 text-sky-400" />
+                Jederzeit bearbeitbar
+              </span>
+              <span class="inline-flex items-center gap-2">
+                <.icon name="hero-document-check" class="size-4 text-amber-300" />
+                Druckfertige Ausgabe
               </span>
             </div>
+          </div>
 
-            <div class="space-y-5 p-5 sm:p-6">
-              <div>
-                <div class="mb-2 flex items-center justify-between text-xs font-semibold">
-                  <span class="text-slate-600">Vorbereitung</span>
-                  <span class="text-slate-950">2 von 5 Schritten</span>
+          <div id="claim-preview" class="relative mx-auto w-full max-w-lg">
+            <div class="absolute -inset-3 rotate-2 rounded-[2rem] bg-gradient-to-br from-rose-500/20 to-sky-400/10">
+            </div>
+            <div class="relative overflow-hidden rounded-3xl border border-white/10 bg-white text-slate-950 shadow-2xl">
+              <div class="flex items-start justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Antrag</span>
+                    <span class="rounded-full bg-amber-50 px-2 py-1 text-[0.65rem] font-bold uppercase tracking-wide text-amber-700">Entwurf</span>
+                  </div>
+                  <p class="mt-2 font-semibold">Frankfurt → Berlin</p>
+                  <p class="mt-1 text-sm text-slate-500">12. Juli 2026 · ICE 772</p>
                 </div>
-                <div
-                  class="h-2 overflow-hidden rounded-full bg-slate-100"
-                  role="progressbar"
-                  aria-label="Beispiel-Fortschritt"
-                  aria-valuemin="0"
-                  aria-valuemax="5"
-                  aria-valuenow="2"
-                >
-                  <div class="h-full w-2/5 rounded-full bg-rose-600"></div>
-                </div>
+                <span class="rounded-2xl bg-slate-100 p-3 text-slate-700">
+                  <.icon name="hero-ticket" class="size-5" />
+                </span>
               </div>
 
-              <ol class="space-y-2.5" aria-label="Beispielhafte Antragsschritte">
-                <li
-                  :for={
-                    {label, state, number} <- [
-                      {"Reisendenprofil", :done, 1},
-                      {"Ticket & Rechnung", :done, 2},
-                      {"Reise prüfen", :active, 3},
-                      {"Störung ergänzen", :open, 4},
-                      {"Antrag erzeugen", :open, 5}
-                    ]
-                  }
-                  class={[
-                    "flex items-center gap-3 rounded-xl px-3.5 py-3",
-                    state == :done && "bg-emerald-50",
-                    state == :active && "border border-rose-200 bg-rose-50",
-                    state == :open && "text-slate-400"
-                  ]}
-                >
-                  <span class={[
-                    "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                    state == :done && "bg-emerald-600 text-white",
-                    state == :active && "bg-rose-600 text-white",
-                    state == :open && "border border-slate-200"
-                  ]}>
-                    <%= if state == :done do %>
-                      <.icon name="hero-check" class="size-4" />
-                    <% else %>
-                      {number}
-                    <% end %>
-                  </span>
-                  <span class={[
-                    "flex-1 text-sm",
-                    state == :active && "font-semibold",
-                    state != :active && "font-medium"
-                  ]}>{label}</span>
-                  <span
-                    :if={state != :open}
+              <div class="space-y-5 p-5 sm:p-6">
+                <div>
+                  <div class="mb-2 flex items-center justify-between text-xs font-semibold">
+                    <span class="text-slate-600">Vorbereitung</span>
+                    <span class="text-slate-950">2 von 5 Schritten</span>
+                  </div>
+                  <div
+                    class="h-2 overflow-hidden rounded-full bg-slate-100"
+                    role="progressbar"
+                    aria-label="Beispiel-Fortschritt"
+                    aria-valuemin="0"
+                    aria-valuemax="5"
+                    aria-valuenow="2"
+                  >
+                    <div class="h-full w-2/5 rounded-full bg-rose-600"></div>
+                  </div>
+                </div>
+
+                <ol class="space-y-2.5" aria-label="Beispielhafte Antragsschritte">
+                  <li
+                    :for={
+                      {label, state, number} <- [
+                        {"Reisendenprofil", :done, 1},
+                        {"Ticket & Rechnung", :done, 2},
+                        {"Reise prüfen", :active, 3},
+                        {"Störung ergänzen", :open, 4},
+                        {"Antrag erzeugen", :open, 5}
+                      ]
+                    }
                     class={[
-                      "text-xs font-semibold",
-                      state == :done && "text-emerald-700",
-                      state == :active && "text-rose-700"
+                      "flex items-center gap-3 rounded-xl px-3.5 py-3",
+                      state == :done && "bg-emerald-50",
+                      state == :active && "border border-rose-200 bg-rose-50",
+                      state == :open && "text-slate-400"
                     ]}
-                  >{if(state == :done, do: "Fertig", else: "Als Nächstes")}</span>
-                </li>
-              </ol>
-            </div>
-            <div class="border-t border-slate-100 bg-slate-50 px-5 py-3 text-center text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-              Dein Antrag bleibt jederzeit bearbeitbar
+                  >
+                    <span class={[
+                      "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                      state == :done && "bg-emerald-600 text-white",
+                      state == :active && "bg-rose-600 text-white",
+                      state == :open && "border border-slate-200"
+                    ]}>
+                      <%= if state == :done do %>
+                        <.icon name="hero-check" class="size-4" />
+                      <% else %>
+                        {number}
+                      <% end %>
+                    </span>
+                    <span class={[
+                      "flex-1 text-sm",
+                      state == :active && "font-semibold",
+                      state != :active && "font-medium"
+                    ]}>{label}</span>
+                    <span
+                      :if={state != :open}
+                      class={[
+                        "text-xs font-semibold",
+                        state == :done && "text-emerald-700",
+                        state == :active && "text-rose-700"
+                      ]}
+                    >{if(state == :done, do: "Fertig", else: "Als Nächstes")}</span>
+                  </li>
+                </ol>
+              </div>
+              <div class="border-t border-slate-100 bg-slate-50 px-5 py-3 text-center text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Dein Antrag bleibt jederzeit bearbeitbar
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section id="status-overview" aria-labelledby="status-heading">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">
-            Dein Bereich
-          </p>
+      <section id="ablauf" aria-labelledby="workflow-heading" class="scroll-mt-24">
+        <div class="max-w-2xl">
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">Der Ablauf</p>
           <h2
-            id="status-heading"
+            id="workflow-heading"
             class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl"
           >
-            Alles auf einen Blick
+            In drei Etappen zum fertigen Antrag
           </h2>
+          <p class="mt-3 text-base leading-7 text-slate-600">
+            Die App führt Schritt für Schritt durch die nötigen Angaben. Automatisch erkannte
+            Daten bleiben transparent und können immer korrigiert werden.
+          </p>
         </div>
-        <span class="inline-flex w-fit items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-          <span class={[
-            "size-2 rounded-full",
-            if(@current_scope, do: "bg-emerald-500", else: "bg-amber-400")
-          ]}></span>
-          {if(@current_scope, do: "Fälle und Dokumente verfügbar", else: "Anmeldung erforderlich")}
-        </span>
-      </div>
 
-      <div class="mt-7 grid gap-4 sm:grid-cols-3">
-        <article
-          :for={
-            {icon, color, value, title, note} <- [
-              {"hero-document-text", "bg-rose-50 text-rose-700", @dashboard_counts.total,
-               "Anträge", "Alle sicher gespeicherten Fälle"},
-              {"hero-clock", "bg-amber-50 text-amber-700", @dashboard_counts.open, "Offen",
-               "Entwürfe und laufende Anträge"},
-              {"hero-check-badge", "bg-emerald-50 text-emerald-700", @dashboard_counts.completed,
-               "Erledigt", "Abgeschlossene Fälle erscheinen hier"}
-            ]
-          }
-          class="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div class="flex items-center justify-between">
-            <span class={["rounded-xl p-2.5", color]}><.icon name={icon} class="size-5" /></span>
-            <span class="text-2xl font-semibold tracking-tight text-slate-950">{value}</span>
-          </div>
-          <h3 class="mt-5 text-sm font-semibold text-slate-950">{title}</h3>
-          <p class="mt-1 text-sm text-slate-500">{note}</p>
-        </article>
-      </div>
-    </section>
+        <div class="mt-8 grid gap-5 lg:grid-cols-3">
+          <article
+            :for={
+              {number, icon, title, copy, style, icon_style} <- [
+                {"01", "hero-arrow-up-tray", "Unterlagen hochladen",
+                 "Ticket und Rechnung werden sicher abgelegt. Relevante Reisedaten werden als Vorschlag vorbereitet.",
+                 "bg-slate-100 text-slate-950", "bg-white text-rose-700"},
+                {"02", "hero-map", "Reise nachvollziehen",
+                 "Geplante und tatsächliche Verbindung, Verspätung oder Ausfall lassen sich prüfen und manuell ergänzen.",
+                 "bg-slate-950 text-white", "bg-white/10 text-sky-300"},
+                {"03", "hero-printer", "Prüfen und ausdrucken",
+                 "Am Ende entsteht ein geordnetes PDF-Paket mit Deckblatt, Formular, Ticket und Rechnung.",
+                 "bg-rose-50 text-slate-950", "bg-white text-rose-700"}
+              ]
+            }
+            class={["relative overflow-hidden rounded-3xl p-6 sm:p-7", style]}
+          >
+            <span class="text-5xl font-semibold tracking-tighter opacity-10">{number}</span>
+            <span class={["absolute right-6 top-6 rounded-2xl p-3 shadow-sm", icon_style]}><.icon
+              name={icon}
+              class="size-6"
+            /></span>
+            <h3 class="mt-6 text-lg font-semibold">{title}</h3>
+            <p class="mt-2 text-sm leading-6 opacity-70">{copy}</p>
+          </article>
+        </div>
+      </section>
 
-    <section id="ablauf" aria-labelledby="workflow-heading" class="scroll-mt-24">
-      <div class="max-w-2xl">
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-rose-700">Der Ablauf</p>
-        <h2
-          id="workflow-heading"
-          class="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl"
-        >
-          In drei Etappen zum fertigen Antrag
-        </h2>
-        <p class="mt-3 text-base leading-7 text-slate-600">
-          Die App führt Schritt für Schritt durch die nötigen Angaben. Automatisch erkannte
-          Daten bleiben transparent und können immer korrigiert werden.
-        </p>
-      </div>
-
-      <div class="mt-8 grid gap-5 lg:grid-cols-3">
-        <article
-          :for={
-            {number, icon, title, copy, style, icon_style} <- [
-              {"01", "hero-arrow-up-tray", "Unterlagen hochladen",
-               "Ticket und Rechnung werden sicher abgelegt. Relevante Reisedaten werden als Vorschlag vorbereitet.",
-               "bg-slate-100 text-slate-950", "bg-white text-rose-700"},
-              {"02", "hero-map", "Reise nachvollziehen",
-               "Geplante und tatsächliche Verbindung, Verspätung oder Ausfall lassen sich prüfen und manuell ergänzen.",
-               "bg-slate-950 text-white", "bg-white/10 text-sky-300"},
-              {"03", "hero-printer", "Prüfen und ausdrucken",
-               "Am Ende entsteht ein geordnetes PDF-Paket mit Deckblatt, Formular, Ticket und Rechnung.",
-               "bg-rose-50 text-slate-950", "bg-white text-rose-700"}
-            ]
-          }
-          class={["relative overflow-hidden rounded-3xl p-6 sm:p-7", style]}
-        >
-          <span class="text-5xl font-semibold tracking-tighter opacity-10">{number}</span>
-          <span class={["absolute right-6 top-6 rounded-2xl p-3 shadow-sm", icon_style]}><.icon
-            name={icon}
-            class="size-6"
+      <section
+        id="next-step"
+        class="flex flex-col gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 lg:flex-row lg:items-center lg:justify-between"
+      >
+        <div class="flex items-start gap-4">
+          <span class="shrink-0 rounded-2xl bg-rose-50 p-3 text-rose-700"><.icon
+            name="hero-user-circle"
+            class="size-7"
           /></span>
-          <h3 class="mt-6 text-lg font-semibold">{title}</h3>
-          <p class="mt-2 text-sm leading-6 opacity-70">{copy}</p>
-        </article>
-      </div>
-    </section>
-
-    <section
-      id="next-step"
-      class="flex flex-col gap-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8 lg:flex-row lg:items-center lg:justify-between"
-    >
-      <div class="flex items-start gap-4">
-        <span class="shrink-0 rounded-2xl bg-rose-50 p-3 text-rose-700"><.icon
-          name="hero-user-circle"
-          class="size-7"
-        /></span>
-        <div>
-          <p class="text-lg font-semibold text-slate-950">
-            Profil, Fälle und Dokumente sind bereit.
-          </p>
-          <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-            Lege jetzt einen Antrag an und lade zuerst Ticket sowie Rechnung geschützt hoch. Prüfe die erkannten Angaben und ergänze anschließend nur noch die offenen Falldaten.
-          </p>
+          <div>
+            <p class="text-lg font-semibold text-slate-950">
+              Profil, Fälle und Dokumente sind bereit.
+            </p>
+            <p class="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              Lege jetzt einen Antrag an und lade zuerst Ticket sowie Rechnung geschützt hoch. Prüfe die erkannten Angaben und ergänze anschließend nur noch die offenen Falldaten.
+            </p>
+          </div>
         </div>
-      </div>
-      <%= if @current_scope do %>
-        <.link
-          id="claims-secondary-cta"
-          href={~p"/antraege"}
-          class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950"
-        >
-          Anträge öffnen <.icon name="hero-arrow-up-right" class="size-4" />
-        </.link>
-      <% else %>
         <.link
           id="login-secondary-cta"
           href={~p"/anmelden"}
@@ -286,7 +363,7 @@
         >
           <.icon name="hero-lock-closed" class="size-4" /> Anmelden
         </.link>
-      <% end %>
-    </section>
+      </section>
+    <% end %>
   </div>
 </Layouts.app>
