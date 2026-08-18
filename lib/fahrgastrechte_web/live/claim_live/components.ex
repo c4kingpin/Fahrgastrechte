@@ -1655,6 +1655,8 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         >
           <% duplicates =
             suggestion_duplicate_siblings(@suggestion_duplicates, @suggestions_by_id, suggestion) %>
+          <% conflicting_duplicates? =
+            Enum.any?(duplicates, &(suggestion_value(&1) != suggestion_value(suggestion))) %>
           <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -1668,7 +1670,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   {confidence_label(suggestion.confidence)}
                 </span>
                 <span
-                  :if={duplicates != []}
+                  :if={duplicates != [] and not conflicting_duplicates?}
+                  class="rounded-full bg-emerald-50 px-2 py-0.5 text-[0.68rem] font-semibold text-emerald-700"
+                >
+                  In {length(duplicates) + 1} Dokumenten übereinstimmend erkannt
+                </span>
+                <span
+                  :if={conflicting_duplicates?}
                   class="rounded-full bg-sky-50 px-2 py-0.5 text-[0.68rem] font-semibold text-sky-700"
                 >
                   {length(duplicates) + 1} unterschiedliche Werte gefunden
@@ -1681,7 +1689,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 </span>
               </div>
               <p
-                :if={duplicates == []}
+                :if={not conflicting_duplicates?}
                 class="mt-2 text-sm font-semibold text-slate-950"
               >
                 {suggestion_value(suggestion)}
@@ -1692,10 +1700,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
               >
                 Dieser Text konnte nicht gegen einen echten Bahnhof abgeglichen werden. Bitte vor dem Übernehmen prüfen und ggf. korrigieren.
               </p>
-              <p :if={duplicates == []} class="mt-2 text-xs leading-5 text-slate-500">
+              <p :if={not conflicting_duplicates?} class="mt-2 text-xs leading-5 text-slate-500">
                 {source_document_name(@documents_by_id, suggestion.document_id)} · Seite {suggestion.source_page}: „{suggestion.source_excerpt}“
               </p>
-              <div :if={duplicates != []} class="mt-2 space-y-2">
+              <div :if={conflicting_duplicates?} class="mt-2 space-y-2">
                 <p class="text-xs leading-5 text-slate-500">
                   Diese Angabe wurde in mehreren Dokumenten unterschiedlich erkannt. Bitte den passenden Wert auswählen.
                 </p>
@@ -1723,8 +1731,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 <button
                   type="button"
                   id={"reject-suggestion-duplicates-#{suggestion.id}"}
-                  phx-click="reject_suggestion_duplicates"
+                  phx-click="set_suggestion_state"
                   phx-value-id={suggestion.id}
+                  phx-value-state="rejected"
                   disabled={!@editable?}
                   class="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 disabled:opacity-40"
                 >
@@ -1892,7 +1901,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                 }
               </script>
             </div>
-            <div :if={duplicates == []} class="flex shrink-0 flex-wrap gap-2">
+            <div :if={not conflicting_duplicates?} class="flex shrink-0 flex-wrap gap-2">
               <%= if suggestion.state == :proposed do %>
                 <button
                   id={"accept-suggestion-#{suggestion.id}"}
