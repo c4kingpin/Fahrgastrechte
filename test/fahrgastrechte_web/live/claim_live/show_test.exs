@@ -208,6 +208,32 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     assert Enum.find(updated_suggestions, &(&1.id == ticket_fare.id)).state == :rejected
   end
 
+  test "shows an identical duplicate value once, without asking the user to pick", %{conn: conn} do
+    {conn, scope} = authenticated_conn(conn)
+    claim = claim_fixture(scope)
+    {ticket, claim} = document_fixture(scope, claim, :ticket)
+    {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+    ticket_order = insert_order_number_suggestion!(ticket, "848046307437", 0.98)
+    invoice_order = insert_order_number_suggestion!(invoice, "848046307437", 0.98)
+
+    {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
+
+    assert has_element?(view, "#booking-suggestions #booking_suggestions-#{ticket_order.id}")
+    refute has_element?(view, "#booking-suggestions #booking_suggestions-#{invoice_order.id}")
+    refute has_element?(view, "#choose-suggestion-candidate-#{ticket_order.id}")
+    refute has_element?(view, "#choose-suggestion-candidate-#{invoice_order.id}")
+    assert has_element?(view, "#accept-suggestion-#{ticket_order.id}")
+
+    view
+    |> element("#accept-suggestion-#{ticket_order.id}")
+    |> render_click()
+
+    assert {:ok, updated_suggestions} = Tickets.list_claim_suggestions(scope, claim.id)
+    assert Enum.find(updated_suggestions, &(&1.id == ticket_order.id)).state == :accepted
+    assert Enum.find(updated_suggestions, &(&1.id == invoice_order.id)).state == :rejected
+  end
+
   test "manual station search box finds and applies a real catalog match", %{conn: conn} do
     {conn, scope} = authenticated_conn(conn)
 
@@ -511,6 +537,19 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
       confidence: confidence,
       source_page: 1,
       source_excerpt: "Fahrpreis: #{amount} EUR",
+      state: :proposed
+    })
+    |> Repo.insert!()
+  end
+
+  defp insert_order_number_suggestion!(document, order_number, confidence) do
+    %Suggestion{document_id: document.id}
+    |> Suggestion.changeset(%{
+      field: :order_number,
+      value: %{"text" => order_number},
+      confidence: confidence,
+      source_page: 1,
+      source_excerpt: "Auftragsnummer: #{order_number}",
       state: :proposed
     })
     |> Repo.insert!()
