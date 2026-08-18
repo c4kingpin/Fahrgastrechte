@@ -141,6 +141,23 @@ defmodule Fahrgastrechte.Claims do
   def dashboard_counts(%Scope{}), do: {:ok, %{total: 0, open: 0, completed: 0}}
   def dashboard_counts(_scope), do: {:error, :not_authenticated}
 
+  @doc "Returns the current user's most recently edited claim, if any."
+  @spec most_recent_claim(Scope.t()) :: {:ok, Claim.t() | nil} | {:error, domain_error()}
+  def most_recent_claim(%Scope{user: %User{id: user_id}}) do
+    claim =
+      Repo.one(
+        from claim in Claim,
+          where: claim.user_id == ^user_id and is_nil(claim.deletion_pending_at),
+          order_by: [desc: claim.updated_at, desc: claim.id],
+          limit: 1
+      )
+
+    {:ok, claim}
+  end
+
+  def most_recent_claim(%Scope{}), do: {:ok, nil}
+  def most_recent_claim(_scope), do: {:error, :not_authenticated}
+
   @doc """
   Loads a claim and verifies it matches `expected_lock_version` and is in an
   editable status (`:draft` or `:ready`).
