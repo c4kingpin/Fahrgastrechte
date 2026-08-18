@@ -214,8 +214,8 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
     {ticket, claim} = document_fixture(scope, claim, :ticket)
     {invoice, _claim} = document_fixture(scope, claim, :invoice)
 
-    ticket_order = insert_order_number_suggestion!(ticket, "848046307437", 0.98)
-    invoice_order = insert_order_number_suggestion!(invoice, "848046307437", 0.98)
+    ticket_order = insert_order_number_suggestion!(ticket, "123456789012", 0.98)
+    invoice_order = insert_order_number_suggestion!(invoice, "123456789012", 0.98)
 
     {:ok, view, _html} = live(conn, ~p"/antraege/#{claim.id}")
 
