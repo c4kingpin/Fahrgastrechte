@@ -392,13 +392,15 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
   end
 
   @doc "True unless the user explicitly collapsed this suggestion's station search panel."
-  def station_search_open?(closed_ids, suggestion_id), do: not MapSet.member?(closed_ids, suggestion_id)
+  def station_search_open?(closed_ids, suggestion_id),
+    do: not MapSet.member?(closed_ids, suggestion_id)
 
   @doc "The text currently typed into a suggestion's station search box, if any."
   def station_search_query_value(queries, suggestion_id), do: Map.get(queries, suggestion_id, "")
 
   @doc "True while a station search request for this suggestion is in flight."
-  def station_search_pending?(pending_ids, suggestion_id), do: MapSet.member?(pending_ids, suggestion_id)
+  def station_search_pending?(pending_ids, suggestion_id),
+    do: MapSet.member?(pending_ids, suggestion_id)
 
   def source_document_name(documents_by_id, document_id) do
     case Map.get(documents_by_id, document_id) do
