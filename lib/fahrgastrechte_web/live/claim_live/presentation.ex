@@ -378,6 +378,19 @@ defmodule FahrgastrechteWeb.ClaimLive.Presentation do
 
   def suggestion_candidates(_suggestion), do: []
 
+  @doc "Sibling suggestions extracted for the same field from another document, best guess first."
+  def suggestion_duplicate_siblings(suggestion_duplicates, suggestions_by_id, suggestion) do
+    case Map.get(suggestion_duplicates, suggestion.id) do
+      nil ->
+        []
+
+      %{sibling_ids: sibling_ids} ->
+        sibling_ids
+        |> Enum.map(&Map.get(suggestions_by_id, &1))
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
   @doc "True unless the user explicitly collapsed this suggestion's station search panel."
   def station_search_open?(closed_ids, suggestion_id), do: not MapSet.member?(closed_ids, suggestion_id)
 
