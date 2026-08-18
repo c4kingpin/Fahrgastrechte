@@ -1752,7 +1752,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                   data-role="combobox-toggle"
                   phx-click="toggle_station_search"
                   phx-value-id={suggestion.id}
-                  aria-expanded={to_string(station_search_open?(@station_search_closed, suggestion.id))}
+                  aria-expanded={
+                    to_string(station_search_open?(@station_search_closed, suggestion.id))
+                  }
                   aria-controls={"station-search-panel-#{suggestion.id}"}
                   class="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700"
                 >
@@ -1843,7 +1845,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
                       Map.get(@suggestion_station_options, suggestion.id, []) == [] and
                         not station_search_pending?(@station_search_pending, suggestion.id) and
                         String.length(
-                          String.trim(station_search_query_value(@station_search_query, suggestion.id))
+                          String.trim(
+                            station_search_query_value(@station_search_query, suggestion.id)
+                          )
                         ) >= 2
                     }
                     class="mt-1 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"

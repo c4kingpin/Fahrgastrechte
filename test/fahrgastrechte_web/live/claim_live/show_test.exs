@@ -3,8 +3,10 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
   import Fahrgastrechte.AccountsFixtures
   import Fahrgastrechte.ClaimsFixtures
+
   import Fahrgastrechte.DocumentsFixtures,
     only: [document_fixture: 2, document_fixture: 3, document_fixture: 4]
+
   import Fahrgastrechte.RailFixtures, only: [station_fixture!: 2]
   import Phoenix.LiveViewTest
 
@@ -370,7 +372,11 @@ defmodule FahrgastrechteWeb.ClaimLive.ShowTest do
 
     render_async(view)
 
-    assert has_element?(view, "#station-search-panel-#{destination.id}", "Keine Bahnhöfe gefunden.")
+    assert has_element?(
+             view,
+             "#station-search-panel-#{destination.id}",
+             "Keine Bahnhöfe gefunden."
+           )
   end
 
   test "deletes a private document through the coordinated UI action", %{conn: conn} do

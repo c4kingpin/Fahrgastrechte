@@ -252,7 +252,13 @@ defmodule Fahrgastrechte.ClaimWorkspace do
 
   defp reject_siblings(scope, claim_id, sibling_ids) do
     with {:ok, current_claim} <- Claims.get_claim(scope, claim_id) do
-      Tickets.set_suggestion_states(scope, claim_id, sibling_ids, :rejected, current_claim.lock_version)
+      Tickets.set_suggestion_states(
+        scope,
+        claim_id,
+        sibling_ids,
+        :rejected,
+        current_claim.lock_version
+      )
     end
   end
 
