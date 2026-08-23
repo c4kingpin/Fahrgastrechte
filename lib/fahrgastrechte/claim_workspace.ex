@@ -570,7 +570,11 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     |> Enum.group_by(& &1.field)
     |> Enum.filter(fn {_field, group} -> length(group) > 1 end)
     |> Enum.flat_map(fn {_field, group} ->
-      ids = group |> Enum.sort_by(&{-&1.confidence, &1.id}) |> Enum.map(& &1.id)
+      ids =
+        group
+        |> Enum.sort_by(&{-&1.confidence, &1.inserted_at, &1.id})
+        |> Enum.map(& &1.id)
+
       representative_id = List.first(ids)
 
       Enum.map(ids, fn id ->
