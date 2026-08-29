@@ -175,6 +175,37 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
       assert workspace.suggestion_duplicates == %{}
     end
+
+    test "picks the chronologically earlier suggestion as representative with microsecond precision" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+      base_time = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+
+      earlier_time = DateTime.add(base_time, -1, :second) |> DateTime.add(999_999, :microsecond)
+      later_time = DateTime.add(base_time, 1, :second) |> DateTime.add(1, :microsecond)
+
+      earlier_suggestion =
+        insert_fare_suggestion_with_time!(ticket, "19.90", 0.9, earlier_time)
+
+      later_suggestion = insert_fare_suggestion_with_time!(invoice, "19.90", 0.9, later_time)
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+
+      assert Map.get(workspace.suggestion_duplicates, earlier_suggestion.id) == %{
+               representative?: true,
+               sibling_ids: [later_suggestion.id]
+             }
+
+      assert Map.get(workspace.suggestion_duplicates, later_suggestion.id) == %{
+               representative?: false,
+               sibling_ids: [earlier_suggestion.id]
+             }
+    end
   end
 
   describe "accept_suggestion_choice/4" do
@@ -539,5 +570,27 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       state: :proposed
     })
     |> Repo.insert!()
+  end
+
+  defp insert_fare_suggestion_with_time!(document, amount, confidence, inserted_at) do
+    %Suggestion{document_id: document.id}
+    |> Suggestion.changeset(%{
+      field: :fare,
+      value: %{"amount" => amount, "currency" => "EUR"},
+      confidence: confidence,
+      source_page: 1,
+      source_excerpt: "Fahrpreis: #{amount} EUR",
+      state: :proposed
+    })
+    |> Repo.insert!()
+    |> case do
+      {:ok, suggestion} ->
+        suggestion
+        |> Ecto.Changeset.change(inserted_at: inserted_at)
+        |> Repo.update!()
+
+      {:error, reason} ->
+        raise "Failed to insert suggestion: #{inspect(reason)}"
+    end
   end
 end
