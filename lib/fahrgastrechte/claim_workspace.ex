@@ -572,7 +572,7 @@ defmodule Fahrgastrechte.ClaimWorkspace do
     |> Enum.flat_map(fn {_field, group} ->
       ids =
         group
-        |> Enum.sort_by(&{-&1.confidence, &1.inserted_at, &1.id})
+        |> Enum.sort_by(&{-&1.confidence, DateTime.to_unix(&1.inserted_at, :microsecond), &1.id})
         |> Enum.map(& &1.id)
 
       representative_id = List.first(ids)

@@ -175,6 +175,35 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
 
       assert workspace.suggestion_duplicates == %{}
     end
+
+    test "picks the chronologically earlier suggestion as representative with microsecond precision" do
+      scope = scope_fixture()
+      claim = claim_fixture(scope)
+      {ticket, claim} = document_fixture(scope, claim, :ticket)
+      {invoice, _claim} = document_fixture(scope, claim, :invoice)
+
+      earlier_time = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 30, 59, {999_999, 6}))
+      later_time = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 31, 0, {1, 6}))
+
+      earlier_suggestion =
+        insert_fare_suggestion_with_time!(ticket, "19.90", 0.9, earlier_time)
+
+      later_suggestion = insert_fare_suggestion_with_time!(invoice, "19.90", 0.9, later_time)
+
+      assert {:ok, workspace} = ClaimWorkspace.load(scope, claim.id)
+
+      assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+
+      assert Map.get(workspace.suggestion_duplicates, earlier_suggestion.id) == %{
+               representative?: true,
+               sibling_ids: [later_suggestion.id]
+             }
+
+      assert Map.get(workspace.suggestion_duplicates, later_suggestion.id) == %{
+               representative?: false,
+               sibling_ids: [earlier_suggestion.id]
+             }
+    end
   end
 
   describe "accept_suggestion_choice/4" do
@@ -539,5 +568,20 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       state: :proposed
     })
     |> Repo.insert!()
+  end
+
+  defp insert_fare_suggestion_with_time!(document, amount, confidence, inserted_at) do
+    %Suggestion{document_id: document.id}
+    |> Suggestion.changeset(%{
+      field: :fare,
+      value: %{"amount" => amount, "currency" => "EUR"},
+      confidence: confidence,
+      source_page: 1,
+      source_excerpt: "Fahrpreis: #{amount} EUR",
+      state: :proposed
+    })
+    |> Repo.insert!()
+    |> Ecto.Changeset.change(inserted_at: inserted_at)
+    |> Repo.update!()
   end
 end
