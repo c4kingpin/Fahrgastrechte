@@ -67,37 +67,53 @@ assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_sugges
 
 The chronologically earlier suggestion (`14:30:59.999999`) is correctly selected as the representative.
 
-## Mutation Test: Old Sorting Key (Hypothetical)
+## Mutation Test: Old Sorting Key (Actual Results)
 
-If the sorting key were reverted to `{-&1.confidence, &1.inserted_at, &1.id}` (comparing DateTime structs directly):
+**Test execution via `mise exec --` with old sorting key `{-&1.confidence, &1.inserted_at, &1.id}`:**
 
-```elixir
-iex> earlier = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 30, 59, {999_999, 6}))
-~U[2026-08-29 14:30:59.999999Z]
+The sorting key was temporarily reverted to use DateTime struct comparison directly. All four seeds failed with the expected wrong representative ID:
 
-iex> later = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 31, 0, {1, 6}))
-~U[2026-08-29 14:31:00.000001Z]
-
-# DateTime comparison by Map key order
-iex> earlier < later
-false  # ✗ DEFECT: Map ordering says earlier is NOT less than later
-
-iex> later < earlier
-true   # ✗ DEFECT: Map ordering says later IS less than earlier
-
-# The sort would incorrectly place later_suggestion first
+### Seed 0
+```
+Assertion with == failed
+code:  assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+left:  ["da024fbd-28b5-49e1-946c-dc0037ac99a3"]
+right: ["05290f62-e6c6-439d-9c99-8495e8f75485"]
+Result: 0/1 passed, 21 excluded
+Failed: 1 test
 ```
 
-Applying the old sorting key to the test data:
-- `Enum.sort_by([earlier_suggestion, later_suggestion], &{-&1.confidence, &1.inserted_at, &1.id})`
-- Result: `[later_suggestion, earlier_suggestion]` (reversed order)
-- Assertion: `workspace.suggestion_groups.booking` → `[later_suggestion.id]` ✗ FAIL
-  ```
-  Expected: [earlier_suggestion.id]
-  Got:      [later_suggestion.id]
-  ```
+### Seed 1
+```
+Assertion with == failed
+code:  assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+left:  ["cc23bc04-1888-40ed-9186-1ce42bcaef43"]
+right: ["b89a10a9-fb21-4f1b-855a-59c202b749b1"]
+Result: 0/1 passed, 21 excluded
+Failed: 1 test
+```
 
-The mutation is detected on all seeds because the defect is deterministic — it stems from the Map key order, not from randomness.
+### Seed 42
+```
+Assertion with == failed
+code:  assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+left:  ["2fff7a4b-10ec-4c1f-9814-0e379920bac7"]
+right: ["2973e511-d67d-4997-bd43-f734637819b9"]
+Result: 0/1 passed, 21 excluded
+Failed: 1 test
+```
+
+### Seed 999999
+```
+Assertion with == failed
+code:  assert Enum.map(workspace.suggestion_groups.booking, & &1.id) == [earlier_suggestion.id]
+left:  ["22056a93-d972-481d-a52c-d4268e9ac008"]
+right: ["175771f5-3c8e-4dae-be6b-446030e9a670"]
+Result: 0/1 passed, 21 excluded
+Failed: 1 test
+```
+
+**Summary**: All four seeds fail with `0/1 passed` when the old sorting key is used. The mutation consistently selects the wrong representative (the later-created suggestion instead of the chronologically earlier one), proving that the fix is a genuine correctness improvement.
 
 ## Full Test Suite Results
 
