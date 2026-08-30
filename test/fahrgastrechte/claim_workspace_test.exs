@@ -182,10 +182,8 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       {ticket, claim} = document_fixture(scope, claim, :ticket)
       {invoice, _claim} = document_fixture(scope, claim, :invoice)
 
-      base_time = DateTime.utc_now() |> DateTime.truncate(:microsecond)
-
-      earlier_time = DateTime.add(base_time, -1, :second) |> DateTime.add(999_999, :microsecond)
-      later_time = DateTime.add(base_time, 1, :second) |> DateTime.add(1, :microsecond)
+      earlier_time = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 30, 59, {999_999, 6}))
+      later_time = DateTime.new!(Date.new!(2026, 8, 29), Time.new!(14, 31, 0, {1, 6}))
 
       earlier_suggestion =
         insert_fare_suggestion_with_time!(ticket, "19.90", 0.9, earlier_time)
@@ -583,14 +581,7 @@ defmodule Fahrgastrechte.ClaimWorkspaceTest do
       state: :proposed
     })
     |> Repo.insert!()
-    |> case do
-      {:ok, suggestion} ->
-        suggestion
-        |> Ecto.Changeset.change(inserted_at: inserted_at)
-        |> Repo.update!()
-
-      {:error, reason} ->
-        raise "Failed to insert suggestion: #{inspect(reason)}"
-    end
+    |> Ecto.Changeset.change(inserted_at: inserted_at)
+    |> Repo.update!()
   end
 end
