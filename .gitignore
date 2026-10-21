@@ -40,3 +40,6 @@ npm-debug.log
 /.env.*
 !/.env.example
 /test/fixtures/private/
+
+# ProjectAtlas local index
+/.projectatlas/
