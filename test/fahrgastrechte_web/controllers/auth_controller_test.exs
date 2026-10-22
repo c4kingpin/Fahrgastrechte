@@ -25,7 +25,7 @@ defmodule FahrgastrechteWeb.AuthControllerTest do
 
     query = redirect_uri |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
     assert query["state"] == "test-state"
-    assert query["redirect_uri"] == "http://localhost:4000/auth/callback"
+    assert query["redirect_uri"] == FahrgastrechteWeb.Endpoint.url() <> "/auth/callback"
 
     assert %{
              "state" => "test-state",
@@ -105,7 +105,7 @@ defmodule FahrgastrechteWeb.AuthControllerTest do
 
     assert String.starts_with?(redirect_uri, "https://identity.example.invalid/end-session?")
     assert query["id_token_hint"] == "logout-token"
-    assert query["return_to"] == "http://localhost:4000/auth/abgemeldet"
+    assert query["return_to"] == FahrgastrechteWeb.Endpoint.url() <> "/auth/abgemeldet"
     assert get_session(conn, :user_id) == nil
   end
 

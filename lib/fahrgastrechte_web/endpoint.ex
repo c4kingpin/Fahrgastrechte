@@ -15,9 +15,18 @@ defmodule FahrgastrechteWeb.Endpoint do
     secure: @secure_session_cookie
   ]
 
+  # Browser tests only: shares the test's SQL sandbox with the request.
+  if Application.compile_env(:fahrgastrechte, :sql_sandbox, false) do
+    plug Phoenix.Ecto.SQL.Sandbox
+  end
+
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options]],
-    longpoll: [connect_info: [session: @session_options]]
+    websocket: [connect_info: [:user_agent, session: @session_options]],
+    longpoll: [connect_info: [:user_agent, session: @session_options]]
+
+  @doc false
+  # Lets browser tests write a signed-in session cookie.
+  def session_options, do: @session_options
 
   plug FahrgastrechteWeb.Plugs.RequireCanonicalHost
 

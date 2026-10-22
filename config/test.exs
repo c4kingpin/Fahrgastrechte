@@ -42,12 +42,29 @@ config :fahrgastrechte, Fahrgastrechte.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   pool_size: System.schedulers_online() * 2
 
-# We don't run a server during test. If one is required,
-# you can enable the server option below.
+# The server runs during tests so the Playwright feature tests in
+# test/features can drive the app in a real browser.
 config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "2Qt2yUoIkwD8rYnhGiMKBVk3U7Gbx2SeKi3ECgPQtdypjDOCUOpIkl3C9MUGdByF",
-  server: false
+  server: true
+
+# Lets browser requests and LiveView processes join the test's SQL sandbox.
+# Compiled into the endpoint and router only when set, so never in a release.
+config :fahrgastrechte, sql_sandbox: true
+
+config :phoenix_test,
+  otp_app: :fahrgastrechte,
+  endpoint: FahrgastrechteWeb.Endpoint,
+  playwright: [
+    browser_pools: [[id: :chromium, browser: :chromium, size: 2]],
+    browser_pool: :chromium,
+    browser_context_opts: [locale: "de-DE", timezone_id: "Europe/Berlin"],
+    timeout: :timer.seconds(5),
+    ecto_sandbox_stop_owner_delay: 100,
+    screenshot: System.get_env("PW_SCREENSHOT", "false") in ~w(t true),
+    trace: System.get_env("PW_TRACE", "false") in ~w(t true)
+  ]
 
 # Print only warnings and errors during test
 config :logger, level: :warning

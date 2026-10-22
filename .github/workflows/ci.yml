@@ -71,7 +71,19 @@ jobs:
 
       - name: PDF-Werkzeuge installieren
         run: sudo apt-get update && sudo apt-get install --yes pdftk-java poppler-utils qpdf
-        
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+          cache-dependency-path: assets/package-lock.json
+
+      - name: Playwright und Chromium für Browser-Tests installieren
+        run: |
+          npm ci --prefix assets
+          npx --prefix assets playwright install --with-deps chromium
+
       - name: Deployment-Scripte prüfen
         run: |
           bash -n ct/fahrgastrechte.sh install/fahrgastrechte-install.sh scripts/deploy/*.sh
@@ -86,7 +98,17 @@ jobs:
         run: mix compile --warnings-as-errors
 
       - name: Tests ausführen
-        run: mix test
+        # Exit code 2 means failed tests: rerun only those with Playwright
+        # traces so a failing browser test can be replayed from the artifact.
+        run: mix test || if [[ $? = 2 ]]; then PW_TRACE=true mix test --failed; else false; fi
+
+      - name: Playwright-Traces sichern
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: traces/
+          if-no-files-found: ignore
 
   production_release_smoke:
     runs-on: ubuntu-latest
