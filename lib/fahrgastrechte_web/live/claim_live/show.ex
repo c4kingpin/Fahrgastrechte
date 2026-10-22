@@ -989,6 +989,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           <aside class={["space-y-5"]}>
             <details
               id="claim-more-options"
+              phx-mounted={JS.ignore_attributes("open")}
               class={["group rounded-3xl border border-slate-200 bg-white shadow-sm"]}
             >
               <summary class={[
