@@ -1632,13 +1632,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </dl>
       </section>
 
-      <div id="claim-api-sources" phx-update="stream" class={["mt-6 grid gap-2"]}>
-        <p
-          id="api-sources-heading"
-          class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}
-        >
-          Quellen und Abrufzeiten
-        </p>
+      <p
+        id="api-sources-heading"
+        class={["mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500"]}
+      >
+        Quellen und Abrufzeiten
+      </p>
+      <%!-- The empty state relies on `only:`, so the stream holds nothing else. --%>
+      <div id="claim-api-sources" phx-update="stream" class={["mt-2 grid gap-2"]}>
         <div
           id="api-sources-empty"
           class={["hidden rounded-xl bg-slate-50 p-3 text-xs text-slate-500 only:block"]}
