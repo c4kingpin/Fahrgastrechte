@@ -107,6 +107,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           } else if (e.key === "Enter") {
             if (index >= 0) {
               e.preventDefault()
+              // LiveView never patches the focused input, so mirror the choice
+              // here; otherwise the next form change resends the typed fragment.
+              e.target.value = options[index].textContent.trim()
               options[index].click()
             }
           }
