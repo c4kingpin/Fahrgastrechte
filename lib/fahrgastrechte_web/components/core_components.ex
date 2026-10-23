@@ -286,7 +286,10 @@ defmodule FahrgastrechteWeb.CoreComponents do
         <span :if={@label} class="mb-1.5 block text-sm font-medium text-slate-700">
           {@label}
         </span>
-        <div id={"#{@id}-picker"} phx-hook=".GermanDatePicker" phx-update="ignore" class="relative">
+        <%!-- No phx-update="ignore" here: values the server sets (e.g. an accepted
+             ticket date) must reach the text input, or the next autosave would
+             send the stale empty value back. --%>
+        <div id={"#{@id}-picker"} phx-hook=".GermanDatePicker" class="relative">
           <input
             type="text"
             name={@name}
@@ -337,10 +340,14 @@ defmodule FahrgastrechteWeb.CoreComponents do
             this.textInput.dispatchEvent(new Event("change", {bubbles: true}))
           })
 
-          this.textInput.addEventListener("change", () => {
-            const native = this.parseGerman(this.textInput.value)
-            if (native) this.nativeInput.value = native
-          })
+          this.textInput.addEventListener("change", () => this.syncNative())
+        },
+        updated() {
+          this.syncNative()
+        },
+        syncNative() {
+          const native = this.parseGerman(this.textInput.value)
+          if (native) this.nativeInput.value = native
         },
         formatNative(value) {
           if (!value) return null

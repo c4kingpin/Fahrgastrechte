@@ -103,6 +103,24 @@ mix precommit         # vollständige Prüfung vor einem Commit
 GitHub Actions prüft bei Pull Requests und Änderungen an `main` Formatierung,
 Kompilierung ohne Warnungen und Tests gegen PostgreSQL.
 
+### Browser-Tests (Playwright)
+
+`test/features` enthält Ende-zu-Ende-Tests, die jede Oberfläche in einem echten
+Chromium bedienen: Anmeldung, Übersicht, Anträge mit allen sechs Schritten,
+Profil und Datenquellen. Sie laufen mit `mix test` zusammen mit allen anderen
+Tests und brauchen einmalig Node.js und Playwright:
+
+```bash
+npm ci --prefix assets
+npx --prefix assets playwright install --with-deps chromium
+```
+
+`mix test` baut vorher die Assets, damit die Tests das aktuelle JavaScript
+prüfen. Nur die Browser-Tests: `mix test test/features`. Zur Fehlersuche
+schreibt `PW_TRACE=true mix test --failed` Playwright-Traces nach `traces/`
+(ansehen mit `npx --prefix assets playwright show-trace <datei>`),
+`PW_SCREENSHOT=true` legt Screenshots in `screenshots/` ab.
+
 ## Dokumentation
 
 | Thema | Einstieg |

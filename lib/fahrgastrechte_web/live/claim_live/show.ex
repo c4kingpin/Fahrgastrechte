@@ -75,6 +75,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           |> assign(:connection_search_state, :idle)
           |> assign(:candidate_lookup, %{})
           |> assign(:export_state, :idle)
+          |> assign(:payout_derived, %{})
           |> assign(:connection_search_token, nil)
           |> assign(:analysis_tokens, %{})
           |> assign(:suggestion_station_options, %{})
@@ -152,24 +153,35 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
   end
 
   def handle_event("payout_validate", %{"profile" => params}, socket) do
+    {params, derived} = payout_params(params, socket.assigns.payout_derived)
+
     changeset =
       socket.assigns.current_scope
-      |> Accounts.change_profile(payout_params(params))
+      |> Accounts.change_profile(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+    {:noreply,
+     socket
+     |> assign(:payout_derived, derived)
+     |> assign(:payout_form, to_form(changeset, as: :profile))}
   end
 
   def handle_event("payout_save", %{"profile" => params}, socket) do
-    case Accounts.update_profile(socket.assigns.current_scope, payout_params(params)) do
+    {params, derived} = payout_params(params, socket.assigns.payout_derived)
+
+    case Accounts.update_profile(socket.assigns.current_scope, params) do
       {:ok, _profile} ->
         {:noreply,
          socket
+         |> assign(:payout_derived, %{})
          |> refresh_workspace()
          |> put_flash(:info, "Deine Auszahlungsdaten wurden gespeichert.")}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, :payout_form, to_form(changeset, as: :profile))}
+        {:noreply,
+         socket
+         |> assign(:payout_derived, derived)
+         |> assign(:payout_form, to_form(changeset, as: :profile))}
 
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Die Angaben konnten nicht gespeichert werden.")}
@@ -989,6 +1001,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
           <aside class={["space-y-5"]}>
             <details
               id="claim-more-options"
+              phx-mounted={JS.ignore_attributes("open")}
               class={["group rounded-3xl border border-slate-200 bg-white shadow-sm"]}
             >
               <summary class={[
@@ -1982,33 +1995,40 @@ defmodule FahrgastrechteWeb.ClaimLive.Show do
 
   defp payout_default_attrs(_profile), do: %{}
 
-  defp payout_params(params) do
-    params
-    |> put_derived_account_holder()
-    |> put_derived_bic()
+  # Fills an empty account holder from the name and an empty BIC from the
+  # IBAN. The form is validated on every keystroke, so a value filled in here
+  # comes back with the next change; `previously_derived` recognises it and
+  # derives it afresh, otherwise a name typed field by field would stop at the
+  # first name. Whatever the person typed over a derived value is kept.
+  defp payout_params(params, previously_derived) do
+    params =
+      Enum.reduce(previously_derived, params, fn {field, value}, acc ->
+        if Map.get(acc, field) == value, do: Map.put(acc, field, ""), else: acc
+      end)
+
+    derived =
+      [{"account_holder", derive_account_holder(params)}, {"bic", derive_bic(params)}]
+      |> Enum.reject(fn {_field, value} -> is_nil(value) end)
+      |> Map.new()
+
+    {Map.merge(params, derived), derived}
   end
 
-  defp put_derived_account_holder(params) do
-    case Map.get(params, "account_holder") do
-      value when value in [nil, ""] ->
-        name =
-          [Map.get(params, "first_name"), Map.get(params, "last_name")]
-          |> Enum.reject(&(&1 in [nil, ""]))
-          |> Enum.join(" ")
+  defp derive_account_holder(params) do
+    name =
+      [Map.get(params, "first_name"), Map.get(params, "last_name")]
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join(" ")
 
-        if name == "", do: params, else: Map.put(params, "account_holder", name)
-
-      _value ->
-        params
-    end
+    if Map.get(params, "account_holder") in [nil, ""] and name != "", do: name
   end
 
-  defp put_derived_bic(params) do
+  defp derive_bic(params) do
     with value when value in [nil, ""] <- Map.get(params, "bic"),
          {:ok, bic} <- BicLookup.derive(Map.get(params, "iban")) do
-      Map.put(params, "bic", bic)
+      bic
     else
-      _keep -> params
+      _keep -> nil
     end
   end
 

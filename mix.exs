@@ -48,6 +48,7 @@ defmodule Fahrgastrechte.MixProject do
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.2.9"},
       {:lazy_html, ">= 0.1.0", only: :test},
+      {:phoenix_test_playwright, "~> 0.19", only: :test, runtime: false},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.5", runtime: Mix.env() == :dev},
@@ -82,7 +83,15 @@ defmodule Fahrgastrechte.MixProject do
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      # The browser tests in test/features run against the built bundle, so it
+      # is rebuilt first; otherwise they would exercise stale JavaScript.
+      test: [
+        "assets.setup",
+        "assets.build",
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test"
+      ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind fahrgastrechte", "esbuild fahrgastrechte"],
       "assets.deploy": [

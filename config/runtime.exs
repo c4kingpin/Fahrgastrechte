@@ -105,7 +105,9 @@ if System.get_env("PHX_SERVER") do
   config :fahrgastrechte, FahrgastrechteWeb.Endpoint, server: true
 end
 
-if config_env() != :prod do
+# The test endpoint keeps its fixed port from config/test.exs: it serves the
+# browser feature tests and must not collide with a running dev server.
+if config_env() == :dev do
   config :fahrgastrechte, FahrgastrechteWeb.Endpoint,
     http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 end

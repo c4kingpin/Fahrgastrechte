@@ -1,0 +1,8 @@
+{
+  "name": "fahrgastrechte-assets",
+  "private": true,
+  "description": "Development-only Node tooling. The browser bundle is built by the esbuild and tailwind Mix tasks; Playwright drives the browser feature tests in test/features.",
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

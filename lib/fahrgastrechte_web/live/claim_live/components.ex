@@ -107,6 +107,9 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           } else if (e.key === "Enter") {
             if (index >= 0) {
               e.preventDefault()
+              // LiveView never patches the focused input, so mirror the choice
+              // here; otherwise the next form change resends the typed fragment.
+              e.target.value = options[index].textContent.trim()
               options[index].click()
             }
           }
@@ -904,10 +907,13 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         <.step_badge state={@planned_state} />
       </div>
 
+      <%!-- The server only picks the initial state; afterwards the person's own
+           opening or closing must survive every re-render. --%>
       <details
         id="connection-search-drawer"
         class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
         open={!@planned_complete?}
+        phx-mounted={JS.ignore_attributes("open")}
       >
         <summary class={[
           "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
@@ -1036,8 +1042,10 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
       </div>
 
       <details
+        id="planned-journey-manual"
         class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
         open={!@planned_complete?}
+        phx-mounted={JS.ignore_attributes("open")}
       >
         <summary class={[
           "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
@@ -1081,6 +1089,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
           </div>
           <details
             id="manual-transfer-editor"
+            phx-mounted={JS.ignore_attributes("open")}
             class="mt-5 rounded-xl border border-slate-200 bg-slate-50"
           >
             <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-800">
@@ -1317,6 +1326,7 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         id="actual-journey-manual"
         class={["mt-6 rounded-2xl border border-slate-200 bg-white"]}
         open={@actual_state != :confirmed}
+        phx-mounted={JS.ignore_attributes("open")}
       >
         <summary class={[
           "cursor-pointer px-4 py-4 text-sm font-semibold text-slate-800 sm:px-5"
@@ -1622,13 +1632,14 @@ defmodule FahrgastrechteWeb.ClaimLive.Components do
         </dl>
       </section>
 
-      <div id="claim-api-sources" phx-update="stream" class={["mt-6 grid gap-2"]}>
-        <p
-          id="api-sources-heading"
-          class={["text-xs font-semibold uppercase tracking-wide text-slate-500"]}
-        >
-          Quellen und Abrufzeiten
-        </p>
+      <p
+        id="api-sources-heading"
+        class={["mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500"]}
+      >
+        Quellen und Abrufzeiten
+      </p>
+      <%!-- The empty state relies on `only:`, so the stream holds nothing else. --%>
+      <div id="claim-api-sources" phx-update="stream" class={["mt-2 grid gap-2"]}>
         <div
           id="api-sources-empty"
           class={["hidden rounded-xl bg-slate-50 p-3 text-xs text-slate-500 only:block"]}

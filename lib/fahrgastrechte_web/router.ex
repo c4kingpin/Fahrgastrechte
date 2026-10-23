@@ -25,6 +25,12 @@ defmodule FahrgastrechteWeb.Router do
                            ]
                            |> Enum.join("; ")
 
+  # Browser tests must join the SQL sandbox before the authentication hook
+  # reads the user, so the sandbox hook comes first. Never compiled into a release.
+  @sandbox_on_mount if Application.compile_env(:fahrgastrechte, :sql_sandbox, false),
+                      do: [FahrgastrechteWeb.LiveSandbox],
+                      else: []
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -67,7 +73,7 @@ defmodule FahrgastrechteWeb.Router do
     get "/dokumente/:id/download", DocumentController, :download
 
     live_session :require_authenticated_user,
-      on_mount: [{FahrgastrechteWeb.UserAuth, :require_authenticated}] do
+      on_mount: @sandbox_on_mount ++ [{FahrgastrechteWeb.UserAuth, :require_authenticated}] do
       live "/profil", ProfileLive, :edit
       live "/datenquellen", ReferenceDataLive, :index
       live "/antraege", ClaimLive.Index, :index
