@@ -89,6 +89,7 @@ geprüft. Die neue Datei wird unveränderlich gespeichert und hat danach Vorrang
 vor dem Fallback; bestehende Exportversionen verändern sich nicht.
 
 Das Systembackend benötigt qpdf, pdftk-java, Poppler/Cairo und eine
-DejaVu-Schrift. PDF-Jobs werden instanzweit serialisiert, beenden einzelne
+DejaVu-Schrift. pdftk-java wird ohne BouncyCastle gestartet
+(`priv/bin/pdftk-without-bouncycastle`, siehe ADR 0003). PDF-Jobs werden instanzweit serialisiert, beenden einzelne
 Werkzeugaufrufe nach spätestens 30 Sekunden und entfernen ihr Arbeitsverzeichnis
 auch bei Fehlern.

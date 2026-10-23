@@ -1,0 +1,15 @@
+#!/bin/sh
+# Starts pdftk-java without BouncyCastle on the classpath.
+#
+# The distribution launcher (/usr/bin/pdftk) always loads libbcprov-java, and
+# every supported base (Ubuntu 24.04, Debian 12 and 13) ships a BouncyCastle
+# with known CVEs that are fixed only from 1.86 on. pdftk needs it solely for
+# encrypted PDFs, which Fahrgastrechte rejects before pdftk runs, so leaving it
+# out means the vulnerable code is never loaded. An encrypted PDF that still
+# reaches pdftk makes it fail instead of decrypting.
+set -eu
+
+: "${PDFTK_JAR:=/usr/share/pdftk/pdftk.jar}"
+: "${COMMONS_LANG3_JAR:=/usr/share/java/commons-lang3.jar}"
+
+exec java -cp "${COMMONS_LANG3_JAR}:${PDFTK_JAR}" com.gitlab.pdftk_java.pdftk "$@"

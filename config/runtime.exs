@@ -153,8 +153,9 @@ if config_env() == :prod do
   # Compile-time `Path.expand(..., __DIR__)` in config.exs bakes in the
   # build machine's source checkout path, which is unreadable by the
   # service user and unrelated to this release once deployed. Resolve the
-  # bundled template against the running release's own priv directory
-  # instead, unless an operator explicitly overrides it.
+  # bundled template and pdftk launcher against the running release's own
+  # priv directory instead, unless an operator explicitly overrides the
+  # template.
   default_form_template_path =
     Application.app_dir(:fahrgastrechte, "priv/form_templates/fahrgastrechte-2025-me-08-25.pdf")
 
@@ -163,7 +164,8 @@ if config_env() == :prod do
 
   config :fahrgastrechte, Fahrgastrechte.Exports,
     template_path: System.get_env("FORM_TEMPLATE_PATH", default_form_template_path),
-    template_manifest_path: default_form_manifest_path
+    template_manifest_path: default_form_manifest_path,
+    pdftk_executable: Application.app_dir(:fahrgastrechte, "priv/bin/pdftk-without-bouncycastle")
 
   database_url =
     System.get_env("DATABASE_URL") ||
