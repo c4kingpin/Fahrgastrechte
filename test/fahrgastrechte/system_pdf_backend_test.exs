@@ -92,6 +92,24 @@ defmodule Fahrgastrechte.SystemPDFBackendTest do
              SystemPDFBackend.fill_form(fixture, [], output_path, options)
   end
 
+  test "runs pdftk without BouncyCastle on the classpath" do
+    pdftk = Keyword.fetch!(backend_options(), :pdftk)
+
+    {output, 0} =
+      System.cmd(pdftk, ["--version"],
+        env: [{"JDK_JAVA_OPTIONS", "-XshowSettings:properties"}],
+        stderr_to_stdout: true
+      )
+
+    [classpath] =
+      Regex.run(~r/java\.class\.path = (.+?)\n\s+java\.class\.version/s, output,
+        capture: :all_but_first
+      )
+
+    assert classpath =~ "pdftk.jar"
+    refute classpath =~ "bcprov"
+  end
+
   defp backend_options do
     config = Application.fetch_env!(:fahrgastrechte, Fahrgastrechte.Exports)
 

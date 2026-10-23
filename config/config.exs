@@ -75,7 +75,8 @@ config :fahrgastrechte, Fahrgastrechte.Exports,
   command_timeout_ms: 30_000,
   qpdf_executable: "qpdf",
   pdfinfo_executable: "pdfinfo",
-  pdftk_executable: "pdftk",
+  # Never the distribution `pdftk`: see the launcher for why it skips BouncyCastle.
+  pdftk_executable: Path.expand("../priv/bin/pdftk-without-bouncycastle", __DIR__),
   pdftocairo_executable: "pdftocairo",
   font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 

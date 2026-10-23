@@ -30,9 +30,19 @@ Pipeline verwendet:
 - `pdfinfo` und `qpdf --check` für Struktur- und Limitprüfung,
 - `pdftotext` für Textgewinnung,
 - `qpdf` für die Normalisierung des Templates und das Flattening,
-- `pdftk-java` für die AcroForm-Befüllung,
+- `pdftk-java` für die AcroForm-Befüllung, gestartet über
+  `priv/bin/pdftk-without-bouncycastle` statt über `/usr/bin/pdftk`,
 - `pdftocairo -pdf` für neue Seiten ohne interaktive Aktionen und
 - `qpdf --empty --pages ...` für den geordneten Merge in ein neues Dokument.
+
+`pdftk-java` hängt von BouncyCastle (`libbcprov-java`) ab, das der
+Distributions-Starter immer lädt. Ubuntu 24.04 sowie Debian 12 und 13 liefern
+Versionen mit bekannten CVEs aus, die erst ab 1.86 behoben sind. pdftk braucht
+BouncyCastle nur für verschlüsselte PDFs; die werden vorher abgewiesen. Der
+eigene Starter lässt es deshalb aus dem Classpath, sodass der betroffene Code
+nie geladen wird. Ein verschlüsseltes PDF, das dennoch bei pdftk ankommt, führt
+zum Abbruch statt zur Entschlüsselung. Das Paket bleibt als Abhängigkeit
+installiert, ist für Fahrgastrechte aber nicht mehr erreichbar.
 
 Ein Koordinaten-Overlay wird für die geprüfte Formularversion nicht verwendet.
 Vor jeder Befüllung werden URL, SHA-256 und die erwarteten Feldnamen geprüft.
